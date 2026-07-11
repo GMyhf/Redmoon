@@ -165,6 +165,7 @@ export class GameServer {
         width: this.world.width,
         height: this.world.height,
         safeZone: this.world.safeZone ? { ...this.world.safeZone } : null,
+        portals: this.world.portals.map((portal) => ({ ...portal })),
       },
       rebirthLevel: REBIRTH_LEVEL,
       archetypes: publicArchetypes(),

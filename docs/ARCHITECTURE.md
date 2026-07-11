@@ -52,13 +52,14 @@ WebSocket 使用 UTF-8 JSON 对象，单条消息上限为 16 KiB。每条命令
 | `unequip` | `slot` | 卸下指定部位（weapon/armor/helm/necklace/ring/boots/charm）的装备回背包 |
 | `use` | `item` | 饮用背包中的药剂恢复生命 |
 | `autoEquip` | 无 | 每个部位自动穿上背包中强度评分最高且满足等级的装备 |
+| `setAuto` | `enabled` | 开关自动战斗：站立且无指令时自动反击普攻射程内最近的敌人 |
 | `discard` | `item` | 丢弃背包中的物品 |
 
 服务器消息封装：
 
 | `type` | 主要字段 | 语义 |
 | --- | --- | --- |
-| `welcome` | `protocol`, `id`, `tickRate`, `snapshotRate`, `world`（含 `safeZone`）, `rebirthLevel`, `archetypes` | 建立身份并下发初始配置 |
+| `welcome` | `protocol`, `id`, `tickRate`, `snapshotRate`, `world`（含 `safeZone`、`portals`）, `rebirthLevel`, `archetypes` | 建立身份并下发初始配置。传送门成对出现：站上任一门约 0.6 秒后传送到配对门旁（步行穿过不触发），落点带 2.5 秒锁避免弹回 |
 | `snapshot` | `tick`, `serverTime`, `selfId`, `world`, `safeZone`, `players`, `enemies`, `projectiles`, `drops` | 可替换的当前世界状态；玩家条目含 `moveTarget`、`targetId`、`rebirths`、`equipment`、`inventory`、`gearStats` |
 | `event` | `event`, `tick`, `serverTime`, 事件载荷 | 短时表现或离散结果 |
 | `error` | `code`, `message`, `requestType?` | 可处理的协议错误 |

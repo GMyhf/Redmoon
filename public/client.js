@@ -47,6 +47,7 @@
     respawnTimer: document.querySelector("#respawn-timer"),
     respawnButton: document.querySelector("#respawn-button"),
     rebirthButton: document.querySelector("#rebirth-button"),
+    autoFightToggle: document.querySelector("#auto-fight-toggle"),
     bagCount: document.querySelector("#bag-count"),
     autoEquipButton: document.querySelector("#auto-equip-button"),
     equipmentDoll: document.querySelector("#equipment-doll"),
@@ -244,6 +245,16 @@
     scraphulk: "废钢巨兽",
     voidmaw: "虚空吞喉",
     warden: "深红督军",
+  };
+
+  const ZONE_LABELS = {
+    town: "城镇",
+    grass: "草原",
+    grassland: "草原",
+    mountain: "山地",
+    scrapyard: "废车场",
+    spaceport: "太空港",
+    wastes: "水晶荒原",
   };
 
   // Themed regions of the alien world, resolved purely from world position.
@@ -572,6 +583,11 @@
         ? { x: zone.x, y: zone.y, radius: zone.radius }
         : null;
     }
+    if (Array.isArray(map.portals)) {
+      state.map.portals = map.portals.filter(
+        (portal) => portal && Number.isFinite(portal.x) && Number.isFinite(portal.y),
+      );
+    }
     ui.sector.textContent = `节点 // ${state.map.name}`;
   }
 
@@ -681,6 +697,10 @@
     if (ui.rebirthButton) {
       ui.rebirthButton.hidden = level < state.rebirthLevel;
       ui.rebirthButton.textContent = rebirths > 0 ? `转生 ★${rebirths + 1}` : "转生";
+    }
+    if (ui.autoFightToggle && player.autoFight !== undefined) {
+      ui.autoFightToggle.textContent = player.autoFight ? "自动战斗 · 开" : "自动战斗 · 关";
+      ui.autoFightToggle.classList.toggle("is-off", !player.autoFight);
     }
     ui.hp.textContent = Math.ceil(hp);
     ui.maxHp.textContent = Math.ceil(maxHp);
@@ -869,6 +889,7 @@
       bossspawned: "警报 // 深红督军已出现在东北荒原",
       bossslain: "深红督军已被击破，遗落了大量装备",
       potionused: "使用了修复药剂",
+      autofightchanged: "自动战斗设置已更新",
     };
     const sounds = {
       enemydefeated: () => sfx(330, 0.09, "square", 0.035, -160),
@@ -901,6 +922,13 @@
     }
     if (eventName === "autoequipped") {
       pushEvent(`自动换装完成 // 更新了 ${finite(event.changed, 0)} 件`);
+      return;
+    }
+    if (eventName === "teleported") {
+      if (String(event.playerId) === String(state.id)) {
+        pushEvent(`传送完成 // ${ZONE_LABELS[event.zone] || "目的地"}`);
+        sfx(880, 0.14, "sine", 0.05, -520);
+      }
       return;
     }
     if (eventName === "itemequipped") {
@@ -1129,6 +1157,10 @@
       ctx.stroke();
     }
 
+    for (const portal of state.map.portals || []) {
+      ctx.fillStyle = "#7ad2ff";
+      ctx.fillRect(originX + portal.x * scaleX - 1.5, originY + portal.y * scaleY - 1.5, 3, 3);
+    }
     for (const drop of state.drops.values()) {
       ctx.fillStyle = rarityInfo(drop.rarity).color;
       ctx.fillRect(originX + drop.x * scaleX - 1, originY + drop.y * scaleY - 1, 2, 2);
@@ -1509,6 +1541,7 @@
       objects.sort((a, b) => (a.y + a.x) - (b.y + b.x));
     }
 
+    drawPortals(time);
     for (const drop of state.drops.values()) drawDrop(drop, time);
 
     const local = localPlayer();
@@ -1601,6 +1634,40 @@
       ctx.fill();
     }
     ctx.restore();
+  }
+
+  function drawPortals(time) {
+    for (const portal of state.map.portals || []) {
+      const point = worldToScreen(portal.x, portal.y);
+      if (point.x < -80 || point.x > state.viewWidth + 80 || point.y < -100 || point.y > state.viewHeight + 80) continue;
+      const spin = time * 0.0022 + finite(portal.x);
+      ctx.save();
+      // Swirling ground ring.
+      ctx.strokeStyle = "rgba(122, 210, 255, 0.75)";
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.ellipse(point.x, point.y, 24, 11, 0, spin, spin + Math.PI * 1.6);
+      ctx.stroke();
+      ctx.strokeStyle = "rgba(122, 210, 255, 0.35)";
+      ctx.beginPath();
+      ctx.ellipse(point.x, point.y, 16, 7.5, 0, -spin, -spin + Math.PI * 1.4);
+      ctx.stroke();
+      // Light pillar.
+      const beam = ctx.createLinearGradient(point.x, point.y - 66, point.x, point.y);
+      beam.addColorStop(0, "rgba(122, 210, 255, 0)");
+      beam.addColorStop(1, `rgba(122, 210, 255, ${0.28 + Math.sin(time * 0.004 + finite(portal.x)) * 0.1})`);
+      ctx.fillStyle = beam;
+      ctx.fillRect(point.x - 9, point.y - 66, 18, 64);
+      // Destination tag.
+      const label = `⇒ ${ZONE_LABELS[portal.zone] || portal.zone}`;
+      ctx.font = "600 10px ui-monospace, SFMono-Regular, Menlo, monospace";
+      ctx.textAlign = "center";
+      ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
+      ctx.fillRect(point.x - 30, point.y - 84, 60, 14);
+      ctx.fillStyle = "#9fdcff";
+      ctx.fillText(label, point.x, point.y - 74);
+      ctx.restore();
+    }
   }
 
   function drawMoveMarker(target, time) {
@@ -2459,6 +2526,12 @@
   ui.respawnButton.addEventListener("click", () => send({ type: "respawn" }));
   ui.rebirthButton?.addEventListener("click", () => send({ type: "rebirth" }));
   ui.autoEquipButton?.addEventListener("click", () => send({ type: "autoEquip" }));
+  function toggleAutoFight() {
+    const local = localPlayer();
+    if (!local) return;
+    send({ type: "setAuto", enabled: local.autoFight === false });
+  }
+  ui.autoFightToggle?.addEventListener("click", toggleAutoFight);
   ui.inventoryList?.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-item]");
     if (!button) return;
@@ -2484,6 +2557,7 @@
       const potion = (local?.inventory || []).find((item) => Number.isFinite(finite(item.heal, NaN)));
       if (potion) send({ type: "use", item: potion.id });
     }
+    if (!event.repeat && event.code === "KeyT") toggleAutoFight();
     if (!event.repeat && event.code === "Space") {
       event.preventDefault();
       triggerAbility("primary");

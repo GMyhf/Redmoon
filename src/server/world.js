@@ -29,6 +29,9 @@ const MAX_MOB_LEVEL = 12;
 const ELITE_CHANCE = 0.1;
 const BOSS_ID = "boss-warden";
 const BOSS_RESPAWN_DELAY = 90;
+const PORTAL_RADIUS = 30;
+const PORTAL_LOCK = 2.5;
+const PORTAL_DWELL = 0.6;
 const QUEST_TARGET = 6;
 const QUEST_REWARD_XP = 90;
 
@@ -82,6 +85,7 @@ export class World {
     this._dropSequence = 0;
     this._itemSequence = 0;
     this._nextBossAt = null;
+    this._buildPortals();
 
     if (options.spawnMobs !== false) {
       this._maintainMobPopulation();
@@ -125,6 +129,9 @@ export class World {
       respawnAvailableAt: 0,
       moveTarget: null,
       attackTarget: null,
+      autoFight: true,
+      portalLockUntil: 0,
+      portalDwell: null,
       rebirths: 0,
       inventory: [],
       equipment: Object.fromEntries(ITEM_SLOTS.map((slot) => [slot, null])),
@@ -208,6 +215,9 @@ export class World {
       case "autoEquip":
       case "autoequip":
         return this.autoEquip(id);
+      case "setAuto":
+      case "setauto":
+        return this.setAutoFight(id, message.enabled);
       case "discard":
         return this.discardItem(id, message.item);
       default:
@@ -411,6 +421,16 @@ export class World {
     return player;
   }
 
+  setAutoFight(id, enabled) {
+    const player = this._requirePlayer(id);
+    if (typeof enabled !== "boolean") {
+      throw new WorldError("INVALID_MESSAGE", "enabled must be a boolean.");
+    }
+    player.autoFight = enabled;
+    this._emit("autoFightChanged", { playerId: id, enabled });
+    return player;
+  }
+
   // Equip the strongest eligible item for every slot in one pass.
   autoEquip(id) {
     const player = this._requirePlayer(id);
@@ -492,6 +512,7 @@ export class World {
     for (let index = 0; index < steps; index += 1) {
       this.time += step;
       this._updatePlayers(step);
+      this._updatePortals();
       this._updateMobs(step);
       this._updateProjectiles(step);
       this._updateDrops();
@@ -551,6 +572,7 @@ export class World {
         tick: this.tick,
       },
       safeZone: this.safeZone ? { ...this.safeZone } : null,
+      portals: this.portals.map((portal) => ({ ...portal })),
       players: [...this.players.values()].map((player) => this._serializePlayer(player)),
       enemies,
       mobs: enemies,
@@ -688,7 +710,11 @@ export class World {
       }
     }
     if (!destination && player.moveTarget) destination = player.moveTarget;
-    if (!destination) return;
+    if (!destination) {
+      // Idle with auto-combat on: strike back at anything in reach.
+      if (player.autoFight && !player.attackTarget) this._autoEngage(player);
+      return;
+    }
 
     const dx = destination.x - player.x;
     const dy = destination.y - player.y;
@@ -1196,6 +1222,7 @@ export class World {
       respawnIn: round(Math.max(0, player.respawnAvailableAt - this.time)),
       moveTarget: player.moveTarget ? { x: round(player.moveTarget.x), y: round(player.moveTarget.y) } : null,
       targetId: player.attackTarget,
+      autoFight: player.autoFight,
       rebirths: player.rebirths,
       level: player.level,
       xp: round(player.xp),
@@ -1422,6 +1449,87 @@ export class World {
 
   _statTotal(player, key) {
     return player.stats[key] + player.gearStats[key];
+  }
+
+  _autoEngage(player) {
+    const range = ARCHETYPES[player.archetype].primary.range * 0.95;
+    let nearest = null;
+    let nearestSquared = range * range;
+    for (const mob of this.mobs.values()) {
+      const dx = mob.x - player.x;
+      const dy = mob.y - player.y;
+      const distanceSquared = dx * dx + dy * dy;
+      if (distanceSquared < nearestSquared) {
+        nearest = mob;
+        nearestSquared = distanceSquared;
+      }
+    }
+    if (!nearest) return;
+    const direction = directionTo(player, nearest, player.facing);
+    player.facing = direction;
+    this._usePrimary(player, direction);
+  }
+
+  _buildPortals() {
+    const cx = this.width / 2;
+    const cy = this.height / 2;
+    const ringRadius = Math.max(60, (this.safeZone?.radius ?? 200) - 20);
+    const diagonal = ringRadius * Math.SQRT1_2;
+    const gates = [
+      ["grass", { x: cx - ringRadius, y: cy }, { x: this.width * 0.13, y: cy }],
+      ["mountain", { x: cx, y: cy - ringRadius }, { x: cx, y: this.height * 0.14 }],
+      ["scrapyard", { x: cx + ringRadius, y: cy }, { x: this.width * 0.87, y: cy }],
+      ["spaceport", { x: cx, y: cy + ringRadius }, { x: cx - 260, y: this.height * 0.85 }],
+      ["wastes", { x: cx + diagonal, y: cy - diagonal }, { x: this.width * 0.82, y: this.height * 0.22 }],
+    ];
+    this.portals = [];
+    for (const [zone, townSide, fieldSide] of gates) {
+      this.portals.push(
+        { id: `portal-${zone}`, zone, x: townSide.x, y: townSide.y, targetId: `portal-${zone}-return` },
+        { id: `portal-${zone}-return`, zone: "town", x: fieldSide.x, y: fieldSide.y, targetId: `portal-${zone}` },
+      );
+    }
+  }
+
+  _updatePortals() {
+    for (const player of this.players.values()) {
+      if (!player.alive || this.time < player.portalLockUntil) continue;
+      const covering = this.portals.find((portal) => {
+        const dx = player.x - portal.x;
+        const dy = player.y - portal.y;
+        return dx * dx + dy * dy <= PORTAL_RADIUS * PORTAL_RADIUS;
+      });
+      if (!covering) {
+        player.portalDwell = null;
+        continue;
+      }
+      // Walking across a gate must not teleport; standing on it does.
+      if (player.portalDwell?.portalId !== covering.id) {
+        player.portalDwell = { portalId: covering.id, since: this.time };
+        continue;
+      }
+      if (this.time - player.portalDwell.since < PORTAL_DWELL) continue;
+      const destination = this.portals.find((entry) => entry.id === covering.targetId);
+      if (!destination) continue;
+      // Arrive beside the destination gate (toward map centre), not on it.
+      const exit = normalizedVector(
+        { x: this.width / 2 - destination.x, y: this.height / 2 - destination.y },
+        { x: 0, y: 1 },
+      );
+      player.x = clamp(destination.x + exit.x * 70, PLAYER_RADIUS, this.width - PLAYER_RADIUS);
+      player.y = clamp(destination.y + exit.y * 70, PLAYER_RADIUS, this.height - PLAYER_RADIUS);
+      player.portalLockUntil = this.time + PORTAL_LOCK;
+      player.portalDwell = null;
+      player.moveTarget = null;
+      player.attackTarget = null;
+      this._emit("teleported", {
+        playerId: player.id,
+        portalId: covering.id,
+        zone: covering.zone,
+        x: round(player.x),
+        y: round(player.y),
+      });
+    }
   }
 
   _inSafeZone(entity) {
