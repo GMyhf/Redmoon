@@ -5,7 +5,6 @@
   const ctx = canvas.getContext("2d", { alpha: false });
   const ui = {
     titleArt: document.querySelector("#title-art"),
-    worldArt: document.querySelector("#world-art"),
     joinPanel: document.querySelector("#join-panel"),
     joinForm: document.querySelector("#join-form"),
     joinButton: document.querySelector("#join-button"),
@@ -339,7 +338,7 @@
     lake: "湖泊",
   };
 
-  const ZONE_ART = Object.freeze({
+  const ZONE_TEXTURE = Object.freeze({
     residential: "residential",
     downtown: "downtown",
     mountain: "mountain",
@@ -350,6 +349,9 @@
     spaceport: "spaceport",
     skycity: "skycity",
   });
+
+  const zoneTextureImages = new Map();
+  const zoneTexturePatterns = new Map();
 
   // Themed regions of the alien world, resolved purely from world position.
   // Each biome is a colour ramp; the ground blends smoothly between the
@@ -581,7 +583,6 @@
     dpr: 1,
     viewWidth: innerWidth,
     viewHeight: innerHeight,
-    worldArtTheme: "",
   };
 
   const clamp = (value, min, max) => Math.max(min, Math.min(max, Number(value) || 0));
@@ -797,7 +798,6 @@
       // Snap the camera straight onto the hero — no cross-map pan on entry.
       state.camera.x = local.x;
       state.camera.y = local.y;
-      state.worldArtTheme = "";
       ui.titleArt.classList.add("is-hidden");
       ui.joinPanel.hidden = true;
       ui.hud.hidden = false;
@@ -1406,9 +1406,7 @@
     if (error.requestType === "join") {
       state.joined = false;
       state.pendingJoin = false;
-      state.worldArtTheme = "";
       ui.titleArt.classList.remove("is-hidden");
-      ui.worldArt.classList.remove("is-active");
       ui.joinPanel.hidden = false;
       ui.hud.hidden = true;
       ui.joinButton.disabled = false;
@@ -1489,20 +1487,6 @@
     drawGrading();
     drawMinimap();
     drawCursor(time);
-    updateWorldArt();
-  }
-
-  function updateWorldArt() {
-    const theme = biomeAt(state.camera.x, state.camera.y);
-    if (theme === state.worldArtTheme) return;
-    state.worldArtTheme = theme;
-    const asset = ZONE_ART[theme];
-    if (!asset || !state.joined) {
-      ui.worldArt.classList.remove("is-active");
-      return;
-    }
-    ui.worldArt.style.backgroundImage = `url("/assets/scenes/${asset}.png")`;
-    ui.worldArt.classList.add("is-active");
   }
 
   // Warm pool of light around the player so the hero anchors the frame.
@@ -2108,6 +2092,7 @@
     const maxX = Math.min(tileMapWidth - 1, Math.ceil(cameraTileX + radiusX));
     const minY = Math.max(0, Math.floor(cameraTileY - radiusY));
     const maxY = Math.min(tileMapHeight - 1, Math.ceil(cameraTileY + radiusY));
+    const textures = new Map();
 
     for (let sum = minX + minY; sum <= maxX + maxY; sum += 1) {
       for (let x = minX; x <= maxX; x += 1) {
@@ -2134,12 +2119,51 @@
           fill = biomeShade(biomeKey, value);
         }
         drawDiamond(point.x, point.y, TILE_W + 1, TILE_H + 1, fill, null);
+        if (!textures.has(biomeKey)) textures.set(biomeKey, terrainTexturePattern(biomeKey));
+        drawTexturedDiamond(point, textures.get(biomeKey));
 
         drawGroundAccent(biomeKey, point, noise, time);
         drawBiomeDecoration(biomeKey, point, noise, time);
       }
     }
     drawSafeZoneRing(time);
+  }
+
+  function terrainTexturePattern(biomeKey) {
+    const asset = ZONE_TEXTURE[biomeKey];
+    if (!asset) return null;
+    let image = zoneTextureImages.get(asset);
+    if (!image) {
+      image = new Image();
+      image.src = `/assets/textures/${asset}.png`;
+      zoneTextureImages.set(asset, image);
+    }
+    if (!image.complete || !image.naturalWidth) return null;
+    let pattern = zoneTexturePatterns.get(asset);
+    if (!pattern) {
+      pattern = ctx.createPattern(image, "repeat");
+      if (!pattern) return null;
+      zoneTexturePatterns.set(asset, pattern);
+    }
+    const origin = worldToScreen(0, 0);
+    pattern.setTransform({ a: 0.34, b: 0, c: 0, d: 0.34, e: origin.x, f: origin.y });
+    return pattern;
+  }
+
+  function drawTexturedDiamond(point, pattern) {
+    if (!pattern) return;
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(point.x, point.y - TILE_H * 0.5);
+    ctx.lineTo(point.x + TILE_W * 0.5, point.y);
+    ctx.lineTo(point.x, point.y + TILE_H * 0.5);
+    ctx.lineTo(point.x - TILE_W * 0.5, point.y);
+    ctx.closePath();
+    ctx.clip();
+    ctx.globalAlpha = 0.8;
+    ctx.fillStyle = pattern;
+    ctx.fillRect(point.x - TILE_W * 0.5, point.y - TILE_H * 0.5, TILE_W, TILE_H);
+    ctx.restore();
   }
 
   // Small mid-frequency accents that give each biome ground its texture.

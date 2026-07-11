@@ -29,6 +29,21 @@ test("HTTP serves the client and health status", async (t) => {
   assert.equal(index.status, 200);
   assert.match(index.headers.get("content-type"), /^text\/html/);
   assert.match(await index.text(), /<!doctype html>/i);
+
+  const heroArt = await fetch(`http://127.0.0.1:${port}/assets/heroes/vanguard.png`);
+  assert.equal(heroArt.status, 200);
+  assert.match(heroArt.headers.get("content-type"), /^image\/png/);
+  assert.ok((await heroArt.arrayBuffer()).byteLength > 1_000_000);
+
+  const zoneArt = await fetch(`http://127.0.0.1:${port}/assets/scenes/castle.png`);
+  assert.equal(zoneArt.status, 200);
+  assert.match(zoneArt.headers.get("content-type"), /^image\/png/);
+  assert.ok((await zoneArt.arrayBuffer()).byteLength > 1_000_000);
+
+  const terrainTexture = await fetch(`http://127.0.0.1:${port}/assets/textures/castle.png`);
+  assert.equal(terrainTexture.status, 200);
+  assert.match(terrainTexture.headers.get("content-type"), /^image\/png/);
+  assert.ok((await terrainTexture.arrayBuffer()).byteLength > 1_000_000);
 });
 
 test("WebSocket emits welcome, accepts join, and reports protocol errors", async (t) => {

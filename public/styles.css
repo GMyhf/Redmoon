@@ -89,22 +89,6 @@ button {
   opacity: 0;
 }
 
-.world-art {
-  position: absolute;
-  z-index: 1;
-  inset: 0;
-  pointer-events: none;
-  background-position: center;
-  background-size: cover;
-  mix-blend-mode: soft-light;
-  opacity: 0;
-  transition: opacity 420ms ease;
-}
-
-.world-art.is-active {
-  opacity: 0.26;
-}
-
 .screen-vignette {
   position: absolute;
   inset: 0;
