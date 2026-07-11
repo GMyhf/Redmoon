@@ -114,6 +114,7 @@
     "Crimson Locket": "赤月坠饰",
     "Echo Halo": "回响光环",
     "Stardust Sigil": "星屑护符",
+    "Mending Vial": "修复药剂",
   };
 
   const SLOT_LABELS = {
@@ -124,6 +125,16 @@
     ring: "戒指",
     boots: "靴子",
     charm: "饰品",
+    potion: "药剂",
+  };
+
+  const DOLL_SLOTS = ["weapon", "armor", "helm", "necklace", "ring", "boots", "charm"];
+
+  const MOB_NAMES = {
+    riftling: "裂隙体",
+    duskfang: "暮牙兽",
+    ashwing: "烬翼",
+    warden: "深红督军",
   };
 
   // Original pixel-figure looks for each archetype (skin/hair/outfit palettes).
@@ -169,6 +180,7 @@
     if (finite(item.damageBonus, 0) > 0) parts.push(`伤害+${Math.round(item.damageBonus * 100)}%`);
     if (finite(item.hpBonus, 0) > 0) parts.push(`生命+${item.hpBonus}`);
     if (finite(item.speedBonus, 0) > 0) parts.push(`移速+${item.speedBonus}`);
+    if (finite(item.heal, 0) > 0) parts.push(`使用后恢复 ${item.heal} 生命`);
     return parts;
   }
 
@@ -244,6 +256,32 @@
     }
     return [];
   };
+
+  // Tiny synthesized sound effects (original chip-style beeps, no assets).
+  let audioCtx = null;
+  function initAudio() {
+    if (audioCtx) return;
+    try {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    } catch (_error) {
+      audioCtx = null;
+    }
+  }
+
+  function sfx(freq, duration = 0.08, type = "square", gain = 0.03, slide = 0) {
+    if (!audioCtx || audioCtx.state === "suspended") return;
+    const osc = audioCtx.createOscillator();
+    const amp = audioCtx.createGain();
+    const now = audioCtx.currentTime;
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, now);
+    if (slide) osc.frequency.exponentialRampToValueAtTime(Math.max(30, freq + slide), now + duration);
+    amp.gain.setValueAtTime(gain, now);
+    amp.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+    osc.connect(amp).connect(audioCtx.destination);
+    osc.start(now);
+    osc.stop(now + duration + 0.02);
+  }
 
   function setConnection(mode, label) {
     ui.connection.className = `connection is-${mode}`;
@@ -414,6 +452,7 @@
 
   function updateEntities(store, collection, kind) {
     const seen = new Set();
+    const now = performance.now();
     asList(collection).forEach((raw, index) => {
       if (!raw || typeof raw !== "object") return;
       const id = String(first(raw.id, raw.playerId, raw.entityId, `${kind}-${index}`));
@@ -421,7 +460,7 @@
       const prior = store.get(id);
       const nextX = finite(first(raw.x, raw.position?.x), prior?.targetX ?? state.camera.x);
       const nextY = finite(first(raw.y, raw.position?.y), prior?.targetY ?? state.camera.y);
-      store.set(id, {
+      const entity = {
         ...(prior || {}),
         ...raw,
         id,
@@ -430,8 +469,30 @@
         y: prior ? prior.y : nextY,
         targetX: nextX,
         targetY: nextY,
-        receivedAt: performance.now(),
-      });
+        receivedAt: now,
+      };
+
+      // Floating combat text from HP deltas between snapshots.
+      if (prior && (kind === "enemy" || kind === "player")) {
+        const delta = finite(raw.hp, prior.hp) - finite(prior.hp, 0);
+        const isSelf = kind === "player" && id === String(state.id);
+        if (delta <= -1) {
+          entity.flashUntil = now + 130;
+          state.effects.push({
+            x: nextX, y: nextY, born: now, duration: 720,
+            color: kind === "enemy" ? "#ffd479" : isSelf ? "#ff6b74" : "#e89aa2",
+            text: String(Math.round(-delta)),
+          });
+          if (isSelf) sfx(130, 0.09, "sawtooth", 0.05);
+        } else if (delta >= 5 && isSelf) {
+          state.effects.push({
+            x: nextX, y: nextY, born: now, duration: 720,
+            color: "#67d69b",
+            text: `+${Math.round(delta)}`,
+          });
+        }
+      }
+      store.set(id, entity);
     });
     for (const id of store.keys()) {
       if (!seen.has(id)) store.delete(id);
@@ -526,7 +587,8 @@
     ui.bagCount.textContent = `${inventory.length}/24`;
 
     // Paper-doll: one box per body slot arranged around a figure silhouette.
-    ui.equipmentDoll.replaceChildren(...Object.entries(SLOT_LABELS).map(([slot, label]) => {
+    ui.equipmentDoll.replaceChildren(...DOLL_SLOTS.map((slot) => {
+      const label = SLOT_LABELS[slot];
       const box = document.createElement("button");
       box.type = "button";
       box.className = `slot-box slot-${slot}`;
@@ -558,29 +620,34 @@
     ui.inventoryList.replaceChildren(...inventory.map((item) => {
       const row = document.createElement("div");
       row.className = "gear-row";
+      const isPotion = Number.isFinite(finite(item.heal, NaN));
       const equipped = equipment[item.slot];
-      row.title = itemTooltip(item, equipped);
-      const delta = equipped ? itemScore(item) - itemScore(equipped) : itemScore(item);
+      row.title = isPotion ? itemStatLines(item).join(" ") : itemTooltip(item, equipped);
       const name = document.createElement("b");
-      name.textContent = `${itemLabel(item)} L${Math.max(1, finite(item.level, 1))}`;
-      name.style.color = rarityInfo(item.rarity).color;
+      name.textContent = isPotion
+        ? itemLabel(item)
+        : `${itemLabel(item)} L${Math.max(1, finite(item.level, 1))}`;
+      name.style.color = isPotion ? "#e88a94" : rarityInfo(item.rarity).color;
       const trend = document.createElement("span");
       trend.className = "gear-trend";
-      trend.textContent = delta > 0 ? "↑" : delta < 0 ? "↓" : "＝";
-      trend.style.color = delta > 0 ? "#79d99b" : delta < 0 ? "#e0596d" : "rgba(255,255,255,0.35)";
-      const equipButton = document.createElement("button");
-      equipButton.type = "button";
-      equipButton.textContent = "装";
-      equipButton.title = "装备";
-      equipButton.dataset.action = "equip";
-      equipButton.dataset.item = String(item.id);
+      if (!isPotion) {
+        const delta = equipped ? itemScore(item) - itemScore(equipped) : itemScore(item);
+        trend.textContent = delta > 0 ? "↑" : delta < 0 ? "↓" : "＝";
+        trend.style.color = delta > 0 ? "#79d99b" : delta < 0 ? "#e0596d" : "rgba(255,255,255,0.35)";
+      }
+      const mainButton = document.createElement("button");
+      mainButton.type = "button";
+      mainButton.textContent = isPotion ? "用" : "装";
+      mainButton.title = isPotion ? "使用（快捷键 R）" : "装备";
+      mainButton.dataset.action = isPotion ? "use" : "equip";
+      mainButton.dataset.item = String(item.id);
       const discardButton = document.createElement("button");
       discardButton.type = "button";
       discardButton.textContent = "弃";
       discardButton.title = "丢弃";
       discardButton.dataset.action = "discard";
       discardButton.dataset.item = String(item.id);
-      row.append(name, trend, equipButton, discardButton);
+      row.append(name, trend, mainButton, discardButton);
       return row;
     }));
   }
@@ -639,7 +706,22 @@
       allocated: "属性已强化",
       statallocated: "属性已强化",
       playerreborn: "转生完成 // 力量得到升华",
+      bossspawned: "警报 // 深红督军已出现在东北荒原",
+      bossslain: "深红督军已被击破，遗落了大量装备",
+      potionused: "使用了修复药剂",
     };
+    const sounds = {
+      enemydefeated: () => sfx(330, 0.09, "square", 0.035, -160),
+      lootpickedup: () => sfx(660, 0.07, "triangle", 0.04, 220),
+      itemequipped: () => sfx(440, 0.1, "triangle", 0.04, 120),
+      levelup: () => { sfx(523, 0.12, "triangle", 0.05, 0); setTimeout(() => sfx(784, 0.16, "triangle", 0.05), 110); },
+      playerdefeated: () => sfx(110, 0.4, "sawtooth", 0.05, -60),
+      playerreborn: () => { sfx(392, 0.12, "triangle", 0.05); setTimeout(() => sfx(587, 0.18, "triangle", 0.05), 120); },
+      bossspawned: () => sfx(98, 0.5, "sawtooth", 0.06, 24),
+      bossslain: () => { sfx(659, 0.14, "triangle", 0.05); setTimeout(() => sfx(880, 0.22, "triangle", 0.05), 130); },
+      potionused: () => sfx(520, 0.09, "sine", 0.05, 140),
+    };
+    sounds[eventName]?.();
     if (eventName === "skillused" || eventName === "itemdiscarded") return;
     if (eventName === "lootdropped") {
       // Ground sparkle is enough; only announce rare finds.
@@ -779,7 +861,67 @@
     drawAtmosphere(time);
     drawTiles(time);
     drawObjects(time);
+    drawMinimap();
     drawCursor(time);
+  }
+
+  function drawMinimap() {
+    if (!state.joined) return;
+    const width = 156;
+    const height = Math.max(60, Math.round(width * state.map.height / state.map.width));
+    const originX = state.viewWidth - width - 16;
+    const originY = state.viewHeight - height - 16;
+    const scaleX = width / state.map.width;
+    const scaleY = height / state.map.height;
+
+    ctx.save();
+    ctx.fillStyle = "rgba(8, 6, 8, 0.78)";
+    ctx.fillRect(originX, originY, width, height);
+    ctx.strokeStyle = "rgba(226, 168, 122, 0.35)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(originX + 0.5, originY + 0.5, width - 1, height - 1);
+
+    const zone = state.map.safeZone;
+    if (zone) {
+      ctx.strokeStyle = "rgba(240, 193, 94, 0.7)";
+      ctx.beginPath();
+      ctx.ellipse(
+        originX + zone.x * scaleX,
+        originY + zone.y * scaleY,
+        zone.radius * scaleX,
+        zone.radius * scaleY,
+        0, 0, Math.PI * 2,
+      );
+      ctx.stroke();
+    }
+
+    for (const drop of state.drops.values()) {
+      ctx.fillStyle = rarityInfo(drop.rarity).color;
+      ctx.fillRect(originX + drop.x * scaleX - 1, originY + drop.y * scaleY - 1, 2, 2);
+    }
+    for (const enemy of state.enemies.values()) {
+      const x = originX + enemy.x * scaleX;
+      const y = originY + enemy.y * scaleY;
+      if (enemy.boss) {
+        ctx.fillStyle = "#ff5f70";
+        ctx.fillRect(x - 3, y - 3, 6, 6);
+      } else {
+        ctx.fillStyle = enemy.elite ? "#f0c15e" : "#c4485a";
+        ctx.fillRect(x - 1.2, y - 1.2, 2.5, 2.5);
+      }
+    }
+    for (const player of state.players.values()) {
+      const isSelf = String(player.id) === String(state.id);
+      ctx.fillStyle = isSelf ? "#ffffff" : "#54cbbd";
+      const size = isSelf ? 4 : 3;
+      ctx.fillRect(
+        originX + player.x * scaleX - size / 2,
+        originY + player.y * scaleY - size / 2,
+        size,
+        size,
+      );
+    }
+    ctx.restore();
   }
 
   function drawAtmosphere(time) {
@@ -1027,6 +1169,25 @@
       ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
       ctx.fillRect(-3, -6, 6, 3);
       ctx.fillRect(-5, -1, 10, 4);
+    } else if (drop.slot === "potion") {
+      // Little flask with a red draught.
+      ctx.fillStyle = "rgba(220, 228, 232, 0.5)";
+      ctx.fillRect(-2, -9, 4, 3);
+      ctx.beginPath();
+      ctx.moveTo(-2, -6);
+      ctx.lineTo(-5, 2);
+      ctx.lineTo(5, 2);
+      ctx.lineTo(2, -6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#e0596d";
+      ctx.beginPath();
+      ctx.moveTo(-3.4, -2);
+      ctx.lineTo(-5, 2);
+      ctx.lineTo(5, 2);
+      ctx.lineTo(3.4, -2);
+      ctx.closePath();
+      ctx.fill();
     } else {
       // Amulet: ring on a short chain with a bright core.
       ctx.strokeStyle = info.color;
@@ -1273,36 +1434,98 @@
     if (point.x < -70 || point.x > state.viewWidth + 70 || point.y < -90 || point.y > state.viewHeight + 70) return;
     const pulse = 1 + Math.sin(time * 0.006 + finite(enemy.x)) * 0.04;
     const species = String(first(enemy.type, "riftling")).toLowerCase();
+    const scale = enemy.boss ? 2.1 : enemy.elite ? 1.3 : 1;
     ctx.save();
     ctx.translate(point.x, point.y);
     ctx.fillStyle = "rgba(0, 0, 0, 0.48)";
     ctx.beginPath();
-    ctx.ellipse(0, 2, species.includes("ashwing") ? 11 : 15, 6, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 2, (species.includes("ashwing") ? 11 : 15) * scale, 6 * scale, 0, 0, Math.PI * 2);
     ctx.fill();
-    if (species.includes("duskfang")) {
-      ctx.translate(0, -9);
-      ctx.scale(pulse, pulse);
+    if (enemy.elite || enemy.boss) {
+      // Threat aura so dangerous targets read instantly.
+      ctx.strokeStyle = enemy.boss ? "rgba(224, 89, 109, 0.8)" : "rgba(240, 193, 94, 0.6)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(0, 2, 19 * scale, 8.5 * scale, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    if (species.includes("warden")) {
+      ctx.translate(0, -20);
+      ctx.scale(pulse * scale, pulse * scale);
+      drawWarden(time);
+    } else if (species.includes("duskfang")) {
+      ctx.translate(0, -9 * scale);
+      ctx.scale(pulse * scale, pulse * scale);
       drawDuskfang(time, enemy);
     } else if (species.includes("ashwing")) {
-      ctx.translate(0, -26 + Math.sin(time * 0.005 + finite(enemy.x)) * 3);
-      ctx.scale(pulse, pulse);
+      ctx.translate(0, (-26 + Math.sin(time * 0.005 + finite(enemy.x)) * 3) * scale * 0.8);
+      ctx.scale(pulse * scale, pulse * scale);
       drawAshwing(time);
     } else {
-      ctx.translate(0, -11);
-      ctx.scale(pulse, pulse);
+      ctx.translate(0, -11 * scale);
+      ctx.scale(pulse * scale, pulse * scale);
       drawRiftling(time, enemy);
     }
+    // Hit flash when a snapshot showed this enemy losing health.
+    if (enemy.flashUntil && enemy.flashUntil > performance.now()) {
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath();
+      ctx.arc(0, -2, 13, 0, Math.PI * 2);
+      ctx.fill();
+    }
     ctx.restore();
-    const rawName = String(first(enemy.name, enemy.type, "裂隙体"));
-    const localizedName = /riftling/i.test(rawName)
-      ? "裂隙体"
-      : /duskfang/i.test(rawName)
-        ? "暮牙兽"
-        : /ashwing/i.test(rawName)
-          ? "烬翼"
-          : rawName;
-    const label = enemy.level > 1 ? `${localizedName} Lv${Math.floor(finite(enemy.level, 1))}` : localizedName;
-    drawEntityLabel(point.x, point.y - 54, label, enemy, "#f18a95");
+    const localizedName = MOB_NAMES[species] || String(first(enemy.name, enemy.type, "裂隙体"));
+    const prefix = enemy.boss ? "" : enemy.elite ? "精英·" : "";
+    const label = `${prefix}${localizedName} Lv${Math.floor(finite(enemy.level, 1))}`;
+    drawEntityLabel(
+      point.x,
+      point.y - (enemy.boss ? 96 : enemy.elite ? 66 : 54),
+      label,
+      enemy,
+      enemy.boss ? "#ff5f70" : enemy.elite ? "#f0c15e" : "#f18a95",
+      enemy.boss ? 96 : 58,
+    );
+  }
+
+  function drawWarden(time) {
+    // The Crimson Warden: a horned sentinel with a burning core (original design).
+    const breathe = Math.sin(time * 0.003) * 1.5;
+    ctx.fillStyle = "#3d1420";
+    ctx.fillRect(-9, 6, 6, 12);
+    ctx.fillRect(3, 6, 6, 12);
+    ctx.fillStyle = "#5a1c2c";
+    ctx.beginPath();
+    ctx.moveTo(-14, 8);
+    ctx.lineTo(-10, -14 - breathe);
+    ctx.lineTo(10, -14 - breathe);
+    ctx.lineTo(14, 8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "#c73b52";
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+    ctx.fillStyle = "#802637";
+    ctx.fillRect(-17, -12 - breathe, 6, 9);
+    ctx.fillRect(11, -12 - breathe, 6, 9);
+    ctx.fillStyle = "#2c0f18";
+    ctx.fillRect(-6, -24 - breathe, 12, 11);
+    ctx.strokeStyle = "#c73b52";
+    ctx.beginPath();
+    ctx.moveTo(-6, -24 - breathe);
+    ctx.lineTo(-12, -33 - breathe);
+    ctx.moveTo(6, -24 - breathe);
+    ctx.lineTo(12, -33 - breathe);
+    ctx.stroke();
+    ctx.save();
+    ctx.fillStyle = "#ff5f70";
+    ctx.shadowColor = "#ff5f70";
+    ctx.shadowBlur = 12;
+    ctx.fillRect(-4, -20 - breathe, 8, 3);
+    ctx.beginPath();
+    ctx.arc(0, -2 - breathe * 0.5, 3.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   }
 
   function drawRiftling(time, enemy) {
@@ -1413,20 +1636,21 @@
     ctx.restore();
   }
 
-  function drawEntityLabel(x, y, name, entity, color) {
+  function drawEntityLabel(x, y, name, entity, color, barWidth = 58) {
     const hp = finite(first(entity.hp, entity.health), 1);
     const maxHp = Math.max(1, finite(first(entity.maxHp, entity.maxHealth), 1));
+    const half = barWidth / 2;
     ctx.save();
     ctx.font = "600 10px ui-monospace, SFMono-Regular, Menlo, monospace";
     ctx.textAlign = "center";
     ctx.fillStyle = "rgba(0, 0, 0, 0.58)";
-    ctx.fillRect(x - 33, y - 12, 66, 18);
+    ctx.fillRect(x - half - 4, y - 12, barWidth + 8, 18);
     ctx.fillStyle = color;
     ctx.fillText(name.slice(0, 18), x, y - 2);
     ctx.fillStyle = "rgba(255,255,255,0.12)";
-    ctx.fillRect(x - 29, y + 2, 58, 2);
+    ctx.fillRect(x - half, y + 2, barWidth, 2);
     ctx.fillStyle = entity.kind === "enemy" ? "#df4658" : "#54cbbd";
-    ctx.fillRect(x - 29, y + 2, 58 * ratio(hp, maxHp), 2);
+    ctx.fillRect(x - half, y + 2, barWidth * ratio(hp, maxHp), 2);
     ctx.restore();
   }
 
@@ -1635,6 +1859,11 @@
     }
     if (!event.repeat && event.code === "KeyQ") triggerAbility("q");
     if (!event.repeat && event.code === "KeyE") triggerAbility("e");
+    if (!event.repeat && event.code === "KeyR") {
+      const local = localPlayer();
+      const potion = (local?.inventory || []).find((item) => Number.isFinite(finite(item.heal, NaN)));
+      if (potion) send({ type: "use", item: potion.id });
+    }
     if (!event.repeat && event.code === "Space") {
       event.preventDefault();
       triggerAbility("primary");
@@ -1672,6 +1901,8 @@
   }
 
   canvas.addEventListener("pointerdown", (event) => {
+    initAudio();
+    audioCtx?.resume?.();
     const rect = canvas.getBoundingClientRect();
     const screenX = event.clientX - rect.left;
     const screenY = event.clientY - rect.top;

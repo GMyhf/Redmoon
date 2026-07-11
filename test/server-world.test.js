@@ -213,18 +213,55 @@ test("defeated enemies drop equipment that players pick up by walking over it", 
   for (let index = 0; index < 10 && world.mobs.has("carrier"); index += 1) world.update(0.05);
 
   assert.equal(world.mobs.has("carrier"), false);
-  assert.equal(world.drops.size, 1);
+  // rng of 0.1 rolls both the potion drop and the gear drop.
+  const dropped = world.drops.size;
+  assert.ok(dropped >= 1);
+  assert.equal(world.getSnapshot().drops.length, dropped);
   const drop = [...world.drops.values()][0];
   assert.ok(drop.item.id);
-  assert.ok(world.getSnapshot().drops.length === 1);
 
   world.setInput(player.id, { seq: 2, aim: { x: enemy.x, y: enemy.y }, primary: false });
   world.handleCommand("player-1", { type: "input", seq: 3, moveTo: { x: drop.x, y: drop.y } });
   for (let index = 0; index < 60 && world.drops.size > 0; index += 1) world.update(0.05);
 
   assert.equal(world.drops.size, 0);
-  assert.equal(player.inventory.length, 1);
+  assert.equal(player.inventory.length, dropped);
   assert.ok(world.drainEvents().some((event) => event.event === "lootPickedUp"));
+});
+
+test("mob level rises with distance from town, the boss respawns, and potions heal", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
+  const near = world.spawnMob({ id: "near", x: world.width / 2 + 320, y: world.height / 2 });
+  const far = world.spawnMob({ id: "far", x: world.width - 100, y: 100 });
+  assert.ok(near.level <= 3);
+  assert.ok(far.level >= 7);
+
+  const player = world.addPlayer("player-1", { archetype: "vanguard" });
+  const boss = world.spawnBoss();
+  assert.equal(boss.boss, true);
+  world._damageMob(boss, 1_000_000, player.id);
+  assert.equal(world.mobs.has(boss.id), false);
+  const drops = [...world.drops.values()];
+  const gearDrops = drops.filter((drop) => drop.item.tier >= 3);
+  assert.ok(gearDrops.length >= 3, "boss must drop rare-or-better gear");
+  assert.ok(drops.some((drop) => drop.item.slot === "potion"));
+  assert.ok(world.drainEvents().some((event) => event.event === "bossSlain"));
+
+  // The boss respawns on a timer.
+  for (let index = 0; index < 1801 && !world.mobs.has("boss-warden"); index += 1) world.update(0.05);
+  assert.equal(world.mobs.has("boss-warden"), true);
+
+  // Potions heal and are consumed; they cannot be equipped.
+  const potion = world.giveItem("player-1", { slot: "potion", heal: 40, name: "Mending Vial" });
+  player.hp = player.maxHp - 60;
+  world.handleCommand("player-1", { type: "use", item: potion.id });
+  assert.equal(player.hp, player.maxHp - 20);
+  assert.equal(player.inventory.length, 0);
+  const flask = world.giveItem("player-1", { slot: "potion", heal: 40 });
+  assert.throws(
+    () => world.handleCommand("player-1", { type: "equip", item: flask.id }),
+    (error) => error instanceof WorldError && error.code === "INVALID_ITEM",
+  );
 });
 
 test("equipping gear raises combat power and swaps the old piece back to the bag", () => {

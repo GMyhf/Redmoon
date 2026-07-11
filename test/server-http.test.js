@@ -10,7 +10,7 @@ test("HTTP serves the client and health status", async (t) => {
   const server = createGameServer({
     host: "127.0.0.1",
     port: 0,
-    world: new World({ rng: () => 0.5, mobTargetCount: 1 }),
+    world: new World({ rng: () => 0.5, mobTargetCount: 1, spawnBoss: false }),
   });
   await server.listen();
   t.after(() => server.close());
@@ -36,7 +36,7 @@ test("WebSocket emits welcome, accepts join, and reports protocol errors", async
     port: 0,
     tickRate: 20,
     snapshotRate: 20,
-    world: new World({ rng: () => 0.5, mobTargetCount: 1 }),
+    world: new World({ rng: () => 0.5, mobTargetCount: 1, spawnBoss: false }),
   });
   await server.listen();
   t.after(() => server.close());
@@ -46,7 +46,7 @@ test("WebSocket emits welcome, accepts join, and reports protocol errors", async
 
   const welcome = await messages.next("welcome");
   assert.equal(welcome.protocol, 1);
-  assert.equal(welcome.world.width, 1600);
+  assert.equal(welcome.world.width, 4800);
   assert.deepEqual(Object.keys(welcome.archetypes).sort(), ["channeler", "strider", "vanguard"]);
 
   socket.send(JSON.stringify({ type: "join", name: "Tester", archetype: "vanguard" }));

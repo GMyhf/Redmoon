@@ -17,14 +17,18 @@ import {
   publicArchetypes,
 } from "./definitions.js";
 
-const DEFAULT_WIDTH = 1600;
-const DEFAULT_HEIGHT = 900;
+const DEFAULT_WIDTH = 4800;
+const DEFAULT_HEIGHT = 2700;
 const PLAYER_RADIUS = 18;
 const MOB_RADIUS = 16;
 const RESPAWN_DELAY = 3;
 const MOB_RESPAWN_DELAY = 2.5;
-const DEFAULT_SAFE_ZONE_RADIUS = 150;
+const DEFAULT_SAFE_ZONE_RADIUS = 220;
 const MOVE_ARRIVAL_EPSILON = 4;
+const MAX_MOB_LEVEL = 9;
+const ELITE_CHANCE = 0.1;
+const BOSS_ID = "boss-warden";
+const BOSS_RESPAWN_DELAY = 90;
 const QUEST_TARGET = 6;
 const QUEST_REWARD_XP = 90;
 
@@ -60,7 +64,7 @@ export class World {
     this.safeZone = safeZoneRadius > 0
       ? { x: this.width / 2, y: this.height / 2, radius: safeZoneRadius }
       : null;
-    this.mobTargetCount = nonNegativeInteger(options.mobTargetCount, 9);
+    this.mobTargetCount = nonNegativeInteger(options.mobTargetCount, 40);
     this.players = new Map();
     this.mobs = new Map();
     this.projectiles = new Map();
@@ -73,9 +77,11 @@ export class World {
     this._projectileSequence = 0;
     this._dropSequence = 0;
     this._itemSequence = 0;
+    this._nextBossAt = null;
 
     if (options.spawnMobs !== false) {
       this._maintainMobPopulation();
+      if (options.spawnBoss !== false) this.spawnBoss();
     }
   }
 
@@ -193,6 +199,8 @@ export class World {
         return this.equipItem(id, message.item);
       case "unequip":
         return this.unequipItem(id, message.slot);
+      case "use":
+        return this.usePotion(id, message.item);
       case "discard":
         return this.discardItem(id, message.item);
       default:
@@ -351,6 +359,9 @@ export class World {
     }
 
     const item = player.inventory[index];
+    if (!ITEM_SLOTS.includes(item.slot)) {
+      throw new WorldError("INVALID_ITEM", "That item cannot be equipped.");
+    }
     if (player.level < (item.level ?? 1)) {
       throw new WorldError(
         "ITEM_LEVEL_TOO_HIGH",
@@ -390,6 +401,28 @@ export class World {
     this._refreshGear(player);
     this._refreshDerivedStats(player, true);
     this._emit("itemUnequipped", { playerId: id, itemId: item.id, name: item.name, slot });
+    return player;
+  }
+
+  usePotion(id, itemId) {
+    const player = this._requirePlayer(id);
+    if (!player.alive) {
+      throw new WorldError("PLAYER_DEAD", "Potions cannot be used while defeated.");
+    }
+    const index = player.inventory.findIndex((item) => item.id === itemId);
+    if (index < 0 || !Number.isFinite(player.inventory[index].heal)) {
+      throw new WorldError("INVALID_ITEM", "That item cannot be consumed.");
+    }
+    const [potion] = player.inventory.splice(index, 1);
+    const healed = Math.min(player.maxHp - player.hp, potion.heal);
+    player.hp = Math.min(player.maxHp, player.hp + potion.heal);
+    this._emit("potionUsed", {
+      playerId: id,
+      itemId: potion.id,
+      heal: round(healed),
+      x: round(player.x),
+      y: round(player.y),
+    });
     return player;
   }
 
@@ -446,6 +479,8 @@ export class World {
       hp: round(mob.hp),
       maxHp: mob.maxHp,
       level: mob.level,
+      elite: mob.elite === true,
+      boss: mob.boss === true,
       alive: true,
     }));
 
@@ -501,10 +536,15 @@ export class World {
     const point = overrides.x === undefined || overrides.y === undefined
       ? this._mobSpawn()
       : { x: Number(overrides.x), y: Number(overrides.y) };
-    const rolledLevel = 1 + Math.floor(clamp(this.rng(), 0, 0.999999) * MOB_TYPES.length);
+    // Danger scales with distance from the town at the map centre.
+    const jitter = Math.floor(clamp(this.rng(), 0, 0.999999) * 2);
+    const rolledLevel = clamp(this._levelForPoint(point) + jitter, 1, MAX_MOB_LEVEL);
     const level = Math.max(1, nonNegativeInteger(overrides.level, rolledLevel));
-    const species = MOB_TYPES[Math.min(level, MOB_TYPES.length) - 1];
-    const maxHp = positiveNumber(overrides.maxHp, 38 + (level - 1) * 8);
+    const elite = overrides.elite ?? (overrides.level === undefined && this.rng() < ELITE_CHANCE);
+    const band = Math.min(MOB_TYPES.length - 1, Math.floor((level - 1) / 3));
+    const species = MOB_TYPES[band];
+    const power = elite ? 1.6 : 1;
+    const maxHp = positiveNumber(overrides.maxHp, Math.round((26 + level * 16) * power));
     const id = overrides.id ?? `mob-${++this._mobSequence}`;
     const mob = {
       id: validateId(id),
@@ -512,13 +552,15 @@ export class World {
       name: overrides.name ?? species.name,
       x: clamp(point.x, MOB_RADIUS, this.width - MOB_RADIUS),
       y: clamp(point.y, MOB_RADIUS, this.height - MOB_RADIUS),
-      radius: MOB_RADIUS,
+      radius: positiveNumber(overrides.radius, elite ? MOB_RADIUS + 5 : MOB_RADIUS),
       level,
+      elite: elite === true,
+      boss: overrides.boss === true,
       hp: maxHp,
       maxHp,
-      speed: positiveNumber(overrides.speed, 72 + level * 2),
-      damage: positiveNumber(overrides.damage, 7 + level * 1.5),
-      xp: positiveNumber(overrides.xp, 28 + level * 3),
+      speed: positiveNumber(overrides.speed, 70 + level * 3),
+      damage: positiveNumber(overrides.damage, (5 + level * 2.5) * power),
+      xp: positiveNumber(overrides.xp, Math.round((22 + level * 9) * (elite ? 2 : 1))),
       nextAttackAt: this.time,
     };
     if (this.mobs.has(mob.id)) {
@@ -526,6 +568,35 @@ export class World {
     }
     this.mobs.set(mob.id, mob);
     return mob;
+  }
+
+  spawnBoss() {
+    if (this.mobs.has(BOSS_ID)) return this.mobs.get(BOSS_ID);
+    const boss = this.spawnMob({
+      id: BOSS_ID,
+      type: "warden",
+      name: "Crimson Warden",
+      boss: true,
+      elite: false,
+      x: this.width * 0.9,
+      y: this.height * 0.14,
+      level: 12,
+      maxHp: 1500,
+      radius: 30,
+      speed: 92,
+      damage: 34,
+      xp: 650,
+    });
+    this._nextBossAt = null;
+    this._emit("bossSpawned", { enemyId: boss.id, x: round(boss.x), y: round(boss.y) });
+    return boss;
+  }
+
+  _levelForPoint(point) {
+    const dx = point.x - this.width / 2;
+    const dy = point.y - this.height / 2;
+    const reach = Math.hypot(this.width, this.height) / 2;
+    return 1 + Math.floor((Math.hypot(dx, dy) / reach) * (MAX_MOB_LEVEL - 1));
   }
 
   _updatePlayers(dt) {
@@ -600,7 +671,7 @@ export class World {
 
   _updateMobs(dt) {
     for (const mob of [...this.mobs.values()]) {
-      const target = this._nearestLivingPlayer(mob, 520);
+      const target = this._nearestLivingPlayer(mob, mob.boss ? 460 : 300);
       if (!target || this._inSafeZone(target)) continue;
 
       const dx = target.x - mob.x;
@@ -791,7 +862,13 @@ export class World {
     for (const other of this.players.values()) {
       if (other.attackTarget === mob.id) other.attackTarget = null;
     }
-    this._maybeDropLoot(mob);
+    if (mob.boss) {
+      this._dropBossHoard(mob);
+      this._nextBossAt = this.time + BOSS_RESPAWN_DELAY;
+      this._emit("bossSlain", { enemyId: mob.id, playerId: ownerId, x: round(mob.x), y: round(mob.y) });
+    } else {
+      this._maybeDropLoot(mob);
+    }
     const player = this.players.get(ownerId);
     if (player) {
       this._grantXp(player, mob.xp);
@@ -959,14 +1036,18 @@ export class World {
   }
 
   _mobSpawn() {
+    // Anywhere on the map except inside (or hugging) the town safe zone.
     const margin = 70;
-    const edge = Math.floor(clamp(this.rng(), 0, 0.999999) * 4);
-    const horizontal = margin + this.rng() * Math.max(1, this.width - margin * 2);
-    const vertical = margin + this.rng() * Math.max(1, this.height - margin * 2);
-    if (edge === 0) return { x: horizontal, y: margin };
-    if (edge === 1) return { x: this.width - margin, y: vertical };
-    if (edge === 2) return { x: horizontal, y: this.height - margin };
-    return { x: margin, y: vertical };
+    const buffer = (this.safeZone?.radius ?? 0) + 120;
+    for (let attempt = 0; attempt < 24; attempt += 1) {
+      const x = margin + this.rng() * Math.max(1, this.width - margin * 2);
+      const y = margin + this.rng() * Math.max(1, this.height - margin * 2);
+      if (!this.safeZone) return { x, y };
+      const dx = x - this.safeZone.x;
+      const dy = y - this.safeZone.y;
+      if (dx * dx + dy * dy > buffer * buffer) return { x, y };
+    }
+    return { x: margin, y: margin };
   }
 
   _processMobSpawns() {
@@ -978,6 +1059,9 @@ export class World {
       return false;
     });
     if (spawned) this._maintainMobPopulation();
+    if (this._nextBossAt !== null && this.time >= this._nextBossAt) {
+      this.spawnBoss();
+    }
   }
 
   _maintainMobPopulation() {
@@ -1014,14 +1098,32 @@ export class World {
   }
 
   _maybeDropLoot(mob) {
-    const chance = Math.min(0.85, 0.25 + (mob.level - 1) * 0.1);
+    if (this.rng() < 0.22) {
+      this._placeDrop(mob.x, mob.y, this._rollPotion(mob.level));
+    }
+    const chance = Math.min(0.85, (0.22 + (mob.level - 1) * 0.07) * (mob.elite ? 1.8 : 1));
     if (this.rng() >= chance) return;
-    const item = this._rollItem(mob.level);
+    this._placeDrop(mob.x, mob.y, this._rollItem(mob.level, mob.elite ? 2 : 1));
+  }
+
+  _dropBossHoard(mob) {
+    for (let index = 0; index < 3; index += 1) {
+      const item = this._rollItem(MAX_MOB_LEVEL, 3);
+      this._placeDrop(
+        mob.x + (this.rng() - 0.5) * 90,
+        mob.y + (this.rng() - 0.5) * 90,
+        item,
+      );
+    }
+    this._placeDrop(mob.x, mob.y + 30, this._rollPotion(MAX_MOB_LEVEL));
+  }
+
+  _placeDrop(x, y, item) {
     const id = `drop-${++this._dropSequence}`;
     this.drops.set(id, {
       id,
-      x: clamp(mob.x, PLAYER_RADIUS, this.width - PLAYER_RADIUS),
-      y: clamp(mob.y, PLAYER_RADIUS, this.height - PLAYER_RADIUS),
+      x: clamp(x, PLAYER_RADIUS, this.width - PLAYER_RADIUS),
+      y: clamp(y, PLAYER_RADIUS, this.height - PLAYER_RADIUS),
       expiresAt: this.time + DROP_TTL,
       item,
     });
@@ -1030,21 +1132,36 @@ export class World {
       name: item.name,
       rarity: item.rarity,
       slot: item.slot,
-      x: round(mob.x),
-      y: round(mob.y),
+      x: round(x),
+      y: round(y),
     });
+    return id;
   }
 
-  _rollItem(level) {
+  _rollPotion(level) {
+    return {
+      id: `item-${++this._itemSequence}`,
+      slot: "potion",
+      rarity: "common",
+      tier: 1,
+      level: 1,
+      name: "Mending Vial",
+      bonuses: zeroStats(),
+      heal: 30 + level * 8,
+    };
+  }
+
+  _rollItem(level, minTier = 1) {
     const slot = ITEM_SLOTS[Math.floor(clamp(this.rng(), 0, 0.999999) * ITEM_SLOTS.length)];
-    const weights = RARITIES.map((rarity) => rarity.baseWeight + rarity.levelWeight * (level - 1));
+    const pool = RARITIES.filter((entry) => entry.tier >= minTier);
+    const weights = pool.map((rarity) => rarity.baseWeight + rarity.levelWeight * (level - 1));
     const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
     let roll = clamp(this.rng(), 0, 0.999999) * totalWeight;
-    let rarity = RARITIES[0];
-    for (let index = 0; index < RARITIES.length; index += 1) {
+    let rarity = pool[0];
+    for (let index = 0; index < pool.length; index += 1) {
       roll -= weights[index];
       if (roll < 0) {
-        rarity = RARITIES[index];
+        rarity = pool[index];
         break;
       }
     }
@@ -1139,6 +1256,7 @@ function serializeItem(item) {
     ...(item.damageBonus !== undefined ? { damageBonus: item.damageBonus } : {}),
     ...(item.hpBonus !== undefined ? { hpBonus: item.hpBonus } : {}),
     ...(item.speedBonus !== undefined ? { speedBonus: item.speedBonus } : {}),
+    ...(item.heal !== undefined ? { heal: item.heal } : {}),
   };
 }
 
