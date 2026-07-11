@@ -13,6 +13,25 @@ export const MOB_TYPES = Object.freeze([
   Object.freeze({ type: "ashwing", name: "Ashwing" }),
 ]);
 
+export const ITEM_SLOTS = Object.freeze(["weapon", "armor", "charm"]);
+
+export const RARITIES = Object.freeze([
+  Object.freeze({ id: "common", tier: 1, baseWeight: 62, levelWeight: 0 }),
+  Object.freeze({ id: "fine", tier: 2, baseWeight: 26, levelWeight: 4 }),
+  Object.freeze({ id: "rare", tier: 3, baseWeight: 9, levelWeight: 3 }),
+  Object.freeze({ id: "epic", tier: 4, baseWeight: 3, levelWeight: 2 }),
+]);
+
+export const ITEM_BASES = Object.freeze({
+  weapon: Object.freeze(["Pulse Edge", "Starrift Bow", "Resonant Staff"]),
+  armor: Object.freeze(["Weave Plate", "Phase Guard", "Moonthread Robe"]),
+  charm: Object.freeze(["Crimson Locket", "Echo Ring", "Stardust Sigil"]),
+});
+
+export const INVENTORY_LIMIT = 12;
+export const DROP_TTL = 60;
+export const DROP_PICKUP_RADIUS = 26;
+
 export const STAT_KEYS = Object.freeze([
   "power",
   "agility",

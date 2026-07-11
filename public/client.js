@@ -45,6 +45,9 @@
     respawnTimer: document.querySelector("#respawn-timer"),
     respawnButton: document.querySelector("#respawn-button"),
     rebirthButton: document.querySelector("#rebirth-button"),
+    bagCount: document.querySelector("#bag-count"),
+    equipmentList: document.querySelector("#equipment-list"),
+    inventoryList: document.querySelector("#inventory-list"),
     abilities: [...document.querySelectorAll(".ability")],
   };
 
@@ -82,6 +85,49 @@
     vitality: "体魄",
   };
 
+  const RARITY_INFO = {
+    common: { label: "普通", prefix: "", color: "#c3cbcd" },
+    fine: { label: "精制", prefix: "精制·", color: "#79d99b" },
+    rare: { label: "谐振", prefix: "谐振·", color: "#63aef0" },
+    epic: { label: "赤月", prefix: "赤月·", color: "#e0596d" },
+  };
+
+  const ITEM_NAMES = {
+    "Pulse Edge": "脉冲刃",
+    "Starrift Bow": "裂星弓",
+    "Resonant Staff": "谐振杖",
+    "Weave Plate": "织钢甲",
+    "Phase Guard": "相位护盾",
+    "Moonthread Robe": "月纹罩袍",
+    "Crimson Locket": "赤月坠饰",
+    "Echo Ring": "回响指环",
+    "Stardust Sigil": "星屑护符",
+  };
+
+  const SLOT_LABELS = { weapon: "武器", armor: "护甲", charm: "饰品" };
+
+  function rarityInfo(rarity) {
+    return RARITY_INFO[String(rarity || "common").toLowerCase()] || RARITY_INFO.common;
+  }
+
+  function itemLabel(item) {
+    const base = ITEM_NAMES[item.name] || String(item.name || "未知装备");
+    return `${rarityInfo(item.rarity).prefix}${base}`;
+  }
+
+  function itemTooltip(item) {
+    const parts = [];
+    const bonuses = item.bonuses && typeof item.bonuses === "object" ? item.bonuses : {};
+    for (const [key, label] of Object.entries(STAT_LABELS)) {
+      const value = finite(bonuses[key], 0);
+      if (value > 0) parts.push(`${label}+${value}`);
+    }
+    if (finite(item.damageBonus, 0) > 0) parts.push(`伤害+${Math.round(item.damageBonus * 100)}%`);
+    if (finite(item.hpBonus, 0) > 0) parts.push(`生命+${item.hpBonus}`);
+    if (finite(item.speedBonus, 0) > 0) parts.push(`移速+${item.speedBonus}`);
+    return parts.join(" ") || "无加成";
+  }
+
   const state = {
     socket: null,
     reconnectTimer: 0,
@@ -97,6 +143,8 @@
     players: new Map(),
     enemies: new Map(),
     projectiles: new Map(),
+    drops: new Map(),
+    gearSignature: "",
     effects: [],
     quest: null,
     camera: { x: 800, y: 450 },
@@ -272,9 +320,11 @@
     const players = first(snapshot.players, world.players);
     const enemies = first(snapshot.enemies, world.enemies, snapshot.mobs, world.mobs);
     const projectiles = first(snapshot.projectiles, world.projectiles);
+    const drops = first(snapshot.drops, world.drops);
     if (players !== undefined) updateEntities(state.players, players, "player");
     if (enemies !== undefined) updateEntities(state.enemies, enemies, "enemy");
     if (projectiles !== undefined) updateEntities(state.projectiles, projectiles, "projectile");
+    if (drops !== undefined) updateEntities(state.drops, drops, "drop");
 
     const local = localPlayer();
     if (local && !state.joined) {
@@ -380,9 +430,65 @@
     updateAbilityCooldown("e", e);
 
     updateQuest();
+    updateGear(player);
     const alive = first(player.alive, !player.dead, hp > 0);
     ui.deathPanel.hidden = Boolean(alive);
     if (!alive) updateRespawn(player);
+  }
+
+  function updateGear(player) {
+    if (!ui.equipmentList || !ui.inventoryList) return;
+    const equipment = player.equipment && typeof player.equipment === "object" ? player.equipment : {};
+    const inventory = Array.isArray(player.inventory) ? player.inventory : [];
+    const signature = JSON.stringify([
+      Object.entries(SLOT_LABELS).map(([slot]) => equipment[slot]?.id ?? null),
+      inventory.map((item) => item.id),
+    ]);
+    if (signature === state.gearSignature) return;
+    state.gearSignature = signature;
+
+    ui.bagCount.textContent = `${inventory.length}/12`;
+    ui.equipmentList.replaceChildren(...Object.entries(SLOT_LABELS).map(([slot, label]) => {
+      const row = document.createElement("div");
+      row.className = "gear-row";
+      const item = equipment[slot];
+      const name = document.createElement("b");
+      if (item) {
+        name.textContent = itemLabel(item);
+        name.style.color = rarityInfo(item.rarity).color;
+        row.title = itemTooltip(item);
+      } else {
+        name.textContent = "—";
+        name.style.color = "rgba(255,255,255,0.28)";
+      }
+      const slotLabel = document.createElement("span");
+      slotLabel.textContent = label;
+      row.append(slotLabel, name);
+      return row;
+    }));
+
+    ui.inventoryList.replaceChildren(...inventory.map((item) => {
+      const row = document.createElement("div");
+      row.className = "gear-row";
+      row.title = itemTooltip(item);
+      const name = document.createElement("b");
+      name.textContent = itemLabel(item);
+      name.style.color = rarityInfo(item.rarity).color;
+      const equipButton = document.createElement("button");
+      equipButton.type = "button";
+      equipButton.textContent = "装";
+      equipButton.title = "装备";
+      equipButton.dataset.action = "equip";
+      equipButton.dataset.item = String(item.id);
+      const discardButton = document.createElement("button");
+      discardButton.type = "button";
+      discardButton.textContent = "弃";
+      discardButton.title = "丢弃";
+      discardButton.dataset.action = "discard";
+      discardButton.dataset.item = String(item.id);
+      row.append(name, equipButton, discardButton);
+      return row;
+    }));
   }
 
   function updateQuest() {
@@ -440,7 +546,23 @@
       statallocated: "属性已强化",
       playerreborn: "转生完成 // 力量得到升华",
     };
-    if (eventName === "skillused") return;
+    if (eventName === "skillused" || eventName === "itemdiscarded") return;
+    if (eventName === "lootdropped") {
+      // Ground sparkle is enough; only announce rare finds.
+      const info = rarityInfo(event.rarity);
+      if (event.rarity === "rare" || event.rarity === "epic") {
+        pushEvent(`${info.label}装备掉落 // ${itemLabel(event)}`);
+      }
+      return;
+    }
+    if (eventName === "lootpickedup") {
+      pushEvent(`拾取 ${itemLabel(event)}`);
+      return;
+    }
+    if (eventName === "itemequipped") {
+      pushEvent(`已装备 ${itemLabel(event)}`);
+      return;
+    }
     const text = String(first(event.message, messages[eventName], "中继信号已更新"));
     pushEvent(text, eventName === "playerdefeated" || eventName.includes("death") || eventName.includes("error"));
 
@@ -470,6 +592,8 @@
       RESPAWN_PENDING: "信号尚未恢复",
       REBIRTH_LEVEL_TOO_LOW: "等级不足，无法转生",
       PLAYER_DEAD: "阵亡状态下无法执行该操作",
+      INVALID_ITEM: "背包中没有该装备",
+      INVENTORY_FULL: "背包已满",
     };
     const message = String(first(translated[error.code], error.message, error.error, "中继请求失败"));
     pushEvent(message, true);
@@ -748,6 +872,8 @@
       objects.sort((a, b) => (a.y + a.x) - (b.y + b.x));
     }
 
+    for (const drop of state.drops.values()) drawDrop(drop, time);
+
     const local = localPlayer();
     if (local?.moveTarget) drawMoveMarker(local.moveTarget, time);
     if (local?.targetId && state.enemies.has(String(local.targetId))) {
@@ -761,6 +887,34 @@
 
     for (const projectile of state.projectiles.values()) drawProjectile(projectile, time);
     drawEffects(time);
+  }
+
+  function drawDrop(drop, time) {
+    const point = worldToScreen(drop.x, drop.y);
+    if (point.x < -40 || point.x > state.viewWidth + 40 || point.y < -60 || point.y > state.viewHeight + 40) return;
+    const info = rarityInfo(drop.rarity);
+    const bob = Math.sin(time * 0.004 + finite(drop.x)) * 2.5;
+    ctx.save();
+    ctx.strokeStyle = "rgba(0, 0, 0, 0.4)";
+    ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
+    ctx.beginPath();
+    ctx.ellipse(point.x, point.y + 2, 9, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    if (drop.rarity === "epic" || drop.rarity === "rare") {
+      // Rare finds throw a short light pillar so they read from far away.
+      const beam = ctx.createLinearGradient(point.x, point.y - 46, point.x, point.y);
+      beam.addColorStop(0, "rgba(0,0,0,0)");
+      beam.addColorStop(1, info.color + "66");
+      ctx.fillStyle = beam;
+      ctx.fillRect(point.x - 3, point.y - 46, 6, 44);
+    }
+    ctx.translate(point.x, point.y - 12 + bob);
+    ctx.rotate(time * 0.002 + finite(drop.x));
+    ctx.fillStyle = info.color;
+    ctx.shadowColor = info.color;
+    ctx.shadowBlur = 12;
+    ctx.fillRect(-5, -5, 10, 10);
+    ctx.restore();
   }
 
   function drawMoveMarker(target, time) {
@@ -995,7 +1149,7 @@
 
   function interpolateEntities(delta) {
     const factor = 1 - Math.exp(-delta * 0.014);
-    for (const store of [state.players, state.enemies, state.projectiles]) {
+    for (const store of [state.players, state.enemies, state.projectiles, state.drops]) {
       for (const entity of store.values()) {
         entity.x += (entity.targetX - entity.x) * factor;
         entity.y += (entity.targetY - entity.y) * factor;
@@ -1126,6 +1280,11 @@
 
   ui.respawnButton.addEventListener("click", () => send({ type: "respawn" }));
   ui.rebirthButton?.addEventListener("click", () => send({ type: "rebirth" }));
+  ui.inventoryList?.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-item]");
+    if (!button) return;
+    send({ type: button.dataset.action, item: button.dataset.item });
+  });
 
   window.addEventListener("keydown", (event) => {
     if (event.target instanceof HTMLInputElement) return;

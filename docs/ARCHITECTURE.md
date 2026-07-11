@@ -48,13 +48,15 @@ WebSocket 使用 UTF-8 JSON 对象，单条消息上限为 16 KiB。每条命令
 | `upgrade` | `skill` | 消耗技能点 |
 | `respawn` | 无 | 请求合法重生 |
 | `rebirth` | 无 | 达到解锁等级后转生：等级归一，换取永久属性点、生命与伤害加成 |
+| `equip` | `item` | 装备背包中的物品，原部位装备换回背包 |
+| `discard` | `item` | 丢弃背包中的物品 |
 
 服务器消息封装：
 
 | `type` | 主要字段 | 语义 |
 | --- | --- | --- |
 | `welcome` | `protocol`, `id`, `tickRate`, `snapshotRate`, `world`（含 `safeZone`）, `rebirthLevel`, `archetypes` | 建立身份并下发初始配置 |
-| `snapshot` | `tick`, `serverTime`, `selfId`, `world`, `safeZone`, `players`, `enemies`, `projectiles` | 可替换的当前世界状态；玩家条目含 `moveTarget`、`targetId`、`rebirths` |
+| `snapshot` | `tick`, `serverTime`, `selfId`, `world`, `safeZone`, `players`, `enemies`, `projectiles`, `drops` | 可替换的当前世界状态；玩家条目含 `moveTarget`、`targetId`、`rebirths`、`equipment`、`inventory`、`gearStats` |
 | `event` | `event`, `tick`, `serverTime`, 事件载荷 | 短时表现或离散结果 |
 | `error` | `code`, `message`, `requestType?` | 可处理的协议错误 |
 

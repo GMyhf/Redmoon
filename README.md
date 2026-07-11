@@ -25,6 +25,7 @@ HOST=0.0.0.0 PORT=3000 npm start
 - 服务器权威处理移动、瞄准、攻击、伤害和重生
 - 点击地面移动、点击敌人自动追击攻击的经典 aRPG 操作
 - 多种原型职业、属性分配、技能升级与转生系统
+- 装备掉落：武器/护甲/饰品三部位，普通/精制/谐振/赤月四档稀有度，走过自动拾取，背包内一键装备
 - 中央城镇安全区（免疫怪物伤害、加速恢复）与野外多种等级的敌人
 - 敌人、经验、任务、升级与实时状态同步
 - 无需下载客户端，桌面键鼠即可游玩
@@ -42,7 +43,7 @@ npm test        # 运行测试
 npm run check   # 检查服务器与浏览器脚本语法
 ```
 
-代码分为 `src/server/`（Linux 服务端）、`public/`（浏览器客户端）、`test/`（自动化测试）和 `deploy/`（部署样例）。协议与演进方案见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+代码分为 `src/server/`（Linux 服务端）、`public/`（浏览器客户端）、`test/`（自动化测试）和 `deploy/`（部署样例）。协议与演进方案见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，历次改进见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## Linux 部署
 

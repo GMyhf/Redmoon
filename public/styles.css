@@ -386,6 +386,7 @@ button {
 
 .operator-panel,
 .stats-panel,
+.gear-panel,
 .quest-panel {
   position: absolute;
   border: 1px solid var(--line);
@@ -617,6 +618,70 @@ button {
   right: max(18px, env(safe-area-inset-right));
   width: 255px;
   padding: 13px 14px 12px;
+}
+
+.gear-panel {
+  top: 345px;
+  left: max(18px, env(safe-area-inset-left));
+  width: 214px;
+  padding: 10px 12px 11px;
+}
+
+.equipment-list {
+  margin-top: 8px;
+  display: grid;
+  gap: 4px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--line);
+}
+
+.inventory-list {
+  margin-top: 6px;
+  display: grid;
+  gap: 3px;
+  max-height: 158px;
+  overflow-y: auto;
+}
+
+.gear-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.gear-row > span {
+  flex: none;
+  width: 30px;
+  color: var(--muted);
+  font-size: 9px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.gear-row > b {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.gear-row > button {
+  flex: none;
+  width: 20px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.06);
+  color: #ccd3d1;
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.gear-row > button:hover {
+  background: rgba(226, 75, 92, 0.25);
 }
 
 .quest-panel > strong {

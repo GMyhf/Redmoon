@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-CRIMSON RELAY — a server-authoritative online action RPG prototype. Node.js 20+ server (Linux), browser client, JSON-over-WebSocket protocol. World state is in-memory only; nothing persists across restarts. README.md and docs/ARCHITECTURE.md are written in Chinese.
+CRIMSON RELAY — a server-authoritative online action RPG prototype. Node.js 20+ server (Linux), browser client, JSON-over-WebSocket protocol. World state is in-memory only; nothing persists across restarts. README.md, docs/ARCHITECTURE.md, and CHANGELOG.md are written in Chinese; log each substantive gameplay/protocol change in CHANGELOG.md.
 
 ## Commands
 

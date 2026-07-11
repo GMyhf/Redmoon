@@ -1,6 +1,12 @@
 import {
   ARCHETYPES,
+  DROP_PICKUP_RADIUS,
+  DROP_TTL,
+  INVENTORY_LIMIT,
+  ITEM_BASES,
+  ITEM_SLOTS,
   MOB_TYPES,
+  RARITIES,
   REBIRTH_DAMAGE_BONUS,
   REBIRTH_HP_BONUS,
   REBIRTH_LEVEL,
@@ -58,12 +64,15 @@ export class World {
     this.players = new Map();
     this.mobs = new Map();
     this.projectiles = new Map();
+    this.drops = new Map();
     this.pendingMobSpawns = [];
     this.events = [];
     this.time = 0;
     this.tick = 0;
     this._mobSequence = 0;
     this._projectileSequence = 0;
+    this._dropSequence = 0;
+    this._itemSequence = 0;
 
     if (options.spawnMobs !== false) {
       this._maintainMobPopulation();
@@ -107,6 +116,10 @@ export class World {
       moveTarget: null,
       attackTarget: null,
       rebirths: 0,
+      inventory: [],
+      equipment: { weapon: null, armor: null, charm: null },
+      gearStats: zeroStats(),
+      gearMods: { damage: 0, maxHp: 0, speed: 0 },
       level: 1,
       xp: 0,
       xpToNext: xpRequiredForLevel(1),
@@ -176,6 +189,10 @@ export class World {
         return this.respawnPlayer(id);
       case "rebirth":
         return this.rebirthPlayer(id);
+      case "equip":
+        return this.equipItem(id, message.item);
+      case "discard":
+        return this.discardItem(id, message.item);
       default:
         throw new WorldError("UNKNOWN_MESSAGE", `Unknown message type: ${String(type)}`);
     }
@@ -321,6 +338,54 @@ export class World {
     return player;
   }
 
+  equipItem(id, itemId) {
+    const player = this._requirePlayer(id);
+    if (!player.alive) {
+      throw new WorldError("PLAYER_DEAD", "Equipment cannot be changed while defeated.");
+    }
+    const index = player.inventory.findIndex((item) => item.id === itemId);
+    if (index < 0) {
+      throw new WorldError("INVALID_ITEM", "That item is not in the inventory.");
+    }
+
+    const item = player.inventory.splice(index, 1)[0];
+    const previous = player.equipment[item.slot];
+    player.equipment[item.slot] = item;
+    if (previous) player.inventory.push(previous);
+    this._refreshGear(player);
+    this._refreshDerivedStats(player, true);
+    this._emit("itemEquipped", {
+      playerId: id,
+      itemId: item.id,
+      name: item.name,
+      rarity: item.rarity,
+      slot: item.slot,
+    });
+    return player;
+  }
+
+  discardItem(id, itemId) {
+    const player = this._requirePlayer(id);
+    const index = player.inventory.findIndex((item) => item.id === itemId);
+    if (index < 0) {
+      throw new WorldError("INVALID_ITEM", "That item is not in the inventory.");
+    }
+    const [item] = player.inventory.splice(index, 1);
+    this._emit("itemDiscarded", { playerId: id, itemId: item.id, name: item.name });
+    return player;
+  }
+
+  giveItem(id, overrides = {}) {
+    const player = this._requirePlayer(id);
+    if (player.inventory.length >= INVENTORY_LIMIT) {
+      throw new WorldError("INVENTORY_FULL", "The inventory is full.");
+    }
+    const rolled = this._rollItem(Math.max(1, nonNegativeInteger(overrides.level, 1)));
+    const item = { ...rolled, ...overrides, id: overrides.id ?? rolled.id };
+    player.inventory.push(item);
+    return item;
+  }
+
   update(dt = 1 / TICK_RATE) {
     if (!Number.isFinite(dt) || dt <= 0) {
       throw new TypeError("dt must be a positive finite number");
@@ -334,6 +399,7 @@ export class World {
       this._updatePlayers(step);
       this._updateMobs(step);
       this._updateProjectiles(step);
+      this._updateDrops();
       this._processMobSpawns();
     }
     this.tick += 1;
@@ -352,6 +418,15 @@ export class World {
       maxHp: mob.maxHp,
       level: mob.level,
       alive: true,
+    }));
+
+    const drops = [...this.drops.values()].map((drop) => ({
+      id: drop.id,
+      x: round(drop.x),
+      y: round(drop.y),
+      slot: drop.item.slot,
+      rarity: drop.item.rarity,
+      name: drop.item.name,
     }));
 
     const projectiles = [...this.projectiles.values()].map((projectile) => ({
@@ -383,6 +458,7 @@ export class World {
       enemies,
       mobs: enemies,
       projectiles,
+      drops,
     };
   }
 
@@ -426,7 +502,9 @@ export class World {
   _updatePlayers(dt) {
     for (const player of this.players.values()) {
       if (!player.alive) continue;
-      const speed = ARCHETYPES[player.archetype].baseSpeed + player.stats.agility * 3.2;
+      const speed = ARCHETYPES[player.archetype].baseSpeed
+        + this._statTotal(player, "agility") * 3.2
+        + player.gearMods.speed;
       const manualMove = player.input.move.x !== 0 || player.input.move.y !== 0;
 
       if (manualMove) {
@@ -443,7 +521,7 @@ export class World {
       const regenBoost = this._inSafeZone(player) ? 4 : 1;
       player.hp = Math.min(
         player.maxHp,
-        player.hp + (0.35 + player.stats.vitality * 0.04) * regenBoost * dt,
+        player.hp + (0.35 + this._statTotal(player, "vitality") * 0.04) * regenBoost * dt,
       );
 
       if (player.input.primary) this._usePrimary(player, aim);
@@ -547,9 +625,9 @@ export class World {
   _usePrimary(player, direction) {
     if (this.time < player.nextPrimaryAt) return;
     const definition = ARCHETYPES[player.archetype];
-    const haste = 1 + player.stats.agility * 0.018;
+    const haste = 1 + this._statTotal(player, "agility") * 0.018;
     player.nextPrimaryAt = this.time + definition.primary.cooldown / haste;
-    const scaling = player.stats.power * 1.55 + player.stats.spirit * 0.38;
+    const scaling = this._statTotal(player, "power") * 1.55 + this._statTotal(player, "spirit") * 0.38;
     this._spawnProjectile(player, direction, {
       damage: definition.primary.damage + scaling,
       speed: definition.primary.speed,
@@ -570,7 +648,7 @@ export class World {
     if (player.archetype === "vanguard" && slot === "q") {
       this._movePlayer(player, direction, 94 + level * 10);
       this._spawnProjectile(player, direction, {
-        damage: 25 + level * 8 + player.stats.power * 2.1,
+        damage: 25 + level * 8 + this._statTotal(player, "power") * 2.1,
         speed: 560,
         range: 250 + level * 15,
         radius: 15,
@@ -578,7 +656,7 @@ export class World {
       });
     } else if (player.archetype === "vanguard") {
       this._radialBurst(player, 8 + level, {
-        damage: 12 + level * 5 + player.stats.power * 1.25,
+        damage: 12 + level * 5 + this._statTotal(player, "power") * 1.25,
         speed: 440,
         range: 180 + level * 16,
         radius: 10,
@@ -586,7 +664,7 @@ export class World {
       });
     } else if (player.archetype === "channeler" && slot === "q") {
       this._spawnProjectile(player, direction, {
-        damage: 27 + level * 9 + player.stats.spirit * 2.25,
+        damage: 27 + level * 9 + this._statTotal(player, "spirit") * 2.25,
         speed: 750,
         range: 760,
         radius: 11,
@@ -595,7 +673,7 @@ export class World {
       });
     } else if (player.archetype === "channeler") {
       this._radialBurst(player, 8 + level * 2, {
-        damage: 13 + level * 5 + player.stats.spirit * 1.35,
+        damage: 13 + level * 5 + this._statTotal(player, "spirit") * 1.35,
         speed: 520,
         range: 360 + level * 20,
         radius: 7,
@@ -604,7 +682,7 @@ export class World {
     } else if (player.archetype === "strider" && slot === "q") {
       for (const angle of [-0.16, 0, 0.16]) {
         this._spawnProjectile(player, rotate(direction, angle), {
-          damage: 17 + level * 6 + player.stats.agility * 1.45,
+          damage: 17 + level * 6 + this._statTotal(player, "agility") * 1.45,
           speed: 820,
           range: 680,
           radius: 6,
@@ -615,7 +693,7 @@ export class World {
       this._movePlayer(player, direction, 130 + level * 15);
       for (const angle of [-0.1, 0.1]) {
         this._spawnProjectile(player, rotate(direction, angle), {
-          damage: 19 + level * 7 + player.stats.agility * 1.6,
+          damage: 19 + level * 7 + this._statTotal(player, "agility") * 1.6,
           speed: 780,
           range: 500,
           radius: 7,
@@ -651,7 +729,9 @@ export class World {
       vx: unit.x * speed,
       vy: unit.y * speed,
       radius: options.radius ?? 6,
-      damage: options.damage * (1 + player.rebirths * REBIRTH_DAMAGE_BONUS),
+      damage: options.damage
+        * (1 + player.rebirths * REBIRTH_DAMAGE_BONUS)
+        * (1 + player.gearMods.damage),
       ttl,
       hitsRemaining: options.pierce ?? 1,
       hitIds: new Set(),
@@ -682,6 +762,7 @@ export class World {
     for (const other of this.players.values()) {
       if (other.attackTarget === mob.id) other.attackTarget = null;
     }
+    this._maybeDropLoot(mob);
     const player = this.players.get(ownerId);
     if (player) {
       this._grantXp(player, mob.xp);
@@ -701,7 +782,7 @@ export class World {
   _damagePlayer(player, damage, sourceId) {
     if (!player.alive) return;
     if (this._inSafeZone(player)) return;
-    const mitigation = Math.min(0.38, player.stats.vitality * 0.018);
+    const mitigation = Math.min(0.38, this._statTotal(player, "vitality") * 0.018);
     player.hp -= Math.max(1, damage * (1 - mitigation));
     if (player.hp > 0) return;
 
@@ -765,8 +846,9 @@ export class World {
     const ratio = oldMax > 0 ? player.hp / oldMax : 1;
     player.maxHp = Math.round(
       (ARCHETYPES[player.archetype].baseHp
-        + player.stats.vitality * 11
-        + (player.level - 1) * 7)
+        + this._statTotal(player, "vitality") * 11
+        + (player.level - 1) * 7
+        + player.gearMods.maxHp)
         * (1 + player.rebirths * REBIRTH_HP_BONUS),
     );
     if (preserveHealth) {
@@ -807,7 +889,15 @@ export class World {
       xp: round(player.xp),
       xpToNext: player.xpToNext,
       stats: { ...player.stats },
+      gearStats: { ...player.gearStats },
       statPoints: player.statPoints,
+      equipment: Object.fromEntries(
+        ITEM_SLOTS.map((slot) => [
+          slot,
+          player.equipment[slot] ? serializeItem(player.equipment[slot]) : null,
+        ]),
+      ),
+      inventory: player.inventory.map(serializeItem),
       skills,
       skillPoints: player.skillPoints,
       quest: { ...player.quest },
@@ -868,6 +958,109 @@ export class World {
     }
   }
 
+  _updateDrops() {
+    for (const [id, drop] of [...this.drops]) {
+      if (this.time >= drop.expiresAt) {
+        this.drops.delete(id);
+        continue;
+      }
+      for (const player of this.players.values()) {
+        if (!player.alive || player.inventory.length >= INVENTORY_LIMIT) continue;
+        const reach = player.radius + DROP_PICKUP_RADIUS;
+        const dx = player.x - drop.x;
+        const dy = player.y - drop.y;
+        if (dx * dx + dy * dy > reach * reach) continue;
+        player.inventory.push(drop.item);
+        this.drops.delete(id);
+        this._emit("lootPickedUp", {
+          playerId: player.id,
+          itemId: drop.item.id,
+          name: drop.item.name,
+          rarity: drop.item.rarity,
+          slot: drop.item.slot,
+        });
+        break;
+      }
+    }
+  }
+
+  _maybeDropLoot(mob) {
+    const chance = Math.min(0.85, 0.25 + (mob.level - 1) * 0.1);
+    if (this.rng() >= chance) return;
+    const item = this._rollItem(mob.level);
+    const id = `drop-${++this._dropSequence}`;
+    this.drops.set(id, {
+      id,
+      x: clamp(mob.x, PLAYER_RADIUS, this.width - PLAYER_RADIUS),
+      y: clamp(mob.y, PLAYER_RADIUS, this.height - PLAYER_RADIUS),
+      expiresAt: this.time + DROP_TTL,
+      item,
+    });
+    this._emit("lootDropped", {
+      dropId: id,
+      name: item.name,
+      rarity: item.rarity,
+      slot: item.slot,
+      x: round(mob.x),
+      y: round(mob.y),
+    });
+  }
+
+  _rollItem(level) {
+    const slot = ITEM_SLOTS[Math.floor(clamp(this.rng(), 0, 0.999999) * ITEM_SLOTS.length)];
+    const weights = RARITIES.map((rarity) => rarity.baseWeight + rarity.levelWeight * (level - 1));
+    const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+    let roll = clamp(this.rng(), 0, 0.999999) * totalWeight;
+    let rarity = RARITIES[0];
+    for (let index = 0; index < RARITIES.length; index += 1) {
+      roll -= weights[index];
+      if (roll < 0) {
+        rarity = RARITIES[index];
+        break;
+      }
+    }
+
+    const bases = ITEM_BASES[slot];
+    const name = bases[Math.floor(clamp(this.rng(), 0, 0.999999) * bases.length)];
+    const bonuses = zeroStats();
+    let budget = rarity.tier * 2 + Math.floor((level - 1) / 2);
+    while (budget > 0) {
+      bonuses[STAT_KEYS[Math.floor(clamp(this.rng(), 0, 0.999999) * STAT_KEYS.length)]] += 1;
+      budget -= 1;
+    }
+
+    const item = {
+      id: `item-${++this._itemSequence}`,
+      slot,
+      rarity: rarity.id,
+      tier: rarity.tier,
+      name,
+      bonuses,
+    };
+    if (slot === "weapon") item.damageBonus = rarity.tier * 0.06;
+    if (slot === "armor") item.hpBonus = rarity.tier * 14;
+    if (slot === "charm") item.speedBonus = rarity.tier * 7;
+    return item;
+  }
+
+  _refreshGear(player) {
+    const gearStats = zeroStats();
+    const mods = { damage: 0, maxHp: 0, speed: 0 };
+    for (const item of Object.values(player.equipment)) {
+      if (!item) continue;
+      for (const key of STAT_KEYS) gearStats[key] += item.bonuses?.[key] ?? 0;
+      mods.damage += item.damageBonus ?? 0;
+      mods.maxHp += item.hpBonus ?? 0;
+      mods.speed += item.speedBonus ?? 0;
+    }
+    player.gearStats = gearStats;
+    player.gearMods = mods;
+  }
+
+  _statTotal(player, key) {
+    return player.stats[key] + player.gearStats[key];
+  }
+
   _inSafeZone(entity) {
     if (!this.safeZone) return false;
     const dx = entity.x - this.safeZone.x;
@@ -888,6 +1081,24 @@ export class World {
 
 export function xpRequiredForLevel(level) {
   return 75 + Math.max(0, level - 1) * 55;
+}
+
+function zeroStats() {
+  return Object.fromEntries(STAT_KEYS.map((key) => [key, 0]));
+}
+
+function serializeItem(item) {
+  return {
+    id: item.id,
+    slot: item.slot,
+    rarity: item.rarity,
+    tier: item.tier,
+    name: item.name,
+    bonuses: { ...item.bonuses },
+    ...(item.damageBonus !== undefined ? { damageBonus: item.damageBonus } : {}),
+    ...(item.hpBonus !== undefined ? { hpBonus: item.hpBonus } : {}),
+    ...(item.speedBonus !== undefined ? { speedBonus: item.speedBonus } : {}),
+  };
 }
 
 function sanitizeName(value) {

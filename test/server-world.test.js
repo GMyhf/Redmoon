@@ -196,6 +196,71 @@ test("rebirth requires the unlock level and grants permanent bonuses", () => {
   assert.ok(world.drainEvents().some((event) => event.event === "playerReborn"));
 });
 
+test("defeated enemies drop equipment that players pick up by walking over it", () => {
+  const world = new World({ rng: () => 0.1, spawnMobs: false, mobTargetCount: 0, safeZoneRadius: 0 });
+  const player = world.addPlayer("player-1", { archetype: "channeler" });
+  const enemy = world.spawnMob({
+    id: "carrier",
+    x: player.x + 120,
+    y: player.y,
+    maxHp: 1,
+    speed: 0.001,
+    damage: 0.001,
+    level: 3,
+  });
+
+  world.setInput(player.id, { seq: 1, aim: { x: enemy.x, y: enemy.y }, primary: true });
+  for (let index = 0; index < 10 && world.mobs.has("carrier"); index += 1) world.update(0.05);
+
+  assert.equal(world.mobs.has("carrier"), false);
+  assert.equal(world.drops.size, 1);
+  const drop = [...world.drops.values()][0];
+  assert.ok(drop.item.id);
+  assert.ok(world.getSnapshot().drops.length === 1);
+
+  world.setInput(player.id, { seq: 2, aim: { x: enemy.x, y: enemy.y }, primary: false });
+  world.handleCommand("player-1", { type: "input", seq: 3, moveTo: { x: drop.x, y: drop.y } });
+  for (let index = 0; index < 60 && world.drops.size > 0; index += 1) world.update(0.05);
+
+  assert.equal(world.drops.size, 0);
+  assert.equal(player.inventory.length, 1);
+  assert.ok(world.drainEvents().some((event) => event.event === "lootPickedUp"));
+});
+
+test("equipping gear raises combat power and swaps the old piece back to the bag", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
+  const player = world.addPlayer("player-1", { archetype: "vanguard" });
+  const oldMaxHp = player.maxHp;
+  const sword = world.giveItem("player-1", {
+    slot: "weapon",
+    bonuses: { power: 4, agility: 0, spirit: 0, vitality: 2 },
+    damageBonus: 0.12,
+  });
+
+  world.handleCommand("player-1", { type: "equip", item: sword.id });
+  assert.equal(player.equipment.weapon.id, sword.id);
+  assert.equal(player.inventory.length, 0);
+  assert.ok(player.maxHp > oldMaxHp);
+
+  world.setInput(player.id, { seq: 1, aim: { x: player.x + 100, y: player.y }, primary: true });
+  world.update(0.05);
+  const projectile = [...world.projectiles.values()][0];
+  const expected = (13 + (6 + 4) * 1.55 + 2 * 0.38) * 1.12;
+  assert.ok(Math.abs(projectile.damage - expected) < 0.000001);
+
+  const spare = world.giveItem("player-1", { slot: "weapon", bonuses: { power: 1, agility: 0, spirit: 0, vitality: 0 } });
+  world.handleCommand("player-1", { type: "equip", item: spare.id });
+  assert.equal(player.equipment.weapon.id, spare.id);
+  assert.deepEqual(player.inventory.map((item) => item.id), [sword.id]);
+
+  world.handleCommand("player-1", { type: "discard", item: sword.id });
+  assert.equal(player.inventory.length, 0);
+  assert.throws(
+    () => world.handleCommand("player-1", { type: "equip", item: "missing" }),
+    (error) => error instanceof WorldError && error.code === "INVALID_ITEM",
+  );
+});
+
 test("the town safe zone blocks enemy damage and keeps mobs from advancing", () => {
   const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
   const player = world.addPlayer("player-1", { archetype: "channeler" });
