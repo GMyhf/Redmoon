@@ -37,6 +37,7 @@
         </div>
 
         <div id="archetype-list" class="archetype-list" role="radiogroup" aria-label="选择角色"></div>
+        <div id="hero-detail" class="hero-detail" aria-live="polite"></div>
 
         <form id="join-form" class="join-form" autocomplete="off">
           <label for="operator-name">操作员呼号</label>
@@ -150,10 +151,18 @@
             <i class="cooldown" aria-hidden="true"></i>
             <span id="skill-e-level" class="skill-level">I</span>
           </button>
+          <button type="button" class="ability is-ultimate" data-ability="f" title="施放大招">
+            <span class="ability-icon q-icon" aria-hidden="true"></span>
+            <span id="skill-f-name" class="ability-name">大招</span>
+            <kbd>F</kbd>
+            <i class="cooldown" aria-hidden="true"></i>
+            <span id="skill-f-level" class="skill-level">I</span>
+          </button>
           <div id="skill-upgrades" class="skill-upgrades" hidden>
             <span id="skill-points">0 技能点</span>
             <button type="button" data-upgrade="q" title="升级 Q" aria-label="升级 Q">Q+</button>
             <button type="button" data-upgrade="e" title="升级 E" aria-label="升级 E">E+</button>
+            <button type="button" data-upgrade="f" title="升级大招" aria-label="升级大招">F+</button>
           </div>
         </nav>
       </section>

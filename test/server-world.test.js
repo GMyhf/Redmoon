@@ -234,7 +234,11 @@ test("mob level rises with distance from town, the boss respawns, and potions he
   const near = world.spawnMob({ id: "near", x: world.width / 2 + 320, y: world.height / 2 });
   const far = world.spawnMob({ id: "far", x: world.width - 100, y: 100 });
   assert.ok(near.level <= 3);
-  assert.ok(far.level >= 7);
+  assert.ok(far.level >= 9);
+  // Frontier species are giant and worth several times the experience.
+  assert.equal(far.type, "voidmaw");
+  assert.ok(far.radius > near.radius);
+  assert.ok(far.xp > near.xp * 4);
 
   const player = world.addPlayer("player-1", { archetype: "vanguard" });
   const boss = world.spawnBoss();
@@ -342,23 +346,29 @@ test("items carry a level requirement that gates equipping", () => {
   assert.equal(player.equipment.helm.id, relic.id);
 });
 
-test("all seven heroes can join and fire both of their skills", () => {
+test("all seven heroes can join and fire all three of their skills", () => {
   const heroes = ["vanguard", "channeler", "strider", "bulwark", "longshot", "pyre", "moonblade"];
   const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
   heroes.forEach((archetype, index) => {
     const id = `hero-${index}`;
     const player = world.addPlayer(id, { archetype });
     assert.equal(player.archetype, archetype);
+    assert.deepEqual(Object.keys(player.skillLevels).sort(), ["e", "f", "q"]);
     world.setInput(id, {
       seq: 1,
       aim: { x: player.x + 100, y: player.y },
       q: true,
       e: true,
+      f: true,
     });
   });
   world.update(0.05);
   const owners = new Set([...world.projectiles.values()].map((projectile) => projectile.ownerId));
   assert.equal(owners.size, heroes.length, "every hero's skills must spawn projectiles");
+
+  // Ultimates go on cooldown independently of Q/E.
+  const first = world.players.get("hero-0");
+  assert.ok(first.nextSkillAt.f > world.time + 5, "ultimate cooldown must be long");
 });
 
 test("autoEquip dresses the strongest eligible item in every slot", () => {

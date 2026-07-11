@@ -43,7 +43,7 @@ WebSocket 使用 UTF-8 JSON 对象，单条消息上限为 16 KiB。每条命令
 | `type` | 主要字段 | 用途 |
 | --- | --- | --- |
 | `join` | `name`, `archetype` | 创建会话角色 |
-| `input` | `seq`, `move`, `aim`, `moveTo?`, `target?`, `primary`, `q`, `e` | 提交有序移动与技能意图。`moveTo`（点坐标）下达点击移动指令，`target`（敌人 id）下达锁定自动攻击指令；两者缺省表示保持现有指令，显式 `null` 表示取消，键盘移动会取消所有指令 |
+| `input` | `seq`, `move`, `aim`, `moveTo?`, `target?`, `primary`, `q`, `e`, `f` | 提交有序移动与技能意图（`f` 为大招）。`moveTo`（点坐标）下达点击移动指令，`target`（敌人 id）下达锁定自动攻击指令；两者缺省表示保持现有指令，显式 `null` 表示取消，键盘移动会取消所有指令 |
 | `allocate` | `stat` | 消耗属性点 |
 | `upgrade` | `skill` | 消耗技能点 |
 | `respawn` | 无 | 请求合法重生 |

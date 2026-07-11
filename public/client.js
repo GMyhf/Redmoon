@@ -36,8 +36,10 @@
     questFill: document.querySelector("#quest-fill"),
     skillQ: document.querySelector("#skill-q-name"),
     skillE: document.querySelector("#skill-e-name"),
+    skillF: document.querySelector("#skill-f-name"),
     skillQLevel: document.querySelector("#skill-q-level"),
     skillELevel: document.querySelector("#skill-e-level"),
+    skillFLevel: document.querySelector("#skill-f-level"),
     skillUpgrades: document.querySelector("#skill-upgrades"),
     skillPoints: document.querySelector("#skill-points"),
     eventFeed: document.querySelector("#event-feed"),
@@ -52,7 +54,7 @@
     abilities: [...document.querySelectorAll(".ability")],
   };
 
-  // Seven original named heroes (names, roles, and designs are this project's own).
+  // Seven original named heroes (names, lore, and designs are this project's own).
   const ARCHETYPES = {
     vanguard: {
       label: "绯岚",
@@ -63,6 +65,14 @@
       accent: "#f0c15e",
       q: "震荡环",
       e: "壁垒冲锋",
+      lore: "中继站陷落那夜独自扛住城门的老兵，刀刃上至今留着裂隙的灼痕。",
+      primaryName: "脉冲斩",
+      primaryDesc: "中距离重击，出手稳、伤害厚",
+      qDesc: "向四周轰出一圈震荡波，清开近身之敌",
+      eDesc: "向前突进并撞出巨大的冲击波",
+      f: "绯岚断空",
+      fDesc: "倾尽全力的一击，震荡波席卷四面八方",
+      stats: { power: 6, agility: 3, spirit: 2, vitality: 7 },
     },
     channeler: {
       label: "汀兰",
@@ -73,6 +83,14 @@
       accent: "#83d4ff",
       q: "中继爆发",
       e: "相位结界",
+      lore: "能听见星能潮汐的年轻术师，坚信红月背后藏着一段未被应答的讯号。",
+      primaryName: "星火束",
+      primaryDesc: "远程速射星能弹",
+      qDesc: "射出贯穿一切的星能长枪",
+      eDesc: "向所有方向绽放星能弹幕",
+      f: "星潮涌落",
+      fDesc: "放出缓慢滚动的巨型星能球，碾过沿途一切",
+      stats: { power: 2, agility: 4, spirit: 7, vitality: 4 },
     },
     strider: {
       label: "疾风",
@@ -83,6 +101,14 @@
       accent: "#e86969",
       q: "裂光飞刃",
       e: "相位疾步",
+      lore: "荒原信使出身，比任何人都清楚哪条路能活着回来。",
+      primaryName: "针芒镖",
+      primaryDesc: "极快的远程飞镖连射",
+      qDesc: "以窄扇面掷出三枚裂光飞刃",
+      eDesc: "向前疾步位移并留下追击弹幕",
+      f: "风暴刃舞",
+      fDesc: "长距突进并在身周掀起刀刃风暴",
+      stats: { power: 4, agility: 7, spirit: 3, vitality: 4 },
     },
     bulwark: {
       label: "铁岳",
@@ -93,6 +119,14 @@
       accent: "#c3d0e2",
       q: "崩地环",
       e: "铁壁冲撞",
+      lore: "前采掘队护卫，习惯把队友挡在身后、把伤痕留给自己。",
+      primaryName: "破垒击",
+      primaryDesc: "近距重锤，一击一击都砸得结实",
+      qDesc: "砸碎脚下大地，震荡波席卷周身",
+      eDesc: "顶着铁壁向前冲撞，撞出巨型冲击弹",
+      f: "山崩",
+      fDesc: "砸碎大地，全方位的毁灭性震荡",
+      stats: { power: 7, agility: 2, spirit: 2, vitality: 8 },
     },
     longshot: {
       label: "星眸",
@@ -103,6 +137,14 @@
       accent: "#a9d0f5",
       q: "贯星长矢",
       e: "撤离连射",
+      lore: "哨塔上的守望者，一矢贯星，从不浪费第二发。",
+      primaryName: "长风矢",
+      primaryDesc: "全场最远的普攻射程",
+      qDesc: "射出可贯穿多个目标的狙击长矢",
+      eDesc: "向后跳离危险，同时扇形回射三矢",
+      f: "贯界连矢",
+      fDesc: "五道贯穿全场的狙击长矢",
+      stats: { power: 4, agility: 8, spirit: 3, vitality: 3 },
     },
     pyre: {
       label: "焰蝶",
@@ -113,6 +155,14 @@
       accent: "#ffab72",
       q: "烈焰新星",
       e: "烬火扇击",
+      lore: "以焰为墨的流浪术士，笑称自己只是提前点亮了黑夜。",
+      primaryName: "烬火弹",
+      primaryDesc: "快节奏的火焰速射",
+      qDesc: "以自身为中心炸开一圈烈焰新星",
+      eDesc: "向前方泼洒一大片烬火",
+      f: "焚天",
+      fDesc: "内外两圈烈焰同时炸开，焚尽周身",
+      stats: { power: 2, agility: 3, spirit: 8, vitality: 5 },
     },
     moonblade: {
       label: "月绫",
@@ -123,6 +173,14 @@
       accent: "#e8eefc",
       q: "月轮回旋",
       e: "追月突刺",
+      lore: "月下起舞的剑士，刀光起落之间胜负已分。",
+      primaryName: "新月斩",
+      primaryDesc: "全场最快的攻击节奏，贴身收割",
+      qDesc: "旋身挥出月轮，绞碎周身敌人",
+      eDesc: "化作月光突进，沿途连斩两刀",
+      f: "月蚀乱舞",
+      fDesc: "化作月光穿阵，刃光与月轮齐出",
+      stats: { power: 5, agility: 7, spirit: 3, vitality: 3 },
     },
   };
 
@@ -182,8 +240,38 @@
     riftling: "裂隙体",
     duskfang: "暮牙兽",
     ashwing: "烬翼",
+    stonehorn: "岩角兽",
+    scraphulk: "废钢巨兽",
+    voidmaw: "虚空吞喉",
     warden: "深红督军",
   };
+
+  // Themed regions of the alien world, resolved purely from world position.
+  const BIOMES = {
+    town: { base: ["#2e2427", "#33282b"], stroke: "rgba(226, 168, 122, 0.2)" },
+    grass: { base: ["#1d2b1a", "#213120", "#253723"], stroke: "rgba(140, 190, 130, 0.12)" },
+    mountain: { base: ["#25282d", "#2a2e34", "#2f343b"], stroke: "rgba(170, 180, 195, 0.12)" },
+    scrapyard: { base: ["#2b211b", "#31261e", "#372a21"], stroke: "rgba(210, 150, 100, 0.12)" },
+    spaceport: { base: ["#20242e", "#242936", "#282e3e"], stroke: "rgba(130, 160, 220, 0.14)" },
+    wastes: { base: ["#231e21", "#272124", "#2b2426"], stroke: "rgba(200, 120, 135, 0.14)" },
+  };
+
+  function biomeAt(worldX, worldY) {
+    const zone = state.map.safeZone;
+    if (zone) {
+      const dx = worldX - zone.x;
+      const dy = worldY - zone.y;
+      if (dx * dx + dy * dy <= zone.radius * zone.radius) return "town";
+    }
+    // Boss quadrant: the crystal wastes in the far north-east.
+    if (worldX > state.map.width * 0.68 && worldY < state.map.height * 0.36) return "wastes";
+    const dx = worldX - state.map.width / 2;
+    const dy = (worldY - state.map.height / 2) * (state.map.width / state.map.height);
+    if (dy < -Math.abs(dx) * 0.55) return "mountain";
+    if (dy > Math.abs(dx) * 0.55) return "spaceport";
+    if (dx >= 0) return "scrapyard";
+    return "grass";
+  }
 
   // Original pixel-figure looks for each archetype (skin/hair/outfit palettes).
   const CLASS_LOOKS = {
@@ -300,7 +388,7 @@
     camera: { x: 800, y: 450 },
     pointer: { x: 0, y: 0, worldX: 800, worldY: 450, down: false, seen: false },
     keys: new Set(),
-    pulses: { q: false, e: false, primary: false },
+    pulses: { q: false, e: false, f: false, primary: false },
     orders: { moveTo: undefined, target: undefined },
     dragMove: false,
     rebirthLevel: 10,
@@ -621,17 +709,22 @@
     const skills = player.skills && typeof player.skills === "object" ? player.skills : {};
     const q = skills.q || skills.Q || {};
     const e = skills.e || skills.E || {};
+    const f = skills.f || skills.F || {};
     const qLevel = Math.max(1, Math.floor(finite(first(q.level, player.qLevel), 1)));
     const eLevel = Math.max(1, Math.floor(finite(first(e.level, player.eLevel), 1)));
+    const fLevel = Math.max(1, Math.floor(finite(f.level, 1)));
     ui.skillQ.textContent = archetype.q;
     ui.skillE.textContent = archetype.e;
+    if (ui.skillF) ui.skillF.textContent = archetype.f;
     ui.skillQLevel.textContent = roman(qLevel);
     ui.skillELevel.textContent = roman(eLevel);
+    if (ui.skillFLevel) ui.skillFLevel.textContent = roman(fLevel);
     const skillPoints = Math.max(0, Math.floor(finite(first(player.skillPoints, skills.points), 0)));
     ui.skillPoints.textContent = `${skillPoints} 技能点`;
     ui.skillUpgrades.hidden = skillPoints < 1;
     updateAbilityCooldown("q", q);
     updateAbilityCooldown("e", e);
+    updateAbilityCooldown("f", f);
 
     updateQuest();
     updateGear(player);
@@ -935,9 +1028,75 @@
 
     drawAtmosphere(time);
     drawTiles(time);
+    drawLandmarks(time);
     drawObjects(time);
     drawMinimap();
     drawCursor(time);
+  }
+
+  // A single derelict colony ship rests in the southern spaceport fields.
+  function drawLandmarks(time) {
+    const shipX = state.map.width * 0.5;
+    const shipY = state.map.height * 0.88;
+    const point = worldToScreen(shipX, shipY);
+    if (point.x < -320 || point.x > state.viewWidth + 320 || point.y < -220 || point.y > state.viewHeight + 220) return;
+
+    ctx.save();
+    ctx.translate(point.x, point.y);
+    ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
+    ctx.beginPath();
+    ctx.ellipse(0, 12, 150, 26, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Hull, listing to one side where it dug into the ground.
+    ctx.rotate(-0.06);
+    const hull = ctx.createLinearGradient(0, -70, 0, 16);
+    hull.addColorStop(0, "#4a5470");
+    hull.addColorStop(1, "#272c3c");
+    ctx.fillStyle = hull;
+    ctx.beginPath();
+    ctx.ellipse(0, -22, 140, 40, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#5d6a8e";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    // Broken bow section.
+    ctx.fillStyle = "#232838";
+    ctx.beginPath();
+    ctx.moveTo(96, -46);
+    ctx.lineTo(150, -30);
+    ctx.lineTo(118, -6);
+    ctx.closePath();
+    ctx.fill();
+    // Dorsal fin.
+    ctx.fillStyle = "#39415a";
+    ctx.beginPath();
+    ctx.moveTo(-44, -52);
+    ctx.lineTo(-20, -104);
+    ctx.lineTo(-2, -54);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "#59668c";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    // Window row, a few still flickering.
+    for (let i = 0; i < 7; i += 1) {
+      const alive = (i * 37) % 3 === 0;
+      ctx.fillStyle = alive
+        ? `rgba(130, 200, 255, ${0.5 + Math.sin(time * 0.003 + i) * 0.3})`
+        : "rgba(20, 24, 34, 0.9)";
+      ctx.fillRect(-96 + i * 26, -34, 9, 6);
+    }
+    // Hull breach with ember glow.
+    ctx.fillStyle = "#141019";
+    ctx.beginPath();
+    ctx.ellipse(-64, -6, 26, 14, 0.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = `rgba(224, 122, 79, ${0.35 + Math.sin(time * 0.005) * 0.15})`;
+    ctx.beginPath();
+    ctx.ellipse(-64, -4, 14, 7, 0.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   }
 
   function drawMinimap() {
@@ -1049,6 +1208,41 @@
     ctx.fill();
     ctx.restore();
 
+    // A distant blue planet and its grey moon — this battlefield is not home.
+    const planetX = state.viewWidth * 0.12;
+    const planetY = state.viewHeight * 0.12;
+    const planetRadius = Math.min(state.viewWidth, state.viewHeight) * 0.05;
+    ctx.save();
+    ctx.globalAlpha = 0.85;
+    const planet = ctx.createRadialGradient(
+      planetX - planetRadius * 0.3, planetY - planetRadius * 0.3, planetRadius * 0.2,
+      planetX, planetY, planetRadius,
+    );
+    planet.addColorStop(0, "#7fb2d9");
+    planet.addColorStop(0.6, "#3c6e9e");
+    planet.addColorStop(1, "#1d3a55");
+    ctx.fillStyle = planet;
+    ctx.beginPath();
+    ctx.arc(planetX, planetY, planetRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 0.35;
+    ctx.fillStyle = "#cfe8d8";
+    ctx.beginPath();
+    ctx.ellipse(planetX - planetRadius * 0.2, planetY, planetRadius * 0.55, planetRadius * 0.3, 0.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 0.9;
+    const moonlet = ctx.createRadialGradient(
+      planetX + planetRadius * 1.9, planetY - planetRadius * 0.9, 1,
+      planetX + planetRadius * 2, planetY - planetRadius * 0.8, planetRadius * 0.32,
+    );
+    moonlet.addColorStop(0, "#c9c4bd");
+    moonlet.addColorStop(1, "#6e6a64");
+    ctx.fillStyle = moonlet;
+    ctx.beginPath();
+    ctx.arc(planetX + planetRadius * 2, planetY - planetRadius * 0.8, planetRadius * 0.32, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
     ctx.save();
     ctx.globalAlpha = 0.08;
     ctx.fillStyle = "#d9a2a8";
@@ -1080,33 +1274,159 @@
         const point = worldToScreen((x + 0.5) * WORLD_CELL, (y + 0.5) * WORLD_CELL);
         if (point.x < -TILE_W || point.x > state.viewWidth + TILE_W || point.y < -TILE_H || point.y > state.viewHeight + TILE_H) continue;
         const noise = tileHash(x, y);
-        const zone = state.map.safeZone;
         const worldX = (x + 0.5) * WORLD_CELL;
         const worldY = (y + 0.5) * WORLD_CELL;
-        const inSafeZone = zone
-          && (worldX - zone.x) ** 2 + (worldY - zone.y) ** 2 <= zone.radius * zone.radius;
-        let fill;
-        if (inSafeZone) {
-          fill = noise > 0.6 ? "#33282b" : "#2e2427";
-        } else {
-          fill = noise > 0.77 ? "#2b2426" : noise > 0.37 ? "#272124" : "#231e21";
-          if ((x + y) % 11 === 0) fill = "#2d2527";
-        }
-        drawDiamond(
-          point.x,
-          point.y,
-          TILE_W - 1,
-          TILE_H - 1,
-          fill,
-          inSafeZone ? "rgba(226, 168, 122, 0.2)" : "rgba(167, 143, 148, 0.12)",
-        );
+        const biomeKey = biomeAt(worldX, worldY);
+        const biome = BIOMES[biomeKey];
+        const shades = biome.base;
+        let fill = shades[Math.min(shades.length - 1, Math.floor(noise * shades.length))];
+        if (biomeKey !== "town" && (x + y) % 11 === 0) fill = shades[shades.length - 1];
+        drawDiamond(point.x, point.y, TILE_W - 1, TILE_H - 1, fill, biome.stroke);
 
-        if ((x === 2 || x === tileMapWidth - 3) && y % 5 < 2) drawRelayLine(point, time, x + y);
-        if (!inSafeZone && noise > 0.965) drawCrystal(point.x, point.y - 4, noise, time);
-        else if (!inSafeZone && noise > 0.93) drawDebris(point.x, point.y, noise);
+        if (biomeKey === "town" && (x === 2 || x === tileMapWidth - 3) && y % 5 < 2) {
+          drawRelayLine(point, time, x + y);
+        }
+        drawBiomeDecoration(biomeKey, point, noise, time);
       }
     }
     drawSafeZoneRing(time);
+  }
+
+  function drawBiomeDecoration(biomeKey, point, noise, time) {
+    if (biomeKey === "town") return;
+    if (biomeKey === "grass") {
+      if (noise > 0.965) drawTree(point.x, point.y);
+      else if (noise > 0.86) drawGrassTuft(point.x, point.y, noise, time);
+      return;
+    }
+    if (biomeKey === "mountain") {
+      if (noise > 0.955) drawPeak(point.x, point.y, noise);
+      else if (noise > 0.9) drawRock(point.x, point.y, noise);
+      return;
+    }
+    if (biomeKey === "scrapyard") {
+      if (noise > 0.955) drawWreckedCar(point.x, point.y, noise);
+      else if (noise > 0.91) drawDebris(point.x, point.y, noise);
+      return;
+    }
+    if (biomeKey === "spaceport") {
+      if (noise > 0.96) drawHullPlate(point.x, point.y, noise, time);
+      else if (noise > 0.93) drawDebris(point.x, point.y, noise);
+      return;
+    }
+    // Crystal wastes around the boss lair.
+    if (noise > 0.94) drawCrystal(point.x, point.y - 4, noise, time);
+    else if (noise > 0.9) drawDebris(point.x, point.y, noise);
+  }
+
+  function drawGrassTuft(x, y, seed, time) {
+    ctx.save();
+    ctx.strokeStyle = "#4d7a44";
+    ctx.lineWidth = 1.4;
+    const sway = Math.sin(time * 0.002 + seed * 20) * 1.5;
+    for (const offset of [-4, 0, 4]) {
+      ctx.beginPath();
+      ctx.moveTo(x + offset, y + 3);
+      ctx.quadraticCurveTo(x + offset + sway, y - 4, x + offset + sway * 1.6, y - 9);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawTree(x, y) {
+    ctx.save();
+    ctx.fillStyle = "#3b2d1e";
+    ctx.fillRect(x - 2, y - 14, 4, 15);
+    ctx.fillStyle = "#2c4a28";
+    ctx.beginPath();
+    ctx.moveTo(x, y - 42);
+    ctx.lineTo(x + 14, y - 14);
+    ctx.lineTo(x - 14, y - 14);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#386030";
+    ctx.beginPath();
+    ctx.moveTo(x, y - 50);
+    ctx.lineTo(x + 10, y - 28);
+    ctx.lineTo(x - 10, y - 28);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawRock(x, y, seed) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(seed * 2);
+    ctx.fillStyle = "#3b4148";
+    ctx.beginPath();
+    ctx.moveTo(-8, 3);
+    ctx.lineTo(-4, -6);
+    ctx.lineTo(5, -5);
+    ctx.lineTo(9, 3);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "#525a64";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawPeak(x, y, seed) {
+    ctx.save();
+    ctx.fillStyle = "#40474f";
+    ctx.beginPath();
+    ctx.moveTo(x - 20, y + 4);
+    ctx.lineTo(x - 4, y - 34 - seed * 10);
+    ctx.lineTo(x + 16, y + 4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#c9d2dc";
+    ctx.beginPath();
+    ctx.moveTo(x - 9, y - 22 - seed * 8);
+    ctx.lineTo(x - 4, y - 34 - seed * 10);
+    ctx.lineTo(x + 3, y - 20 - seed * 8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawWreckedCar(x, y, seed) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate((seed - 0.97) * 6);
+    ctx.fillStyle = "#5a3a28";
+    ctx.fillRect(-16, -8, 32, 9);
+    ctx.fillStyle = "#6e4a30";
+    ctx.fillRect(-8, -14, 15, 7);
+    ctx.fillStyle = "#1a1512";
+    ctx.fillRect(-6, -13, 5, 4);
+    ctx.fillStyle = "#242021";
+    ctx.beginPath();
+    ctx.arc(-9, 2, 3.4, 0, Math.PI * 2);
+    ctx.arc(9, 2, 3.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#8a5a34";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(-16, -8, 32, 9);
+    ctx.restore();
+  }
+
+  function drawHullPlate(x, y, seed, time) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.fillStyle = "#39415a";
+    ctx.fillRect(-14, -6, 28, 10);
+    ctx.strokeStyle = "#59668c";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(-14, -6, 28, 10);
+    ctx.beginPath();
+    ctx.moveTo(-14, -1);
+    ctx.lineTo(14, -1);
+    ctx.stroke();
+    ctx.fillStyle = `rgba(130, 200, 255, ${0.4 + Math.sin(time * 0.004 + seed * 30) * 0.3})`;
+    ctx.fillRect(8, -4, 3, 2);
+    ctx.restore();
   }
 
   function drawSafeZoneRing(time) {
@@ -1536,6 +1856,18 @@
       ctx.translate(0, (-26 + Math.sin(time * 0.005 + finite(enemy.x)) * 3) * scale * 0.8);
       ctx.scale(pulse * scale, pulse * scale);
       drawAshwing(time);
+    } else if (species.includes("stonehorn")) {
+      ctx.translate(0, -12 * scale);
+      ctx.scale(pulse * scale * 1.35, pulse * scale * 1.35);
+      drawStonehorn(time, enemy);
+    } else if (species.includes("scraphulk")) {
+      ctx.translate(0, -18 * scale);
+      ctx.scale(pulse * scale * 1.6, pulse * scale * 1.6);
+      drawScraphulk(time, enemy);
+    } else if (species.includes("voidmaw")) {
+      ctx.translate(0, (-24 + Math.sin(time * 0.004 + finite(enemy.x)) * 4) * scale);
+      ctx.scale(pulse * scale * 1.6, pulse * scale * 1.6);
+      drawVoidmaw(time, enemy);
     } else {
       ctx.translate(0, -11 * scale);
       ctx.scale(pulse * scale, pulse * scale);
@@ -1711,6 +2043,126 @@
     ctx.restore();
   }
 
+  function drawStonehorn(time, enemy) {
+    // Boulder-backed quadruped with a single jutting horn (original design).
+    const trot = Math.sin(time * 0.009 + finite(enemy.x)) * 1.4;
+    ctx.fillStyle = "#2c2a26";
+    ctx.fillRect(-11, 5, 4, 7 + trot);
+    ctx.fillRect(-3, 5, 4, 7 - trot);
+    ctx.fillRect(5, 5, 4, 7 + trot);
+    ctx.fillStyle = "#4a463e";
+    ctx.beginPath();
+    ctx.ellipse(-1, -1, 14, 9, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#6a655a";
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+    // Rocky plates on the back.
+    ctx.fillStyle = "#5c574c";
+    ctx.beginPath();
+    ctx.moveTo(-9, -6);
+    ctx.lineTo(-4, -13);
+    ctx.lineTo(1, -6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(0, -7);
+    ctx.lineTo(5, -12);
+    ctx.lineTo(9, -6);
+    ctx.closePath();
+    ctx.fill();
+    // Head and horn.
+    ctx.fillStyle = "#4a463e";
+    ctx.beginPath();
+    ctx.arc(13, -4, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#d8cfb8";
+    ctx.beginPath();
+    ctx.moveTo(16, -8);
+    ctx.lineTo(24, -16);
+    ctx.lineTo(19, -6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#f2b758";
+    ctx.fillRect(13, -6, 3, 2);
+  }
+
+  function drawScraphulk(time, enemy) {
+    // Shambling golem welded together from wreck parts (original design).
+    const sway = Math.sin(time * 0.006 + finite(enemy.x)) * 1.5;
+    ctx.fillStyle = "#2a2018";
+    ctx.fillRect(-10, 8, 6, 8);
+    ctx.fillRect(4, 8, 6, 8);
+    ctx.fillStyle = "#5a3a28";
+    ctx.fillRect(-13, -12 + sway * 0.4, 26, 21);
+    ctx.strokeStyle = "#8a5a34";
+    ctx.lineWidth = 1.6;
+    ctx.strokeRect(-13, -12 + sway * 0.4, 26, 21);
+    // Mismatched armor plates.
+    ctx.fillStyle = "#6e4a30";
+    ctx.fillRect(-13, -12 + sway * 0.4, 12, 9);
+    ctx.fillStyle = "#39415a";
+    ctx.fillRect(2, -6 + sway * 0.4, 11, 8);
+    // Shoulder wheel and pipe.
+    ctx.fillStyle = "#242021";
+    ctx.beginPath();
+    ctx.arc(-15, -8 + sway * 0.4, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#4a4646";
+    ctx.stroke();
+    ctx.fillStyle = "#4a4646";
+    ctx.fillRect(12, -18 + sway * 0.4, 4, 10);
+    // Head slit glowing.
+    ctx.fillStyle = "#1a1512";
+    ctx.fillRect(-6, -20 + sway * 0.4, 12, 9);
+    ctx.save();
+    ctx.fillStyle = "#ff8a4a";
+    ctx.shadowColor = "#ff8a4a";
+    ctx.shadowBlur = 8;
+    ctx.fillRect(-4, -17 + sway * 0.4, 8, 2.4);
+    ctx.restore();
+  }
+
+  function drawVoidmaw(time, enemy) {
+    // A drifting maw ringed with teeth around a void core (original design).
+    const gape = 1 + Math.sin(time * 0.005 + finite(enemy.x)) * 0.08;
+    ctx.save();
+    ctx.scale(gape, gape);
+    ctx.fillStyle = "#2a1d33";
+    ctx.beginPath();
+    ctx.arc(0, 0, 14, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#7a4a9e";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    // Ring of teeth pointing inward.
+    ctx.fillStyle = "#d8cfe4";
+    for (let i = 0; i < 8; i += 1) {
+      const angle = (i / 8) * Math.PI * 2 + time * 0.0012;
+      const outerX = Math.cos(angle) * 12;
+      const outerY = Math.sin(angle) * 12;
+      ctx.beginPath();
+      ctx.moveTo(outerX * 1.05, outerY * 1.05);
+      ctx.lineTo(outerX * 0.55 - Math.sin(angle) * 2, outerY * 0.55 + Math.cos(angle) * 2);
+      ctx.lineTo(outerX * 0.55 + Math.sin(angle) * 2, outerY * 0.55 - Math.cos(angle) * 2);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // Void core.
+    ctx.save();
+    ctx.fillStyle = "#0a0610";
+    ctx.beginPath();
+    ctx.arc(0, 0, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#b06adf";
+    ctx.shadowColor = "#b06adf";
+    ctx.shadowBlur = 10;
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+    ctx.restore();
+    ctx.restore();
+  }
+
   function drawEntityLabel(x, y, name, entity, color, barWidth = 58) {
     const hp = finite(first(entity.hp, entity.health), 1);
     const maxHp = Math.max(1, finite(first(entity.maxHp, entity.maxHealth), 1));
@@ -1835,12 +2287,14 @@
       primary: state.pulses.primary,
       q: state.pulses.q,
       e: state.pulses.e,
+      f: state.pulses.f,
     });
     state.orders.moveTo = undefined;
     state.orders.target = undefined;
     state.pulses.primary = false;
     state.pulses.q = false;
     state.pulses.e = false;
+    state.pulses.f = false;
   }
 
   function frame(time) {
@@ -1864,6 +2318,64 @@
       button.classList.add("is-active");
       window.setTimeout(() => button.classList.remove("is-active"), 140);
     }
+  }
+
+  // Selected-hero detail: large portrait, lore, stat bars, and skill preview.
+  const heroDetail = document.querySelector("#hero-detail");
+  function renderHeroDetail(id) {
+    if (!heroDetail) return;
+    const hero = ARCHETYPES[id] || ARCHETYPES.vanguard;
+
+    const portrait = document.createElement("img");
+    portrait.className = "hero-detail-portrait";
+    portrait.src = `/assets/heroes/${id}.svg`;
+    portrait.alt = hero.label;
+
+    const info = document.createElement("div");
+    info.className = "hero-detail-info";
+    const heading = document.createElement("strong");
+    heading.textContent = `${hero.label} · ${hero.role}`;
+    heading.style.color = hero.accent;
+    const lore = document.createElement("p");
+    lore.className = "hero-detail-lore";
+    lore.textContent = hero.lore;
+
+    const stats = document.createElement("div");
+    stats.className = "hero-detail-stats";
+    for (const [key, label] of Object.entries(STAT_LABELS)) {
+      const row = document.createElement("div");
+      row.className = "hero-stat";
+      const tag = document.createElement("span");
+      tag.textContent = label;
+      const track = document.createElement("i");
+      const fill = document.createElement("b");
+      fill.style.width = `${(finite(hero.stats?.[key], 0) / 10) * 100}%`;
+      fill.style.background = hero.body;
+      track.append(fill);
+      row.append(tag, track);
+      stats.append(row);
+    }
+    info.append(heading, lore, stats);
+
+    const skills = document.createElement("div");
+    skills.className = "hero-detail-skills";
+    for (const [keyLabel, name, desc] of [
+      ["普攻", hero.primaryName, hero.primaryDesc],
+      ["Q", hero.q, hero.qDesc],
+      ["E", hero.e, hero.eDesc],
+      ["F", hero.f, hero.fDesc],
+    ]) {
+      const chip = document.createElement("div");
+      chip.className = "hero-skill";
+      const head = document.createElement("b");
+      head.innerHTML = `<kbd>${keyLabel}</kbd> ${name}`;
+      const body = document.createElement("small");
+      body.textContent = desc;
+      chip.append(head, body);
+      skills.append(chip);
+    }
+
+    heroDetail.replaceChildren(portrait, info, skills);
   }
 
   // Build the seven hero cards on the join screen.
@@ -1898,6 +2410,7 @@
   ui.archetypes.forEach((button) => {
     button.addEventListener("click", () => {
       state.selectedArchetype = button.dataset.archetype;
+      renderHeroDetail(state.selectedArchetype);
       ui.archetypes.forEach((item) => {
         const selected = item === button;
         item.classList.toggle("is-selected", selected);
@@ -1905,6 +2418,7 @@
       });
     });
   });
+  renderHeroDetail(state.selectedArchetype);
 
   ui.joinForm.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -1964,6 +2478,7 @@
     }
     if (!event.repeat && event.code === "KeyQ") triggerAbility("q");
     if (!event.repeat && event.code === "KeyE") triggerAbility("e");
+    if (!event.repeat && event.code === "KeyF") triggerAbility("f");
     if (!event.repeat && event.code === "KeyR") {
       const local = localPlayer();
       const potion = (local?.inventory || []).find((item) => Number.isFinite(finite(item.heal, NaN)));

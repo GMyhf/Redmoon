@@ -25,7 +25,7 @@ const RESPAWN_DELAY = 3;
 const MOB_RESPAWN_DELAY = 2.5;
 const DEFAULT_SAFE_ZONE_RADIUS = 220;
 const MOVE_ARRIVAL_EPSILON = 4;
-const MAX_MOB_LEVEL = 9;
+const MAX_MOB_LEVEL = 12;
 const ELITE_CHANCE = 0.1;
 const BOSS_ID = "boss-warden";
 const BOSS_RESPAWN_DELAY = 90;
@@ -135,10 +135,10 @@ export class World {
       xpToNext: xpRequiredForLevel(1),
       stats,
       statPoints: 3,
-      skillLevels: { q: 1, e: 1 },
+      skillLevels: Object.fromEntries(SKILL_SLOTS.map((slot) => [slot, 1])),
       skillPoints: 1,
       nextPrimaryAt: 0,
-      nextSkillAt: { q: 0, e: 0 },
+      nextSkillAt: Object.fromEntries(SKILL_SLOTS.map((slot) => [slot, 0])),
       quest: {
         id: "stabilize-the-fringe",
         title: "Stabilize the Fringe",
@@ -229,6 +229,7 @@ export class World {
       primary: input.primary === true,
       q: input.q === true,
       e: input.e === true,
+      f: input.f === true,
     };
 
     // Click-to-move and click-to-attack persist between input messages;
@@ -320,8 +321,7 @@ export class World {
     player.moveTarget = null;
     player.attackTarget = null;
     player.nextPrimaryAt = this.time + 0.2;
-    player.nextSkillAt.q = this.time + 0.2;
-    player.nextSkillAt.e = this.time + 0.2;
+    for (const slot of SKILL_SLOTS) player.nextSkillAt[slot] = this.time + 0.2;
     this._emit("playerRespawned", { playerId: id, x: player.x, y: player.y });
     return player;
   }
@@ -574,10 +574,13 @@ export class World {
     const rolledLevel = clamp(this._levelForPoint(point) + jitter, 1, MAX_MOB_LEVEL);
     const level = Math.max(1, nonNegativeInteger(overrides.level, rolledLevel));
     const elite = overrides.elite ?? (overrides.level === undefined && this.rng() < ELITE_CHANCE);
-    const band = Math.min(MOB_TYPES.length - 1, Math.floor((level - 1) / 3));
+    const band = Math.min(MOB_TYPES.length - 1, Math.floor((level - 1) / 2));
     const species = MOB_TYPES[band];
     const power = elite ? 1.6 : 1;
-    const maxHp = positiveNumber(overrides.maxHp, Math.round((26 + level * 16) * power));
+    const maxHp = positiveNumber(
+      overrides.maxHp,
+      Math.round((26 + level * 16) * power * species.hpMul),
+    );
     const id = overrides.id ?? `mob-${++this._mobSequence}`;
     const mob = {
       id: validateId(id),
@@ -585,15 +588,15 @@ export class World {
       name: overrides.name ?? species.name,
       x: clamp(point.x, MOB_RADIUS, this.width - MOB_RADIUS),
       y: clamp(point.y, MOB_RADIUS, this.height - MOB_RADIUS),
-      radius: positiveNumber(overrides.radius, elite ? MOB_RADIUS + 5 : MOB_RADIUS),
+      radius: positiveNumber(overrides.radius, MOB_RADIUS + species.size + (elite ? 5 : 0)),
       level,
       elite: elite === true,
       boss: overrides.boss === true,
       hp: maxHp,
       maxHp,
-      speed: positiveNumber(overrides.speed, 70 + level * 3),
+      speed: positiveNumber(overrides.speed, (70 + level * 3) * species.speedMul),
       damage: positiveNumber(overrides.damage, (5 + level * 2.5) * power),
-      xp: positiveNumber(overrides.xp, Math.round((22 + level * 9) * (elite ? 2 : 1))),
+      xp: positiveNumber(overrides.xp, Math.round((22 + level * 9) * (elite ? 2 : 1) * species.xpMul)),
       nextAttackAt: this.time,
     };
     if (this.mobs.has(mob.id)) {
@@ -660,6 +663,7 @@ export class World {
       if (player.input.primary) this._usePrimary(player, aim);
       if (player.input.q) this._useSkill(player, "q", aim);
       if (player.input.e) this._useSkill(player, "e", aim);
+      if (player.input.f) this._useSkill(player, "f", aim);
     }
   }
 
@@ -775,10 +779,12 @@ export class World {
     const archetype = ARCHETYPES[player.archetype];
     const skill = archetype.skills[slot];
     const level = player.skillLevels[slot];
-    const cooldownReduction = 1 - Math.min(0.28, (level - 1) * 0.07);
+    const cooldownReduction = 1 - Math.min(0.4, (level - 1) * 0.05);
     player.nextSkillAt[slot] = this.time + skill.cooldown * cooldownReduction;
 
-    if (player.archetype === "vanguard" && slot === "q") {
+    if (slot === "f") {
+      this._useUltimate(player, direction, level, archetype);
+    } else if (player.archetype === "vanguard" && slot === "q") {
       this._movePlayer(player, direction, 94 + level * 10);
       this._spawnProjectile(player, direction, {
         damage: 25 + level * 8 + this._statTotal(player, "power") * 2.1,
@@ -915,6 +921,99 @@ export class World {
       skillId: skill.id,
       level,
     });
+  }
+
+  // Ultimates: one signature finisher per hero, built from the same
+  // authoritative projectile primitives as the rest of the kit.
+  _useUltimate(player, direction, level, archetype) {
+    const color = archetype.color;
+    switch (player.archetype) {
+      case "vanguard":
+        this._radialBurst(player, 16, {
+          damage: 34 + level * 12 + this._statTotal(player, "power") * 2.4,
+          speed: 460,
+          range: 260 + level * 24,
+          radius: 14,
+          color,
+        });
+        break;
+      case "channeler":
+        this._spawnProjectile(player, direction, {
+          damage: 55 + level * 18 + this._statTotal(player, "spirit") * 3,
+          speed: 380,
+          range: 900,
+          radius: 26,
+          pierce: 40,
+          color,
+        });
+        break;
+      case "strider":
+        this._movePlayer(player, direction, 200 + level * 20);
+        this._radialBurst(player, 12, {
+          damage: 24 + level * 9 + this._statTotal(player, "agility") * 2,
+          speed: 720,
+          range: 380,
+          radius: 8,
+          color,
+        });
+        break;
+      case "bulwark":
+        this._radialBurst(player, 20, {
+          damage: 30 + level * 11 + this._statTotal(player, "power") * 2.6,
+          speed: 400,
+          range: 230 + level * 20,
+          radius: 13,
+          color,
+        });
+        break;
+      case "longshot":
+        for (const angle of [-0.12, -0.06, 0, 0.06, 0.12]) {
+          this._spawnProjectile(player, rotate(direction, angle), {
+            damage: 36 + level * 12 + this._statTotal(player, "agility") * 2.2,
+            speed: 1100,
+            range: 1100,
+            radius: 7,
+            pierce: 8,
+            color,
+          });
+        }
+        break;
+      case "pyre":
+        this._radialBurst(player, 14, {
+          damage: 26 + level * 10 + this._statTotal(player, "spirit") * 2,
+          speed: 420,
+          range: 320 + level * 26,
+          radius: 11,
+          color,
+        });
+        this._radialBurst(player, 10, {
+          damage: 20 + level * 8 + this._statTotal(player, "spirit") * 1.4,
+          speed: 620,
+          range: 200 + level * 16,
+          radius: 9,
+          color,
+        });
+        break;
+      default: // moonblade
+        this._movePlayer(player, direction, 180 + level * 18);
+        this._radialBurst(player, 12, {
+          damage: 22 + level * 9 + this._statTotal(player, "agility") * 2.1,
+          speed: 640,
+          range: 240,
+          radius: 9,
+          color,
+        });
+        for (const angle of [-0.1, 0.1]) {
+          this._spawnProjectile(player, rotate(direction, angle), {
+            damage: 28 + level * 10 + this._statTotal(player, "agility") * 1.8,
+            speed: 860,
+            range: 420,
+            radius: 8,
+            color,
+          });
+        }
+        break;
+    }
   }
 
   _spawnProjectile(player, direction, options) {
@@ -1397,6 +1496,7 @@ function emptyInput() {
     primary: false,
     q: false,
     e: false,
+    f: false,
   };
 }
 

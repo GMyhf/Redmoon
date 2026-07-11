@@ -7,10 +7,15 @@ export const REBIRTH_STAT_BONUS = 6;
 export const REBIRTH_HP_BONUS = 0.12;
 export const REBIRTH_DAMAGE_BONUS = 0.15;
 
+// Species ladder: two mob levels per band; later species are bigger,
+// tougher, and worth far more experience.
 export const MOB_TYPES = Object.freeze([
-  Object.freeze({ type: "riftling", name: "Riftling" }),
-  Object.freeze({ type: "duskfang", name: "Duskfang" }),
-  Object.freeze({ type: "ashwing", name: "Ashwing" }),
+  Object.freeze({ type: "riftling", name: "Riftling", hpMul: 1, xpMul: 1, size: 0, speedMul: 1 }),
+  Object.freeze({ type: "duskfang", name: "Duskfang", hpMul: 1.1, xpMul: 1.1, size: 0, speedMul: 1.05 }),
+  Object.freeze({ type: "ashwing", name: "Ashwing", hpMul: 1.15, xpMul: 1.25, size: 0, speedMul: 1.1 }),
+  Object.freeze({ type: "stonehorn", name: "Stonehorn", hpMul: 1.5, xpMul: 1.6, size: 6, speedMul: 0.85 }),
+  Object.freeze({ type: "scraphulk", name: "Scraphulk", hpMul: 2, xpMul: 2.3, size: 10, speedMul: 0.7 }),
+  Object.freeze({ type: "voidmaw", name: "Voidmaw", hpMul: 2.6, xpMul: 3.2, size: 12, speedMul: 0.8 }),
 ]);
 
 export const ITEM_SLOTS = Object.freeze([
@@ -51,7 +56,7 @@ export const STAT_KEYS = Object.freeze([
   "vitality",
 ]);
 
-export const SKILL_SLOTS = Object.freeze(["q", "e"]);
+export const SKILL_SLOTS = Object.freeze(["q", "e", "f"]);
 
 export const ARCHETYPES = Object.freeze({
   vanguard: Object.freeze({
@@ -75,13 +80,20 @@ export const ARCHETYPES = Object.freeze({
         name: "Ram Drive",
         description: "Surge forward and launch a heavy kinetic wave.",
         cooldown: 4.5,
-        maxLevel: 5,
+        maxLevel: 10,
       }),
       e: Object.freeze({
         id: "resonant-ring",
         name: "Resonant Ring",
         description: "Release a ring of short-range force projectiles.",
         cooldown: 7,
+        maxLevel: 10,
+      }),
+      f: Object.freeze({
+        id: "skybreaker",
+        name: "Skybreaker",
+        description: "Bring the blade down hard enough to crack the field itself.",
+        cooldown: 16,
         maxLevel: 5,
       }),
     }),
@@ -107,13 +119,20 @@ export const ARCHETYPES = Object.freeze({
         name: "Arc Lance",
         description: "Fire a piercing lance that crosses the battlefield.",
         cooldown: 3.8,
-        maxLevel: 5,
+        maxLevel: 10,
       }),
       e: Object.freeze({
         id: "orbit-bloom",
         name: "Orbit Bloom",
         description: "Cast stellar bolts in every direction.",
         cooldown: 7.5,
+        maxLevel: 10,
+      }),
+      f: Object.freeze({
+        id: "startide",
+        name: "Startide",
+        description: "Release a colossal orb of starfire that rolls through everything.",
+        cooldown: 18,
         maxLevel: 5,
       }),
     }),
@@ -139,13 +158,20 @@ export const ARCHETYPES = Object.freeze({
         name: "Split Volley",
         description: "Fire three precision darts in a narrow fan.",
         cooldown: 3.4,
-        maxLevel: 5,
+        maxLevel: 10,
       }),
       e: Object.freeze({
         id: "phase-vault",
         name: "Phase Vault",
         description: "Vault forward and fire a wake of energy.",
         cooldown: 6,
+        maxLevel: 10,
+      }),
+      f: Object.freeze({
+        id: "storm-of-edges",
+        name: "Storm of Edges",
+        description: "Dash through the fray inside a storm of spinning blades.",
+        cooldown: 15,
         maxLevel: 5,
       }),
     }),
@@ -171,13 +197,20 @@ export const ARCHETYPES = Object.freeze({
         name: "Quake Ring",
         description: "Slam the ground and shatter everything nearby.",
         cooldown: 5,
-        maxLevel: 5,
+        maxLevel: 10,
       }),
       e: Object.freeze({
         id: "iron-charge",
         name: "Iron Charge",
         description: "Charge forward behind a crushing ram wave.",
         cooldown: 6.5,
+        maxLevel: 10,
+      }),
+      f: Object.freeze({
+        id: "mountainfall",
+        name: "Mountainfall",
+        description: "Shatter the ground in a devastating full-circle quake.",
+        cooldown: 20,
         maxLevel: 5,
       }),
     }),
@@ -203,13 +236,20 @@ export const ARCHETYPES = Object.freeze({
         name: "Rail Lance",
         description: "A piercing shot that crosses half the field.",
         cooldown: 4.2,
-        maxLevel: 5,
+        maxLevel: 10,
       }),
       e: Object.freeze({
         id: "disengage-volley",
         name: "Disengage Volley",
         description: "Leap back while loosing a spread of bolts.",
         cooldown: 6,
+        maxLevel: 10,
+      }),
+      f: Object.freeze({
+        id: "meteor-volley",
+        name: "Meteor Volley",
+        description: "Loose five piercing lances that cross the entire field.",
+        cooldown: 17,
         maxLevel: 5,
       }),
     }),
@@ -235,13 +275,20 @@ export const ARCHETYPES = Object.freeze({
         name: "Flame Nova",
         description: "Erupt in a ring of fire.",
         cooldown: 5.5,
-        maxLevel: 5,
+        maxLevel: 10,
       }),
       e: Object.freeze({
         id: "ember-fan",
         name: "Ember Fan",
         description: "Sweep a wide fan of embers forward.",
         cooldown: 4.4,
+        maxLevel: 10,
+      }),
+      f: Object.freeze({
+        id: "skyfire",
+        name: "Skyfire",
+        description: "Ignite the air itself in a vast double ring of flame.",
+        cooldown: 19,
         maxLevel: 5,
       }),
     }),
@@ -267,13 +314,20 @@ export const ARCHETYPES = Object.freeze({
         name: "Moon Whirl",
         description: "Spin with blades out, shredding all around.",
         cooldown: 3.6,
-        maxLevel: 5,
+        maxLevel: 10,
       }),
       e: Object.freeze({
         id: "lunar-rush",
         name: "Lunar Rush",
         description: "Dash through and cut twice on the way.",
         cooldown: 5.2,
+        maxLevel: 10,
+      }),
+      f: Object.freeze({
+        id: "eclipse-waltz",
+        name: "Eclipse Waltz",
+        description: "Dance through the enemy line in a whirl of crescent light.",
+        cooldown: 15,
         maxLevel: 5,
       }),
     }),
