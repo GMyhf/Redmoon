@@ -8,6 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
 
 import {
+  INVENTORY_LIMIT,
   PROTOCOL_VERSION,
   REBIRTH_LEVEL,
   SNAPSHOT_RATE,
@@ -168,6 +169,7 @@ export class GameServer {
         portals: this.world.portals.map((portal) => ({ ...portal })),
       },
       rebirthLevel: REBIRTH_LEVEL,
+      inventoryLimit: INVENTORY_LIMIT,
       archetypes: publicArchetypes(),
     });
 

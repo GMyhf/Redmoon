@@ -1,5 +1,9 @@
 import {
+  ALLOC_WEIGHTS,
   ARCHETYPES,
+  BOSSES,
+  DROP_MAGNET_RADIUS,
+  DROP_MAGNET_SPEED,
   DROP_PICKUP_RADIUS,
   DROP_TTL,
   INVENTORY_LIMIT,
@@ -28,8 +32,8 @@ const MOB_RESPAWN_DELAY = 2.5;
 const DEFAULT_SAFE_ZONE_RADIUS = 220;
 const MOVE_ARRIVAL_EPSILON = 4;
 const MAX_MOB_LEVEL = 12;
+const MAX_ITEM_LEVEL = 12;
 const ELITE_CHANCE = 0.1;
-const BOSS_ID = "boss-warden";
 const BOSS_RESPAWN_DELAY = 90;
 const PORTAL_RADIUS = 30;
 const PORTAL_LOCK = 2.5;
@@ -87,13 +91,14 @@ export class World {
     this._projectileSequence = 0;
     this._dropSequence = 0;
     this._itemSequence = 0;
-    this._nextBossAt = null;
+    this._bossRespawns = new Map();
+    this.autoLevelDefault = options.autoLevel !== false;
     this.soulBarrierConfig = { ...SOUL_BARRIER, ...(options.soulBarrier ?? {}) };
     this._buildPortals();
 
     if (options.spawnMobs !== false) {
       this._maintainMobPopulation();
-      if (options.spawnBoss !== false) this.spawnBoss();
+      if (options.spawnBoss !== false) this.spawnBosses();
     }
   }
 
@@ -147,6 +152,7 @@ export class World {
       moveTarget: null,
       attackTarget: null,
       autoFight: true,
+      autoLevel: this.autoLevelDefault,
       portalLockUntil: 0,
       portalDwell: null,
       rebirths: 0,
@@ -236,6 +242,9 @@ export class World {
       case "setAuto":
       case "setauto":
         return this.setAutoFight(id, message.enabled);
+      case "setAutoLevel":
+      case "setautolevel":
+        return this.setAutoLevel(id, message.enabled);
       case "attune":
         return this.attune(id, message.path);
       case "discard":
@@ -382,6 +391,7 @@ export class World {
       x: round(player.x),
       y: round(player.y),
     });
+    this._autoAllocate(player);
     return player;
   }
 
@@ -449,6 +459,56 @@ export class World {
     player.attunement = path;
     this._emit("attuned", { playerId: id, path });
     return player;
+  }
+
+  setAutoLevel(id, enabled) {
+    const player = this._requirePlayer(id);
+    if (typeof enabled !== "boolean") {
+      throw new WorldError("INVALID_MESSAGE", "enabled must be a boolean.");
+    }
+    player.autoLevel = enabled;
+    if (enabled) this._autoAllocate(player);
+    this._emit("autoLevelChanged", { playerId: id, enabled });
+    return player;
+  }
+
+  // Spend banked stat points along the hero's weight profile and skill
+  // points on the lowest skill with headroom.
+  _autoAllocate(player) {
+    if (!player.autoLevel || !player.alive) return;
+    const weights = ALLOC_WEIGHTS[player.archetype]
+      ?? { power: 1, agility: 1, spirit: 1, vitality: 1 };
+    let statsSpent = 0;
+    while (player.statPoints > 0) {
+      let best = STAT_KEYS[0];
+      let bestScore = Infinity;
+      for (const key of STAT_KEYS) {
+        const score = player.stats[key] / Math.max(0.05, weights[key] ?? 0.05);
+        if (score < bestScore) {
+          bestScore = score;
+          best = key;
+        }
+      }
+      player.stats[best] += 1;
+      player.statPoints -= 1;
+      statsSpent += 1;
+    }
+    if (statsSpent > 0) this._refreshDerivedStats(player, true);
+
+    let skillsSpent = 0;
+    while (player.skillPoints > 0) {
+      const openSlots = SKILL_SLOTS.filter(
+        (slot) => player.skillLevels[slot] < ARCHETYPES[player.archetype].skills[slot].maxLevel,
+      );
+      if (openSlots.length === 0) break;
+      const slot = openSlots.sort((a, b) => player.skillLevels[a] - player.skillLevels[b])[0];
+      player.skillLevels[slot] += 1;
+      player.skillPoints -= 1;
+      skillsSpent += 1;
+    }
+    if (statsSpent > 0 || skillsSpent > 0) {
+      this._emit("autoAllocated", { playerId: player.id, stats: statsSpent, skills: skillsSpent });
+    }
   }
 
   setAutoFight(id, enabled) {
@@ -545,7 +605,7 @@ export class World {
       this._updatePortals();
       this._updateMobs(step);
       this._updateProjectiles(step);
-      this._updateDrops();
+      this._updateDrops(step);
       this._processMobSpawns();
     }
     this.tick += 1;
@@ -658,25 +718,36 @@ export class World {
     return mob;
   }
 
-  spawnBoss() {
-    if (this.mobs.has(BOSS_ID)) return this.mobs.get(BOSS_ID);
+  spawnBosses() {
+    return BOSSES.map((definition) => this.spawnBoss(definition));
+  }
+
+  spawnBoss(definition = BOSSES.find((entry) => entry.id === "boss-warden")) {
+    if (this.mobs.has(definition.id)) return this.mobs.get(definition.id);
     const boss = this.spawnMob({
-      id: BOSS_ID,
-      type: "warden",
-      name: "Crimson Warden",
+      id: definition.id,
+      type: definition.type,
+      name: definition.name,
       boss: true,
       elite: false,
-      x: this.width * 0.9,
-      y: this.height * 0.14,
-      level: 12,
-      maxHp: 1500,
-      radius: 30,
-      speed: 92,
-      damage: 34,
-      xp: 650,
+      x: this.width * definition.x,
+      y: this.height * definition.y,
+      level: definition.level,
+      maxHp: definition.maxHp,
+      radius: definition.radius,
+      speed: definition.speed,
+      damage: definition.damage,
+      xp: definition.xp,
     });
-    this._nextBossAt = null;
-    this._emit("bossSpawned", { enemyId: boss.id, x: round(boss.x), y: round(boss.y) });
+    this._bossRespawns.delete(definition.id);
+    this._emit("bossSpawned", {
+      enemyId: boss.id,
+      type: boss.type,
+      name: boss.name,
+      level: boss.level,
+      x: round(boss.x),
+      y: round(boss.y),
+    });
     return boss;
   }
 
@@ -1215,8 +1286,15 @@ export class World {
     }
     if (mob.boss) {
       this._dropBossHoard(mob);
-      this._nextBossAt = this.time + BOSS_RESPAWN_DELAY;
-      this._emit("bossSlain", { enemyId: mob.id, playerId: ownerId, x: round(mob.x), y: round(mob.y) });
+      this._bossRespawns.set(mob.id, this.time + BOSS_RESPAWN_DELAY);
+      this._emit("bossSlain", {
+        enemyId: mob.id,
+        type: mob.type,
+        name: mob.name,
+        playerId: ownerId,
+        x: round(mob.x),
+        y: round(mob.y),
+      });
     } else {
       this._maybeDropLoot(mob);
     }
@@ -1288,6 +1366,7 @@ export class World {
         level: player.level,
         levelsGained: gainedLevels,
       });
+      this._autoAllocate(player);
     }
   }
 
@@ -1370,6 +1449,7 @@ export class World {
       moveTarget: player.moveTarget ? { x: round(player.moveTarget.x), y: round(player.moveTarget.y) } : null,
       targetId: player.attackTarget,
       autoFight: player.autoFight,
+      autoLevel: player.autoLevel,
       rebirths: player.rebirths,
       level: player.level,
       xp: round(player.xp),
@@ -1441,8 +1521,11 @@ export class World {
       return false;
     });
     if (spawned) this._maintainMobPopulation();
-    if (this._nextBossAt !== null && this.time >= this._nextBossAt) {
-      this.spawnBoss();
+    for (const [bossId, at] of [...this._bossRespawns]) {
+      if (this.time < at) continue;
+      const definition = BOSSES.find((entry) => entry.id === bossId);
+      if (definition) this.spawnBoss(definition);
+      else this._bossRespawns.delete(bossId);
     }
   }
 
@@ -1453,18 +1536,46 @@ export class World {
     }
   }
 
-  _updateDrops() {
+  _updateDrops(dt) {
     for (const [id, drop] of [...this.drops]) {
       if (this.time >= drop.expiresAt) {
         this.drops.delete(id);
         continue;
       }
       for (const player of this.players.values()) {
-        if (!player.alive || player.inventory.length >= INVENTORY_LIMIT) continue;
-        const reach = player.radius + DROP_PICKUP_RADIUS;
+        if (!player.alive) continue;
         const dx = player.x - drop.x;
         const dy = player.y - drop.y;
-        if (dx * dx + dy * dy > reach * reach) continue;
+        const distance = Math.hypot(dx, dy);
+        // Loose loot drifts toward the nearest hunter on its own.
+        if (distance > player.radius + DROP_PICKUP_RADIUS && distance <= DROP_MAGNET_RADIUS) {
+          const pull = Math.min(DROP_MAGNET_SPEED * dt, distance);
+          drop.x += (dx / distance) * pull;
+          drop.y += (dy / distance) * pull;
+          continue;
+        }
+        if (distance > player.radius + DROP_PICKUP_RADIUS) continue;
+
+        if (player.inventory.length >= INVENTORY_LIMIT) {
+          // Full bag: swap out the weakest piece if the find is stronger.
+          let worstIndex = -1;
+          let worstPower = Infinity;
+          player.inventory.forEach((item, index) => {
+            const power = itemPower(item);
+            if (power < worstPower) {
+              worstPower = power;
+              worstIndex = index;
+            }
+          });
+          if (worstIndex < 0 || itemPower(drop.item) <= worstPower) continue;
+          const [culled] = player.inventory.splice(worstIndex, 1);
+          this._emit("itemDiscarded", {
+            playerId: player.id,
+            itemId: culled.id,
+            name: culled.name,
+            replacedBy: drop.item.name,
+          });
+        }
         player.inventory.push(drop.item);
         this.drops.delete(id);
         this._emit("lootPickedUp", {
@@ -1489,15 +1600,16 @@ export class World {
   }
 
   _dropBossHoard(mob) {
-    for (let index = 0; index < 3; index += 1) {
-      const item = this._rollItem(MAX_MOB_LEVEL, 3);
+    const pieces = 3 + Math.floor(mob.level / 8);
+    for (let index = 0; index < pieces; index += 1) {
+      const item = this._rollItem(Math.min(mob.level, MAX_MOB_LEVEL), 3);
       this._placeDrop(
         mob.x + (this.rng() - 0.5) * 90,
         mob.y + (this.rng() - 0.5) * 90,
         item,
       );
     }
-    this._placeDrop(mob.x, mob.y + 30, this._rollPotion(MAX_MOB_LEVEL));
+    this._placeDrop(mob.x, mob.y + 30, this._rollPotion(mob.level));
   }
 
   _placeDrop(x, y, item) {
@@ -1562,7 +1674,7 @@ export class World {
       slot,
       rarity: rarity.id,
       tier: rarity.tier,
-      level: Math.max(1, level + rarity.tier - 1),
+      level: Math.min(MAX_ITEM_LEVEL, Math.max(1, level + rarity.tier - 1)),
       name,
       bonuses,
     };

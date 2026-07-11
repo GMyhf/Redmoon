@@ -36,7 +36,7 @@ test("World is deterministic with an injected RNG and applies authoritative inpu
 });
 
 test("stat allocation and both archetype skills can be upgraded", () => {
-  const world = new World({ rng: () => 0.5, spawnMobs: false });
+  const world = new World({ rng: () => 0.5, spawnMobs: false, autoLevel: false });
   const player = world.addPlayer("player-1", { name: "  Relay   One  ", archetype: "channeler" });
   const oldMaxHp = player.maxHp;
 
@@ -173,7 +173,7 @@ test("marking an enemy walks the player into range and auto-attacks it down", ()
 });
 
 test("rebirth requires the unlock level and grants permanent bonuses", () => {
-  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, autoLevel: false });
   const player = world.addPlayer("player-1", { archetype: "vanguard" });
   const baselineMaxHp = player.maxHp;
 
@@ -540,6 +540,84 @@ test("portals teleport players to their paired gate with a re-entry lock", () =>
   for (let index = 0; index < 80; index += 1) world.update(0.05);
   assert.equal(player.x, x);
   assert.equal(player.y, y);
+});
+
+test("auto-level spends banked stat and skill points along class weights", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
+  const player = world.addPlayer("player-1", { archetype: "vanguard" });
+  assert.equal(player.statPoints, 3, "points bank until the first level-up");
+
+  world._grantXp(player, 80); // one level: +4 stat, +1 skill
+  assert.equal(player.statPoints, 0);
+  assert.equal(player.skillPoints, 0);
+  // 7 points spread by weights (power 3 / vitality 2 / agility 1 / spirit 0.2).
+  assert.deepEqual(player.stats, { power: 11, agility: 4, spirit: 2, vitality: 8 });
+  assert.equal(player.skillLevels.q, 2);
+
+  world.handleCommand("player-1", { type: "setAutoLevel", enabled: false });
+  world._grantXp(player, 200);
+  assert.ok(player.statPoints > 0, "manual mode banks points again");
+});
+
+test("full bags swap the weakest item for a stronger find; drops magnetise", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
+  const player = world.addPlayer("player-1", { archetype: "strider" });
+
+  // Magnet: loot placed outside pickup reach drifts in on its own.
+  world._placeDrop(player.x + 150, player.y, world._rollItem(3));
+  for (let index = 0; index < 30 && world.drops.size > 0; index += 1) world.update(0.05);
+  assert.equal(world.drops.size, 0);
+  assert.equal(player.inventory.length, 1);
+  player.inventory.length = 0;
+
+  // Fill the bag with worthless rings, then drop something excellent.
+  for (let index = 0; index < 48; index += 1) {
+    world.giveItem("player-1", {
+      slot: "ring",
+      bonuses: { power: 0, agility: 0, spirit: 0, vitality: 0 },
+      damageBonus: 0,
+      hpBonus: 0,
+      speedBonus: 0,
+    });
+  }
+  assert.equal(player.inventory.length, 48);
+  const prize = world._rollItem(9, 4);
+  world._placeDrop(player.x, player.y, prize);
+  world.update(0.05);
+
+  assert.equal(player.inventory.length, 48, "bag stays at capacity");
+  assert.ok(player.inventory.some((item) => item.id === prize.id), "stronger find replaces the weakest");
+  assert.ok(world.drainEvents().some((event) => event.event === "itemDiscarded"));
+
+  // A worthless find is left on the ground.
+  const junk = {
+    id: "junk-item", slot: "ring", rarity: "common", tier: 1, level: 1,
+    name: "Orbit Band",
+    bonuses: { power: 0, agility: 0, spirit: 0, vitality: 0 },
+  };
+  world._placeDrop(player.x, player.y, junk);
+  world.update(0.05);
+  assert.equal(world.drops.size, 1, "junk stays on the ground when the bag is full");
+});
+
+test("every biome has a boss with rising level and experience", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
+  const bosses = world.spawnBosses();
+  assert.equal(bosses.length, 5);
+  const levels = bosses.map((boss) => boss.level);
+  assert.deepEqual(levels, [...levels].sort((a, b) => a - b), "boss levels rise across biomes");
+  const warden = bosses.find((boss) => boss.id === "boss-warden");
+  assert.equal(warden.level, 15);
+  assert.equal(warden.xp, 1400);
+
+  const player = world.addPlayer("player-1", { archetype: "vanguard" });
+  const thornmaw = bosses.find((boss) => boss.id === "boss-thornmaw");
+  world._damageMob(thornmaw, 1_000_000, player.id);
+  assert.equal(world.mobs.has("boss-thornmaw"), false);
+  assert.ok([...world.drops.values()].filter((drop) => drop.item.tier >= 3).length >= 3);
+
+  for (let index = 0; index < 1801 && !world.mobs.has("boss-thornmaw"); index += 1) world.update(0.05);
+  assert.equal(world.mobs.has("boss-thornmaw"), true, "biome bosses respawn on their own timers");
 });
 
 test("the town safe zone blocks enemy damage and keeps mobs from advancing", () => {

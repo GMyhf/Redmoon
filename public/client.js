@@ -51,6 +51,7 @@
     alignmentText: document.querySelector("#alignment-text"),
     attuneButton: document.querySelector("#attune-button"),
     autoFightToggle: document.querySelector("#auto-fight-toggle"),
+    autoLevelToggle: document.querySelector("#auto-level-toggle"),
     bagCount: document.querySelector("#bag-count"),
     autoEquipButton: document.querySelector("#auto-equip-button"),
     equipmentDoll: document.querySelector("#equipment-doll"),
@@ -266,6 +267,18 @@
     scraphulk: "废钢巨兽",
     voidmaw: "虚空吞喉",
     warden: "深红督军",
+    thornmaw: "棘颚兽",
+    cragfather: "岩父",
+    rustking: "锈王",
+    hullwraith: "舰魂",
+  };
+
+  // Biome bosses reuse the closest species body at boss scale.
+  const RENDER_AS = {
+    thornmaw: "duskfang",
+    cragfather: "stonehorn",
+    rustking: "scraphulk",
+    hullwraith: "ashwing",
   };
 
   const ZONE_LABELS = {
@@ -430,6 +443,7 @@
     orders: { moveTo: undefined, target: undefined },
     dragMove: false,
     rebirthLevel: 10,
+    inventoryLimit: 48,
     inputSeq: 0,
     lastInput: 0,
     lastFrame: performance.now(),
@@ -571,6 +585,8 @@
       applyMap(first(message.map, message.world));
       const rebirthLevel = finite(message.rebirthLevel, NaN);
       if (Number.isFinite(rebirthLevel) && rebirthLevel > 0) state.rebirthLevel = rebirthLevel;
+      const inventoryLimit = finite(message.inventoryLimit, NaN);
+      if (Number.isFinite(inventoryLimit) && inventoryLimit > 0) state.inventoryLimit = inventoryLimit;
       if (message.archetypes && typeof message.archetypes === "object") {
         mergeArchetypes(message.archetypes);
       }
@@ -746,6 +762,10 @@
       ui.autoFightToggle.textContent = player.autoFight ? "自动战斗 · 开" : "自动战斗 · 关";
       ui.autoFightToggle.classList.toggle("is-off", !player.autoFight);
     }
+    if (ui.autoLevelToggle && player.autoLevel !== undefined) {
+      ui.autoLevelToggle.textContent = player.autoLevel ? "自动加点 · 开" : "自动加点 · 关";
+      ui.autoLevelToggle.classList.toggle("is-off", !player.autoLevel);
+    }
     if (ui.alignmentRow) {
       const isEclipse = archetypeKey === "eclipse";
       ui.alignmentRow.hidden = !isEclipse;
@@ -796,9 +816,9 @@
     ui.skillQ.textContent = archetype.q;
     ui.skillE.textContent = archetype.e;
     if (ui.skillF) ui.skillF.textContent = archetype.f;
-    ui.skillQLevel.textContent = roman(qLevel);
-    ui.skillELevel.textContent = roman(eLevel);
-    if (ui.skillFLevel) ui.skillFLevel.textContent = roman(fLevel);
+    ui.skillQLevel.textContent = String(qLevel);
+    ui.skillELevel.textContent = String(eLevel);
+    if (ui.skillFLevel) ui.skillFLevel.textContent = String(fLevel);
     const skillPoints = Math.max(0, Math.floor(finite(first(player.skillPoints, skills.points), 0)));
     ui.skillPoints.textContent = `${skillPoints} 技能点`;
     ui.skillUpgrades.hidden = skillPoints < 1;
@@ -824,7 +844,7 @@
     if (signature === state.gearSignature) return;
     state.gearSignature = signature;
 
-    ui.bagCount.textContent = `${inventory.length}/24`;
+    ui.bagCount.textContent = `${inventory.length}/${state.inventoryLimit}`;
 
     // Paper-doll: one box per body slot arranged around a figure silhouette.
     ui.equipmentDoll.replaceChildren(...DOLL_SLOTS.map((slot) => {
@@ -946,8 +966,7 @@
       allocated: "属性已强化",
       statallocated: "属性已强化",
       playerreborn: "转生完成 // 力量得到升华",
-      bossspawned: "警报 // 深红督军已出现在东北荒原",
-      bossslain: "深红督军已被击破，遗落了大量装备",
+      autolevelchanged: "自动加点设置已更新",
       potionused: "使用了修复药剂",
       autofightchanged: "自动战斗设置已更新",
       barriersurged: "魂力护障强化 // 转换效率提升",
@@ -984,6 +1003,16 @@
     }
     if (eventName === "autoequipped") {
       pushEvent(`自动换装完成 // 更新了 ${finite(event.changed, 0)} 件`);
+      return;
+    }
+    if (eventName === "bossspawned" || eventName === "bossslain") {
+      const bossName = MOB_NAMES[String(event.type || "").toLowerCase()] || event.name || "首领";
+      pushEvent(
+        eventName === "bossspawned"
+          ? `警报 // ${bossName}${event.level ? ` Lv${event.level}` : ""} 已现身`
+          : `${bossName} 已被击破，遗落了大量装备`,
+        eventName === "bossspawned",
+      );
       return;
     }
     if (eventName === "alignmentshifted") {
@@ -2106,7 +2135,8 @@
     const point = worldToScreen(enemy.x, enemy.y);
     if (point.x < -70 || point.x > state.viewWidth + 70 || point.y < -90 || point.y > state.viewHeight + 70) return;
     const pulse = 1 + Math.sin(time * 0.006 + finite(enemy.x)) * 0.04;
-    const species = String(first(enemy.type, "riftling")).toLowerCase();
+    const trueSpecies = String(first(enemy.type, "riftling")).toLowerCase();
+    const species = RENDER_AS[trueSpecies] || trueSpecies;
     const scale = enemy.boss ? 2.1 : enemy.elite ? 1.3 : 1;
     ctx.save();
     ctx.translate(point.x, point.y);
@@ -2160,7 +2190,7 @@
       ctx.fill();
     }
     ctx.restore();
-    const localizedName = MOB_NAMES[species] || String(first(enemy.name, enemy.type, "裂隙体"));
+    const localizedName = MOB_NAMES[trueSpecies] || String(first(enemy.name, enemy.type, "裂隙体"));
     const prefix = enemy.boss ? "" : enemy.elite ? "精英·" : "";
     const label = `${prefix}${localizedName} Lv${Math.floor(finite(enemy.level, 1))}`;
     drawEntityLabel(
@@ -2788,6 +2818,11 @@
     send({ type: "setAuto", enabled: local.autoFight === false });
   }
   ui.autoFightToggle?.addEventListener("click", toggleAutoFight);
+  ui.autoLevelToggle?.addEventListener("click", () => {
+    const local = localPlayer();
+    if (!local) return;
+    send({ type: "setAutoLevel", enabled: local.autoLevel === false });
+  });
   ui.attuneButton?.addEventListener("click", () => {
     send({ type: "attune", path: ui.attuneButton.dataset.path || "abyss" });
   });
