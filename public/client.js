@@ -5,6 +5,7 @@
   const ctx = canvas.getContext("2d", { alpha: false });
   const ui = {
     titleArt: document.querySelector("#title-art"),
+    worldArt: document.querySelector("#world-art"),
     joinPanel: document.querySelector("#join-panel"),
     joinForm: document.querySelector("#join-form"),
     joinButton: document.querySelector("#join-button"),
@@ -338,6 +339,18 @@
     lake: "湖泊",
   };
 
+  const ZONE_ART = Object.freeze({
+    residential: "residential",
+    downtown: "downtown",
+    mountain: "mountain",
+    scrapyard: "scrapyard",
+    desert: "desert",
+    snow: "snow",
+    castle: "castle",
+    spaceport: "spaceport",
+    skycity: "skycity",
+  });
+
   // Themed regions of the alien world, resolved purely from world position.
   // Each biome is a colour ramp; the ground blends smoothly between the
   // two ends so terrain reads as rolling fields, not a checkerboard.
@@ -568,6 +581,7 @@
     dpr: 1,
     viewWidth: innerWidth,
     viewHeight: innerHeight,
+    worldArtTheme: "",
   };
 
   const clamp = (value, min, max) => Math.max(min, Math.min(max, Number(value) || 0));
@@ -783,6 +797,7 @@
       // Snap the camera straight onto the hero — no cross-map pan on entry.
       state.camera.x = local.x;
       state.camera.y = local.y;
+      state.worldArtTheme = "";
       ui.titleArt.classList.add("is-hidden");
       ui.joinPanel.hidden = true;
       ui.hud.hidden = false;
@@ -1391,7 +1406,9 @@
     if (error.requestType === "join") {
       state.joined = false;
       state.pendingJoin = false;
+      state.worldArtTheme = "";
       ui.titleArt.classList.remove("is-hidden");
+      ui.worldArt.classList.remove("is-active");
       ui.joinPanel.hidden = false;
       ui.hud.hidden = true;
       ui.joinButton.disabled = false;
@@ -1472,6 +1489,20 @@
     drawGrading();
     drawMinimap();
     drawCursor(time);
+    updateWorldArt();
+  }
+
+  function updateWorldArt() {
+    const theme = biomeAt(state.camera.x, state.camera.y);
+    if (theme === state.worldArtTheme) return;
+    state.worldArtTheme = theme;
+    const asset = ZONE_ART[theme];
+    if (!asset || !state.joined) {
+      ui.worldArt.classList.remove("is-active");
+      return;
+    }
+    ui.worldArt.style.backgroundImage = `url("/assets/scenes/${asset}.png")`;
+    ui.worldArt.classList.add("is-active");
   }
 
   // Warm pool of light around the player so the hero anchors the frame.
@@ -3513,7 +3544,7 @@
 
     const portrait = document.createElement("img");
     portrait.className = "hero-detail-portrait";
-    portrait.src = `/assets/heroes/${id}.svg`;
+    portrait.src = `/assets/heroes/${id}.png`;
     portrait.alt = hero.label;
 
     const info = document.createElement("div");
@@ -3574,7 +3605,7 @@
       button.setAttribute("aria-checked", String(id === state.selectedArchetype));
       button.dataset.archetype = id;
       const portrait = document.createElement("img");
-      portrait.src = `/assets/heroes/${id}.svg`;
+      portrait.src = `/assets/heroes/${id}.png`;
       portrait.alt = "";
       const copy = document.createElement("span");
       copy.className = "archetype-copy";
