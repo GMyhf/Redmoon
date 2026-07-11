@@ -584,7 +584,7 @@ button {
   background: #287e82;
 }
 
-.meter span {
+.meter > span {
   position: relative;
   z-index: 1;
   display: block;

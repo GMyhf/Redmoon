@@ -259,12 +259,12 @@
 
   // Themed regions of the alien world, resolved purely from world position.
   const BIOMES = {
-    town: { base: ["#2e2427", "#33282b"], stroke: "rgba(226, 168, 122, 0.2)" },
-    grass: { base: ["#1d2b1a", "#213120", "#253723"], stroke: "rgba(140, 190, 130, 0.12)" },
-    mountain: { base: ["#25282d", "#2a2e34", "#2f343b"], stroke: "rgba(170, 180, 195, 0.12)" },
-    scrapyard: { base: ["#2b211b", "#31261e", "#372a21"], stroke: "rgba(210, 150, 100, 0.12)" },
-    spaceport: { base: ["#20242e", "#242936", "#282e3e"], stroke: "rgba(130, 160, 220, 0.14)" },
-    wastes: { base: ["#231e21", "#272124", "#2b2426"], stroke: "rgba(200, 120, 135, 0.14)" },
+    town: { base: ["#2e2427", "#322829", "#362c2c"], stroke: "rgba(226, 168, 122, 0.06)" },
+    grass: { base: ["#1c2a19", "#20301e", "#243622", "#293d26"], stroke: null },
+    mountain: { base: ["#24272c", "#282c32", "#2d3138", "#32373f"], stroke: null },
+    scrapyard: { base: ["#2a201a", "#2f241d", "#352920", "#3b2e23"], stroke: null },
+    spaceport: { base: ["#1f232d", "#232834", "#272d3b", "#2b3242"], stroke: null },
+    wastes: { base: ["#221d20", "#262023", "#2a2326", "#2f262a"], stroke: null },
   };
 
   function biomeAt(worldX, worldY) {
@@ -395,6 +395,7 @@
     drops: new Map(),
     gearSignature: "",
     effects: [],
+    ambient: [],
     quest: null,
     camera: { x: 800, y: 450 },
     pointer: { x: 0, y: 0, worldX: 800, worldY: 450, down: false, seen: false },
@@ -609,6 +610,9 @@
     const local = localPlayer();
     if (local && !state.joined) {
       state.joined = true;
+      // Snap the camera straight onto the hero — no cross-map pan on entry.
+      state.camera.x = local.x;
+      state.camera.y = local.y;
       ui.joinPanel.hidden = true;
       ui.hud.hidden = false;
       ui.joinButton.disabled = false;
@@ -654,6 +658,20 @@
             color: kind === "enemy" ? "#ffd479" : isSelf ? "#ff6b74" : "#e89aa2",
             text: String(Math.round(-delta)),
           });
+          // Impact sparks flying out of the hit.
+          const sparkColor = kind === "enemy" ? "#ffca6a" : "#ff7a86";
+          for (let s = 0; s < 5; s += 1) {
+            const angle = Math.random() * Math.PI * 2;
+            const speed = 60 + Math.random() * 130;
+            state.effects.push({
+              type: "spark",
+              x: nextX, y: nextY, born: now,
+              duration: 320 + Math.random() * 200,
+              vx: Math.cos(angle) * speed,
+              vy: Math.sin(angle) * speed * 0.55,
+              color: sparkColor,
+            });
+          }
           if (isSelf) sfx(130, 0.09, "sawtooth", 0.05);
         } else if (delta >= 5 && isSelf) {
           state.effects.push({
@@ -1008,8 +1026,8 @@
     canvas.style.height = `${state.viewHeight}px`;
   }
 
-  const TILE_W = 76;
-  const TILE_H = 38;
+  const TILE_W = 96;
+  const TILE_H = 48;
   const WORLD_CELL = 48;
 
   function worldToScreen(x, y, z = 0) {
@@ -1057,9 +1075,111 @@
     drawAtmosphere(time);
     drawTiles(time);
     drawLandmarks(time);
+    drawPlayerLight();
     drawObjects(time);
+    drawAmbient(time);
+    drawGrading();
     drawMinimap();
     drawCursor(time);
+  }
+
+  // Warm pool of light around the player so the hero anchors the frame.
+  function drawPlayerLight() {
+    const local = localPlayer();
+    if (!local) return;
+    const point = worldToScreen(local.x, local.y);
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    const light = ctx.createRadialGradient(point.x, point.y - 10, 20, point.x, point.y - 10, 300);
+    light.addColorStop(0, "rgba(255, 214, 170, 0.13)");
+    light.addColorStop(0.6, "rgba(255, 190, 150, 0.05)");
+    light.addColorStop(1, "rgba(255, 190, 150, 0)");
+    ctx.fillStyle = light;
+    ctx.fillRect(point.x - 300, point.y - 310, 600, 600);
+    ctx.restore();
+  }
+
+  const AMBIENT_COLORS = {
+    town: "#f0c15e",
+    grass: "#a8d88a",
+    mountain: "#cfd8e2",
+    scrapyard: "#e8a35c",
+    spaceport: "#7ad2ff",
+    wastes: "#e0596d",
+  };
+
+  // Drifting motes (spores, embers, dust) tinted by the biome they float in.
+  function updateAmbient(delta) {
+    const now = performance.now();
+    state.ambient = state.ambient.filter((mote) => now - mote.born < mote.life);
+    while (state.ambient.length < 34) {
+      state.ambient.push({
+        x: state.camera.x + (Math.random() - 0.5) * 1500,
+        y: state.camera.y + (Math.random() - 0.5) * 1000,
+        z: Math.random() * 30,
+        vx: (Math.random() - 0.5) * 10,
+        vy: (Math.random() - 0.5) * 10,
+        vz: 5 + Math.random() * 9,
+        size: 1 + Math.random() * 1.6,
+        born: now,
+        life: 4000 + Math.random() * 4000,
+      });
+    }
+    for (const mote of state.ambient) {
+      mote.x += mote.vx * delta / 1000;
+      mote.y += mote.vy * delta / 1000;
+      mote.z += mote.vz * delta / 1000;
+    }
+  }
+
+  function drawAmbient(time) {
+    const now = performance.now();
+    ctx.save();
+    for (const mote of state.ambient) {
+      const point = worldToScreen(mote.x, mote.y, mote.z);
+      if (point.x < -20 || point.x > state.viewWidth + 20 || point.y < -20 || point.y > state.viewHeight + 20) continue;
+      const age = (now - mote.born) / mote.life;
+      const fade = age < 0.2 ? age / 0.2 : age > 0.75 ? (1 - age) / 0.25 : 1;
+      const color = AMBIENT_COLORS[biomeAt(mote.x, mote.y)] || "#d9a2a8";
+      ctx.globalAlpha = 0.4 * fade;
+      ctx.fillStyle = color;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 6;
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, mote.size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  const GRADING_TINTS = {
+    town: "rgba(240, 193, 94, 0.035)",
+    grass: "rgba(120, 190, 110, 0.05)",
+    mountain: "rgba(150, 175, 210, 0.05)",
+    scrapyard: "rgba(230, 140, 70, 0.045)",
+    spaceport: "rgba(100, 160, 240, 0.05)",
+    wastes: "rgba(220, 70, 90, 0.06)",
+  };
+
+  // Per-biome colour cast plus a soft vignette for depth.
+  function drawGrading() {
+    const tint = GRADING_TINTS[biomeAt(state.camera.x, state.camera.y)];
+    if (tint) {
+      ctx.fillStyle = tint;
+      ctx.fillRect(0, 0, state.viewWidth, state.viewHeight);
+    }
+    const vignette = ctx.createRadialGradient(
+      state.viewWidth * 0.5,
+      state.viewHeight * 0.46,
+      Math.min(state.viewWidth, state.viewHeight) * 0.42,
+      state.viewWidth * 0.5,
+      state.viewHeight * 0.52,
+      Math.max(state.viewWidth, state.viewHeight) * 0.72,
+    );
+    vignette.addColorStop(0, "rgba(6, 4, 7, 0)");
+    vignette.addColorStop(1, "rgba(6, 4, 7, 0.42)");
+    ctx.fillStyle = vignette;
+    ctx.fillRect(0, 0, state.viewWidth, state.viewHeight);
   }
 
   // A single derelict colony ship rests in the southern spaceport fields.
@@ -1311,17 +1431,56 @@
         const biomeKey = biomeAt(worldX, worldY);
         const biome = BIOMES[biomeKey];
         const shades = biome.base;
-        let fill = shades[Math.min(shades.length - 1, Math.floor(noise * shades.length))];
-        if (biomeKey !== "town" && (x + y) % 11 === 0) fill = shades[shades.length - 1];
-        drawDiamond(point.x, point.y, TILE_W - 1, TILE_H - 1, fill, biome.stroke);
+        // Coarse patches blended with fine noise: broad colour drifts
+        // instead of a per-tile checkerboard, and no grid strokes.
+        const patch = tileHash(x >> 2, (y >> 2) + 7);
+        const mix = clamp(noise * 0.45 + patch * 0.55, 0, 0.999);
+        const fill = shades[Math.floor(mix * shades.length)];
+        const stroke = biomeKey === "town" ? biome.stroke : null;
+        drawDiamond(point.x, point.y, TILE_W + 1, TILE_H + 1, fill, stroke);
 
         if (biomeKey === "town" && (x === 2 || x === tileMapWidth - 3) && y % 5 < 2) {
           drawRelayLine(point, time, x + y);
         }
+        drawGroundAccent(biomeKey, point, noise, time);
         drawBiomeDecoration(biomeKey, point, noise, time);
       }
     }
     drawSafeZoneRing(time);
+  }
+
+  // Small mid-frequency accents that give each biome ground its texture.
+  function drawGroundAccent(biomeKey, point, noise, time) {
+    if (noise < 0.78 || noise > 0.86) return;
+    ctx.save();
+    if (biomeKey === "grass") {
+      ctx.fillStyle = noise > 0.82 ? "#d8a0c0" : "#e0d488";
+      ctx.fillRect(point.x - 1, point.y - 2, 2, 2);
+      ctx.fillRect(point.x + 5, point.y + 3, 2, 2);
+    } else if (biomeKey === "mountain") {
+      ctx.globalAlpha = 0.5 + Math.sin(time * 0.003 + noise * 40) * 0.3;
+      ctx.fillStyle = "#9fd6e2";
+      ctx.fillRect(point.x - 1, point.y, 2, 2);
+    } else if (biomeKey === "scrapyard") {
+      ctx.globalAlpha = 0.3;
+      ctx.fillStyle = "#120d0a";
+      ctx.beginPath();
+      ctx.ellipse(point.x, point.y + 2, 11, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (biomeKey === "spaceport") {
+      ctx.globalAlpha = 0.4;
+      ctx.strokeStyle = "#4a5674";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(point.x - 10, point.y);
+      ctx.lineTo(point.x + 10, point.y);
+      ctx.stroke();
+    } else if (biomeKey === "wastes") {
+      ctx.globalAlpha = 0.6 + Math.sin(time * 0.004 + noise * 50) * 0.3;
+      ctx.fillStyle = "#e0596d";
+      ctx.fillRect(point.x - 1, point.y - 1, 2.5, 2.5);
+    }
+    ctx.restore();
   }
 
   function drawBiomeDecoration(biomeKey, point, noise, time) {
@@ -2251,13 +2410,43 @@
   function drawProjectile(projectile, time) {
     const point = worldToScreen(projectile.x, projectile.y, finite(projectile.z, 18));
     const color = String(first(projectile.color, projectile.team === "enemy" ? "#ef5365" : "#65e1d0"));
+    const size = Math.max(3, finite(projectile.radius, 6) * 0.7);
+
+    // Streak from last drawn position; bolts read as motion, not shapes.
+    const prevX = finite(projectile.drawPrevX, projectile.x);
+    const prevY = finite(projectile.drawPrevY, projectile.y);
+    const tail = worldToScreen(prevX, prevY, finite(projectile.z, 18));
+    projectile.drawPrevX = projectile.x;
+    projectile.drawPrevY = projectile.y;
+
     ctx.save();
-    ctx.translate(point.x, point.y);
-    ctx.fillStyle = color;
+    const streakLength = Math.hypot(point.x - tail.x, point.y - tail.y);
+    if (streakLength > 2) {
+      const stretchX = point.x + (tail.x - point.x) * 2.4;
+      const stretchY = point.y + (tail.y - point.y) * 2.4;
+      const streak = ctx.createLinearGradient(stretchX, stretchY, point.x, point.y);
+      streak.addColorStop(0, "rgba(0, 0, 0, 0)");
+      streak.addColorStop(1, color);
+      ctx.strokeStyle = streak;
+      ctx.lineCap = "round";
+      ctx.lineWidth = size * 1.2;
+      ctx.beginPath();
+      ctx.moveTo(stretchX, stretchY);
+      ctx.lineTo(point.x, point.y);
+      ctx.stroke();
+    }
+    // Bright core with a glowing halo.
     ctx.shadowColor = color;
-    ctx.shadowBlur = 16;
-    ctx.rotate(time * 0.008 + finite(projectile.x));
-    ctx.fillRect(-4, -4, 8, 8);
+    ctx.shadowBlur = 14;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, size, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, size * 0.45, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore();
   }
 
@@ -2265,6 +2454,20 @@
     state.effects = state.effects.filter((effect) => time - effect.born < effect.duration);
     for (const effect of state.effects) {
       const progress = clamp((time - effect.born) / effect.duration, 0, 1);
+      if (effect.type === "spark") {
+        const elapsed = (time - effect.born) / 1000;
+        const point = worldToScreen(effect.x + effect.vx * elapsed, effect.y + effect.vy * elapsed, 14 - progress * 20);
+        ctx.save();
+        ctx.globalAlpha = 1 - progress;
+        ctx.fillStyle = effect.color;
+        ctx.shadowColor = effect.color;
+        ctx.shadowBlur = 6;
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, 2 * (1 - progress * 0.6), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        continue;
+      }
       const point = worldToScreen(effect.x, effect.y, 10 + progress * 22);
       ctx.save();
       ctx.globalAlpha = 1 - progress;
@@ -2368,6 +2571,7 @@
     const delta = Math.min(50, time - state.lastFrame);
     state.lastFrame = time;
     interpolateEntities(delta);
+    updateAmbient(delta);
     sendInput(time);
     drawWorld(time);
     requestAnimationFrame(frame);
@@ -2654,4 +2858,10 @@
   updateQuest();
   connect();
   requestAnimationFrame(frame);
+
+  // Debug affordance: open with #autojoin to enter the world automatically
+  // (used by headless screenshot checks).
+  if (location.hash.includes("autojoin")) {
+    window.setTimeout(() => ui.joinForm.requestSubmit(), 1200);
+  }
 })();

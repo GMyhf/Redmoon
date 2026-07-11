@@ -1261,7 +1261,9 @@ export class World {
   }
 
   _playerSpawn() {
-    const spread = Math.min(this.width, this.height) * 0.12;
+    // Keep spawns well inside the town portal ring so nobody materialises
+    // on a gate and gets whisked away while reading the HUD.
+    const spread = Math.min(this.width, this.height) * 0.07;
     return {
       x: clamp(this.width / 2 + (this.rng() - 0.5) * spread, PLAYER_RADIUS, this.width - PLAYER_RADIUS),
       y: clamp(this.height / 2 + (this.rng() - 0.5) * spread, PLAYER_RADIUS, this.height - PLAYER_RADIUS),
