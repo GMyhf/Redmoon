@@ -10,9 +10,11 @@ import {
   ITEM_BASES,
   ITEM_SLOTS,
   MOB_TYPES,
+  PORTAL_DESTINATIONS,
   RARITIES,
   REPUTATION_LIMIT,
   SOUL_BARRIER,
+  ZONES,
   REBIRTH_DAMAGE_BONUS,
   REBIRTH_HP_BONUS,
   REBIRTH_LEVEL,
@@ -31,8 +33,8 @@ const RESPAWN_DELAY = 3;
 const MOB_RESPAWN_DELAY = 2.5;
 const DEFAULT_SAFE_ZONE_RADIUS = 220;
 const MOVE_ARRIVAL_EPSILON = 4;
-const MAX_MOB_LEVEL = 12;
-const MAX_ITEM_LEVEL = 12;
+const MAX_MOB_LEVEL = 18;
+const MAX_ITEM_LEVEL = 20;
 const ELITE_CHANCE = 0.1;
 const BOSS_RESPAWN_DELAY = 90;
 const PORTAL_RADIUS = 30;
@@ -94,6 +96,13 @@ export class World {
     this._bossRespawns = new Map();
     this.autoLevelDefault = options.autoLevel !== false;
     this.soulBarrierConfig = { ...SOUL_BARRIER, ...(options.soulBarrier ?? {}) };
+    this.zones = ZONES.map((zone) => ({
+      ...zone,
+      x: zone.x * this.width,
+      y: zone.y * this.height,
+      rx: zone.rx * this.width,
+      ry: zone.ry * this.height,
+    }));
     this._buildPortals();
 
     if (options.spawnMobs !== false) {
@@ -681,12 +690,16 @@ export class World {
     const point = overrides.x === undefined || overrides.y === undefined
       ? this._mobSpawn()
       : { x: Number(overrides.x), y: Number(overrides.y) };
-    // Danger scales with distance from the town at the map centre.
-    const jitter = Math.floor(clamp(this.rng(), 0, 0.999999) * 2);
-    const rolledLevel = clamp(this._levelForPoint(point) + jitter, 1, MAX_MOB_LEVEL);
+    // Districts define their own level bands; open terrain scales with
+    // distance from the town at the map centre.
+    const zone = this._zoneAt(point.x, point.y);
+    const roll = clamp(this.rng(), 0, 0.999999);
+    const rolledLevel = zone
+      ? zone.minLevel + Math.floor(roll * (zone.maxLevel - zone.minLevel + 1))
+      : clamp(this._levelForPoint(point) + Math.floor(roll * 2), 1, MAX_MOB_LEVEL);
     const level = Math.max(1, nonNegativeInteger(overrides.level, rolledLevel));
     const elite = overrides.elite ?? (overrides.level === undefined && this.rng() < ELITE_CHANCE);
-    const band = Math.min(MOB_TYPES.length - 1, Math.floor((level - 1) / 2));
+    const band = Math.min(MOB_TYPES.length - 1, Math.floor((level - 1) / 3));
     const species = MOB_TYPES[band];
     const power = elite ? 1.6 : 1;
     const maxHp = positiveNumber(
@@ -1662,8 +1675,11 @@ export class World {
 
     const bases = ITEM_BASES[slot];
     const name = bases[Math.floor(clamp(this.rng(), 0, 0.999999) * bases.length)];
+    const itemLevel = Math.min(MAX_ITEM_LEVEL, Math.max(1, level + rarity.tier - 1));
     const bonuses = zeroStats();
-    let budget = rarity.tier * 2 + Math.floor((level - 1) / 2);
+    // Stat budget grows with item level, so late gear meaningfully raises
+    // 力量/敏捷/精神/体魄 alongside its slot bonus.
+    let budget = rarity.tier * 2 + itemLevel;
     while (budget > 0) {
       bonuses[STAT_KEYS[Math.floor(clamp(this.rng(), 0, 0.999999) * STAT_KEYS.length)]] += 1;
       budget -= 1;
@@ -1674,22 +1690,22 @@ export class World {
       slot,
       rarity: rarity.id,
       tier: rarity.tier,
-      level: Math.min(MAX_ITEM_LEVEL, Math.max(1, level + rarity.tier - 1)),
+      level: itemLevel,
       name,
       bonuses,
     };
-    if (slot === "weapon") item.damageBonus = rarity.tier * 0.06;
-    if (slot === "necklace") item.damageBonus = rarity.tier * 0.03;
+    if (slot === "weapon") item.damageBonus = round(rarity.tier * 0.05 + itemLevel * 0.004);
+    if (slot === "necklace") item.damageBonus = round(rarity.tier * 0.025 + itemLevel * 0.002);
     if (slot === "ring") {
-      item.damageBonus = rarity.tier * 0.02;
-      item.hpBonus = rarity.tier * 4;
+      item.damageBonus = round(rarity.tier * 0.015 + itemLevel * 0.0015);
+      item.hpBonus = Math.round(rarity.tier * 3 + itemLevel * 1.5);
     }
-    if (slot === "armor") item.hpBonus = rarity.tier * 14;
-    if (slot === "helm") item.hpBonus = rarity.tier * 8;
-    if (slot === "boots") item.speedBonus = rarity.tier * 7;
+    if (slot === "armor") item.hpBonus = Math.round(rarity.tier * 10 + itemLevel * 4);
+    if (slot === "helm") item.hpBonus = Math.round(rarity.tier * 6 + itemLevel * 2.5);
+    if (slot === "boots") item.speedBonus = Math.round(rarity.tier * 5 + itemLevel);
     if (slot === "charm") {
-      item.speedBonus = rarity.tier * 3;
-      item.hpBonus = rarity.tier * 5;
+      item.speedBonus = Math.round(rarity.tier * 2 + itemLevel * 0.5);
+      item.hpBonus = Math.round(rarity.tier * 4 + itemLevel * 2);
     }
     return item;
   }
@@ -1735,21 +1751,35 @@ export class World {
     const cx = this.width / 2;
     const cy = this.height / 2;
     const ringRadius = Math.max(60, (this.safeZone?.radius ?? 200) - 20);
-    const diagonal = ringRadius * Math.SQRT1_2;
-    const gates = [
-      ["grass", { x: cx - ringRadius, y: cy }, { x: this.width * 0.13, y: cy }],
-      ["mountain", { x: cx, y: cy - ringRadius }, { x: cx, y: this.height * 0.14 }],
-      ["scrapyard", { x: cx + ringRadius, y: cy }, { x: this.width * 0.87, y: cy }],
-      ["spaceport", { x: cx, y: cy + ringRadius }, { x: cx - 260, y: this.height * 0.85 }],
-      ["wastes", { x: cx + diagonal, y: cy - diagonal }, { x: this.width * 0.82, y: this.height * 0.22 }],
-    ];
     this.portals = [];
-    for (const [zone, townSide, fieldSide] of gates) {
+    PORTAL_DESTINATIONS.forEach((destination, index) => {
+      const angle = (index / PORTAL_DESTINATIONS.length) * Math.PI * 2 - Math.PI / 2;
       this.portals.push(
-        { id: `portal-${zone}`, zone, x: townSide.x, y: townSide.y, targetId: `portal-${zone}-return` },
-        { id: `portal-${zone}-return`, zone: "town", x: fieldSide.x, y: fieldSide.y, targetId: `portal-${zone}` },
+        {
+          id: `portal-${destination.id}`,
+          zone: destination.id,
+          x: cx + Math.cos(angle) * ringRadius,
+          y: cy + Math.sin(angle) * ringRadius,
+          targetId: `portal-${destination.id}-return`,
+        },
+        {
+          id: `portal-${destination.id}-return`,
+          zone: "town",
+          x: destination.x * this.width,
+          y: destination.y * this.height,
+          targetId: `portal-${destination.id}`,
+        },
       );
+    });
+  }
+
+  _zoneAt(x, y) {
+    for (const zone of this.zones) {
+      const dx = (x - zone.x) / zone.rx;
+      const dy = (y - zone.y) / zone.ry;
+      if (dx * dx + dy * dy <= 1) return zone;
     }
+    return null;
   }
 
   _updatePortals() {

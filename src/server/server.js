@@ -167,6 +167,7 @@ export class GameServer {
         height: this.world.height,
         safeZone: this.world.safeZone ? { ...this.world.safeZone } : null,
         portals: this.world.portals.map((portal) => ({ ...portal })),
+        zones: this.world.zones.map((zone) => ({ ...zone })),
       },
       rebirthLevel: REBIRTH_LEVEL,
       inventoryLimit: INVENTORY_LIMIT,

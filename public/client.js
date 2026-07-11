@@ -271,6 +271,9 @@
     cragfather: "岩父",
     rustking: "锈王",
     hullwraith: "舰魂",
+    sandmaw: "沙喉",
+    rimehorn: "霜角",
+    gravemarch: "墓行者",
   };
 
   // Biome bosses reuse the closest species body at boss scale.
@@ -279,16 +282,29 @@
     cragfather: "stonehorn",
     rustking: "scraphulk",
     hullwraith: "ashwing",
+    sandmaw: "voidmaw",
+    rimehorn: "stonehorn",
+    gravemarch: "scraphulk",
   };
 
   const ZONE_LABELS = {
     town: "城镇",
     grass: "草原",
     grassland: "草原",
-    mountain: "山地",
+    mountain: "后山",
+    backhill: "后山",
     scrapyard: "废车场",
-    spaceport: "太空港",
+    spaceport: "宇宙船",
+    starship: "宇宙船",
     wastes: "水晶荒原",
+    residential: "住宅区",
+    downtown: "闹区",
+    desert: "沙漠",
+    snowmountain: "雪山",
+    snow: "雪山",
+    castle: "城堡",
+    skycity: "天空之城",
+    lake: "湖泊",
   };
 
   // Themed regions of the alien world, resolved purely from world position.
@@ -302,6 +318,12 @@
     spaceport: ["#232a3c", "#3c4763"],
     wastes: ["#33222b", "#502f3e"],
     lake: ["#1c3a50", "#2e5f7d"],
+    residential: ["#3a332e", "#544a3e"],
+    downtown: ["#26242e", "#403c50"],
+    desert: ["#5c4a2e", "#8a7048"],
+    snow: ["#5a6878", "#93a7b8"],
+    castle: ["#3a363c", "#5a5460"],
+    skycity: ["#33415e", "#57698f"],
   };
 
   const hexToRgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
@@ -352,6 +374,12 @@
       const lx = (worldX - state.map.width * 0.2) / 340;
       const ly = (worldY - state.map.height * 0.62) / 230;
       if (lx * lx + ly * ly <= 1) return "lake";
+    }
+    // Themed districts from the server override the base terrain.
+    for (const district of state.map.zones || []) {
+      const dx = (worldX - district.x) / district.rx;
+      const dy = (worldY - district.y) / district.ry;
+      if (dx * dx + dy * dy <= 1) return district.theme;
     }
     // Boss quadrant: the crystal wastes in the far north-east.
     if (worldX > state.map.width * 0.68 && worldY < state.map.height * 0.36) return "wastes";
@@ -674,6 +702,11 @@
     if (Array.isArray(map.portals)) {
       state.map.portals = map.portals.filter(
         (portal) => portal && Number.isFinite(portal.x) && Number.isFinite(portal.y),
+      );
+    }
+    if (Array.isArray(map.zones)) {
+      state.map.zones = map.zones.filter(
+        (zone) => zone && Number.isFinite(zone.x) && Number.isFinite(zone.rx),
       );
     }
     ui.sector.textContent = `节点 // ${state.map.name}`;
@@ -1233,6 +1266,12 @@
     spaceport: "#7ad2ff",
     wastes: "#e0596d",
     lake: "#8fd8ff",
+    residential: "#f0c15e",
+    downtown: "#e878c8",
+    desert: "#e8c887",
+    snow: "#ffffff",
+    castle: "#b8a8d8",
+    skycity: "#9fc8ff",
   };
 
   // Drifting motes (spores, embers, dust) tinted by the biome they float in.
@@ -1287,6 +1326,12 @@
     spaceport: "rgba(100, 160, 240, 0.05)",
     wastes: "rgba(220, 70, 90, 0.06)",
     lake: "rgba(90, 170, 230, 0.06)",
+    residential: "rgba(240, 193, 94, 0.04)",
+    downtown: "rgba(220, 110, 200, 0.05)",
+    desert: "rgba(240, 200, 120, 0.06)",
+    snow: "rgba(200, 225, 255, 0.07)",
+    castle: "rgba(170, 150, 210, 0.05)",
+    skycity: "rgba(140, 190, 255, 0.06)",
   };
 
   // Per-biome colour cast plus a soft vignette for depth.
@@ -1313,6 +1358,107 @@
   function drawLandmarks(time) {
     drawTownStructures(time);
     drawColonyShip(time);
+    drawFallenKeep(time);
+    drawSkySpire(time);
+  }
+
+  // A ruined keep watches over the western castle grounds (original design).
+  function drawFallenKeep(time) {
+    const district = (state.map.zones || []).find((zone) => zone.theme === "castle");
+    if (!district) return;
+    const point = worldToScreen(district.x, district.y - 40);
+    if (point.x < -260 || point.x > state.viewWidth + 260 || point.y < -240 || point.y > state.viewHeight + 160) return;
+    ctx.save();
+    propShadow(point.x, point.y + 26, 96);
+    // Curtain wall.
+    ctx.fillStyle = "#4a4550";
+    ctx.fillRect(point.x - 90, point.y - 40, 180, 62);
+    ctx.strokeStyle = "#5e5866";
+    ctx.lineWidth = 1.6;
+    ctx.strokeRect(point.x - 90, point.y - 40, 180, 62);
+    // Battlements.
+    ctx.fillStyle = "#544e5c";
+    for (let index = -4; index <= 4; index += 1) {
+      ctx.fillRect(point.x + index * 20 - 6, point.y - 48, 12, 9);
+    }
+    // Two towers; the left one is snapped off at the top.
+    ctx.fillStyle = "#524c5a";
+    ctx.fillRect(point.x - 112, point.y - 88, 34, 110);
+    ctx.beginPath();
+    ctx.moveTo(point.x - 112, point.y - 88);
+    ctx.lineTo(point.x - 100, point.y - 100);
+    ctx.lineTo(point.x - 92, point.y - 84);
+    ctx.lineTo(point.x - 78, point.y - 88);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillRect(point.x + 78, point.y - 66, 34, 88);
+    ctx.fillStyle = "#3c3844";
+    ctx.beginPath();
+    ctx.moveTo(point.x + 78, point.y - 66);
+    ctx.lineTo(point.x + 95, point.y - 84);
+    ctx.lineTo(point.x + 112, point.y - 66);
+    ctx.closePath();
+    ctx.fill();
+    // Gate and windows.
+    ctx.fillStyle = "#241f28";
+    ctx.beginPath();
+    ctx.arc(point.x, point.y + 22, 18, Math.PI, 0);
+    ctx.rect(point.x - 18, point.y + 22, 36, 0.1);
+    ctx.fill();
+    ctx.fillStyle = `rgba(224, 89, 109, ${0.5 + Math.sin(time * 0.003) * 0.2})`;
+    ctx.fillRect(point.x - 101, point.y - 74, 8, 12);
+    ctx.fillRect(point.x + 89, point.y - 52, 8, 12);
+    ctx.restore();
+  }
+
+  // The floating spire at the heart of the sky terrace (original design).
+  function drawSkySpire(time) {
+    const district = (state.map.zones || []).find((zone) => zone.theme === "skycity");
+    if (!district) return;
+    const hover = Math.sin(time * 0.0016) * 5;
+    const point = worldToScreen(district.x, district.y - 20);
+    if (point.x < -220 || point.x > state.viewWidth + 220 || point.y < -280 || point.y > state.viewHeight + 160) return;
+    ctx.save();
+    ctx.translate(0, hover);
+    // Floating base rock with nothing beneath it.
+    ctx.fillStyle = "#3a4a6e";
+    ctx.beginPath();
+    ctx.moveTo(point.x - 70, point.y);
+    ctx.lineTo(point.x + 70, point.y);
+    ctx.lineTo(point.x + 30, point.y + 38);
+    ctx.lineTo(point.x - 24, point.y + 42);
+    ctx.closePath();
+    ctx.fill();
+    // Spire.
+    const spire = ctx.createLinearGradient(point.x, point.y - 170, point.x, point.y);
+    spire.addColorStop(0, "#8fb2e8");
+    spire.addColorStop(1, "#4a5c88");
+    ctx.fillStyle = spire;
+    ctx.beginPath();
+    ctx.moveTo(point.x - 26, point.y);
+    ctx.lineTo(point.x, point.y - 168);
+    ctx.lineTo(point.x + 26, point.y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "#a9c6f0";
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+    // Halo rings.
+    for (const [ry, alpha] of [[-120, 0.5], [-78, 0.35]]) {
+      ctx.strokeStyle = `rgba(159, 200, 255, ${alpha + Math.sin(time * 0.003 + ry) * 0.15})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(point.x, point.y + ry, 40 - Math.abs(ry) * 0.12, 9, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    // Beacon.
+    ctx.fillStyle = "#cfe2ff";
+    ctx.shadowColor = "#9fc8ff";
+    ctx.shadowBlur = 16;
+    ctx.beginPath();
+    ctx.arc(point.x, point.y - 172, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   }
 
   // The relay town: a beacon tower, lamp posts, and huts on the plaza.
@@ -1494,6 +1640,20 @@
     ctx.lineWidth = 1;
     ctx.strokeRect(originX + 0.5, originY + 0.5, width - 1, height - 1);
 
+    // District outlines so the world reads as regions at a glance.
+    for (const district of state.map.zones || []) {
+      ctx.strokeStyle = "rgba(160, 190, 230, 0.3)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.ellipse(
+        originX + district.x * scaleX,
+        originY + district.y * scaleY,
+        district.rx * scaleX,
+        district.ry * scaleY,
+        0, 0, Math.PI * 2,
+      );
+      ctx.stroke();
+    }
     const zone = state.map.safeZone;
     if (zone) {
       ctx.strokeStyle = "rgba(240, 193, 94, 0.7)";
@@ -1752,6 +1912,62 @@
       ctx.moveTo(point.x - 9, point.y + shimmer * 2);
       ctx.quadraticCurveTo(point.x, point.y - 2 + shimmer, point.x + 9, point.y + shimmer * 2);
       ctx.stroke();
+    } else if (biomeKey === "residential") {
+      ctx.globalAlpha = 0.4;
+      ctx.strokeStyle = "#6a5c48";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(point.x - 11, point.y);
+      ctx.lineTo(point.x + 11, point.y);
+      ctx.stroke();
+    } else if (biomeKey === "downtown") {
+      if (noise > 0.76) {
+        // Stray neon glow puddles on the asphalt.
+        const hue = noise > 0.81 ? "#e878c8" : "#7ad2ff";
+        ctx.globalAlpha = 0.18 + Math.sin(time * 0.003 + noise * 40) * 0.08;
+        ctx.fillStyle = hue;
+        ctx.beginPath();
+        ctx.ellipse(point.x, point.y + 2, 10, 4, 0, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.globalAlpha = 0.5;
+        ctx.strokeStyle = "#5a5468";
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(point.x - 6, point.y);
+        ctx.lineTo(point.x + 6, point.y);
+        ctx.stroke();
+      }
+    } else if (biomeKey === "desert") {
+      // Wind ripples in the sand.
+      ctx.globalAlpha = 0.35;
+      ctx.strokeStyle = "#a58a5c";
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(point.x - 12, point.y + 2);
+      ctx.quadraticCurveTo(point.x, point.y - 3, point.x + 12, point.y + 2);
+      ctx.stroke();
+    } else if (biomeKey === "snow") {
+      ctx.globalAlpha = 0.7;
+      ctx.fillStyle = "#e8f2fa";
+      ctx.fillRect(point.x - 2, point.y - 1, 3, 3);
+      if (noise > 0.74) ctx.fillRect(point.x + 8, point.y + 3, 2, 2);
+    } else if (biomeKey === "castle") {
+      // Cracked flagstones.
+      ctx.globalAlpha = 0.45;
+      ctx.strokeStyle = "#6e6878";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(point.x - 9, point.y - 4, 18, 8);
+    } else if (biomeKey === "skycity") {
+      // Faintly glowing circuit seams in the sky platform.
+      ctx.globalAlpha = 0.3 + Math.sin(time * 0.002 + noise * 50) * 0.15;
+      ctx.strokeStyle = "#9fc8ff";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(point.x - 10, point.y);
+      ctx.lineTo(point.x, point.y + 4);
+      ctx.lineTo(point.x + 10, point.y);
+      ctx.stroke();
     }
     ctx.restore();
   }
@@ -1796,11 +2012,157 @@
       } else if (noise > 0.9) drawDebris(point.x, point.y, noise);
       return;
     }
+    if (biomeKey === "residential") {
+      if (noise > 0.955) {
+        propShadow(point.x, point.y + 6, 24);
+        drawHouse(point.x, point.y, noise);
+      } else if (noise > 0.9) drawHedge(point.x, point.y);
+      return;
+    }
+    if (biomeKey === "downtown") {
+      if (noise > 0.95) {
+        propShadow(point.x, point.y + 2, 8);
+        drawNeonSign(point.x, point.y, noise, time);
+      } else if (noise > 0.9) drawDebris(point.x, point.y, noise);
+      return;
+    }
+    if (biomeKey === "desert") {
+      if (noise > 0.955) {
+        propShadow(point.x, point.y + 1, 10);
+        drawSucculent(point.x, point.y);
+      } else if (noise > 0.89) {
+        propShadow(point.x, point.y + 2, 9);
+        drawRock(point.x, point.y, noise);
+      }
+      return;
+    }
+    if (biomeKey === "snow") {
+      if (noise > 0.945) {
+        propShadow(point.x - 2, point.y + 3, 17);
+        drawPeak(point.x, point.y, noise, true);
+      } else if (noise > 0.885) {
+        propShadow(point.x, point.y + 1, 8);
+        drawCrystal(point.x, point.y - 4, noise, time, "#bfe6ff");
+      }
+      return;
+    }
+    if (biomeKey === "castle") {
+      if (noise > 0.94) {
+        propShadow(point.x, point.y + 3, 12);
+        drawColumn(point.x, point.y, noise);
+      } else if (noise > 0.88) drawDebris(point.x, point.y, noise);
+      return;
+    }
+    if (biomeKey === "skycity") {
+      if (noise > 0.95) {
+        drawSkyPylon(point.x, point.y, time);
+      } else if (noise > 0.9) {
+        // Drifting cloud wisps across the platforms.
+        ctx.save();
+        ctx.globalAlpha = 0.16;
+        ctx.fillStyle = "#dfeaff";
+        ctx.beginPath();
+        ctx.ellipse(point.x + Math.sin(time * 0.0008 + noise * 20) * 12, point.y, 26, 7, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+      return;
+    }
     // Crystal wastes around the boss lair.
     if (noise > 0.92) {
       propShadow(point.x, point.y + 1, 8);
       drawCrystal(point.x, point.y - 4, noise, time);
     } else if (noise > 0.88) drawDebris(point.x, point.y, noise);
+  }
+
+  function drawHouse(x, y, seed) {
+    ctx.save();
+    const tint = seed > 0.975 ? "#5c4a3c" : "#544438";
+    ctx.fillStyle = tint;
+    ctx.fillRect(x - 18, y - 20, 36, 25);
+    ctx.fillStyle = "#71503a";
+    ctx.beginPath();
+    ctx.moveTo(x - 23, y - 18);
+    ctx.lineTo(x, y - 36);
+    ctx.lineTo(x + 23, y - 18);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "#84604a";
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+    ctx.fillStyle = "#241d18";
+    ctx.fillRect(x - 4, y - 9, 8, 14);
+    ctx.fillStyle = "rgba(255, 205, 130, 0.75)";
+    ctx.fillRect(x + 8, y - 15, 6, 6);
+    ctx.restore();
+  }
+
+  function drawHedge(x, y) {
+    ctx.save();
+    ctx.fillStyle = "#31502a";
+    ctx.beginPath();
+    ctx.ellipse(x - 6, y - 3, 8, 5, 0, 0, Math.PI * 2);
+    ctx.ellipse(x + 5, y - 4, 7, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawNeonSign(x, y, seed, time) {
+    const palette = ["#e878c8", "#7ad2ff", "#8affc2", "#ffd479"];
+    const color = palette[Math.floor(seed * 40) % palette.length];
+    ctx.save();
+    ctx.fillStyle = "#2a2731";
+    ctx.fillRect(x - 2, y - 30, 4, 30);
+    ctx.fillStyle = color;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 12 * (0.7 + Math.sin(time * 0.005 + seed * 30) * 0.3);
+    ctx.fillRect(x - 9, y - 44, 18, 13);
+    ctx.fillStyle = "#16141c";
+    ctx.fillRect(x - 6, y - 41, 12, 7);
+    ctx.restore();
+  }
+
+  function drawSucculent(x, y) {
+    ctx.save();
+    ctx.fillStyle = "#4a6a3a";
+    ctx.fillRect(x - 3, y - 22, 6, 23);
+    ctx.fillRect(x - 12, y - 15, 5, 9);
+    ctx.fillRect(x - 12, y - 15, 9, 4);
+    ctx.fillRect(x + 7, y - 19, 5, 10);
+    ctx.fillRect(x + 3, y - 19, 9, 4);
+    ctx.strokeStyle = "#628a4c";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x - 3, y - 22, 6, 23);
+    ctx.restore();
+  }
+
+  function drawColumn(x, y, seed) {
+    ctx.save();
+    ctx.fillStyle = "#5e5866";
+    ctx.fillRect(x - 5, y - 26 + seed * 8, 10, 26 - seed * 8);
+    ctx.fillRect(x - 8, y - 30 + seed * 8, 16, 5);
+    ctx.fillStyle = "#48434f";
+    ctx.fillRect(x - 5, y - 8, 10, 3);
+    ctx.restore();
+  }
+
+  function drawSkyPylon(x, y, time) {
+    ctx.save();
+    propShadow(x, y + 1, 7);
+    ctx.fillStyle = "#3c4c70";
+    ctx.fillRect(x - 2, y - 26, 4, 26);
+    const glow = 0.7 + Math.sin(time * 0.004 + x) * 0.3;
+    ctx.fillStyle = "#9fc8ff";
+    ctx.shadowColor = "#9fc8ff";
+    ctx.shadowBlur = 12 * glow;
+    ctx.beginPath();
+    ctx.moveTo(x, y - 36);
+    ctx.lineTo(x + 5, y - 28);
+    ctx.lineTo(x, y - 20);
+    ctx.lineTo(x - 5, y - 28);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
   }
 
   function drawGrassTuft(x, y, seed, time) {
@@ -1856,20 +2218,20 @@
     ctx.restore();
   }
 
-  function drawPeak(x, y, seed) {
+  function drawPeak(x, y, seed, snowy = false) {
     ctx.save();
-    ctx.fillStyle = "#40474f";
+    ctx.fillStyle = snowy ? "#6c7d8f" : "#40474f";
     ctx.beginPath();
     ctx.moveTo(x - 20, y + 4);
     ctx.lineTo(x - 4, y - 34 - seed * 10);
     ctx.lineTo(x + 16, y + 4);
     ctx.closePath();
     ctx.fill();
-    ctx.fillStyle = "#c9d2dc";
+    ctx.fillStyle = snowy ? "#f0f6fc" : "#c9d2dc";
     ctx.beginPath();
-    ctx.moveTo(x - 9, y - 22 - seed * 8);
+    ctx.moveTo(x - (snowy ? 12 : 9), y - 20 - seed * 8);
     ctx.lineTo(x - 4, y - 34 - seed * 10);
-    ctx.lineTo(x + 3, y - 20 - seed * 8);
+    ctx.lineTo(x + (snowy ? 7 : 3), y - 18 - seed * 8);
     ctx.closePath();
     ctx.fill();
     ctx.restore();
@@ -1934,13 +2296,13 @@
     ctx.restore();
   }
 
-  function drawCrystal(x, y, seed, time) {
+  function drawCrystal(x, y, seed, time, color) {
     ctx.save();
     ctx.translate(x, y);
     ctx.globalAlpha = 0.64 + Math.sin(time * 0.002 + seed * 8) * 0.12;
-    ctx.shadowColor = "#4dd1c0";
+    ctx.shadowColor = color || "#4dd1c0";
     ctx.shadowBlur = 12;
-    ctx.fillStyle = "#4da79f";
+    ctx.fillStyle = color || "#4da79f";
     ctx.beginPath();
     ctx.moveTo(0, -17);
     ctx.lineTo(7, -4);

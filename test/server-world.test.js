@@ -522,8 +522,8 @@ test("idle players auto-attack enemies in reach, and the toggle disables it", ()
 test("portals teleport players to their paired gate with a re-entry lock", () => {
   const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
   const player = world.addPlayer("player-1", { archetype: "strider" });
-  const gate = world.portals.find((portal) => portal.id === "portal-grass");
-  const exit = world.portals.find((portal) => portal.id === "portal-grass-return");
+  const gate = world.portals.find((portal) => portal.id === "portal-desert");
+  const exit = world.portals.find((portal) => portal.id === "portal-desert-return");
 
   player.x = gate.x;
   player.y = gate.y;
@@ -600,15 +600,32 @@ test("full bags swap the weakest item for a stronger find; drops magnetise", () 
   assert.equal(world.drops.size, 1, "junk stays on the ground when the bag is full");
 });
 
+test("districts spawn mobs inside their own level band and gear scales up", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
+  const skycity = world.zones.find((zone) => zone.id === "skycity");
+  const resident = world.zones.find((zone) => zone.id === "residential");
+
+  const skyMob = world.spawnMob({ id: "sky", x: skycity.x, y: skycity.y });
+  assert.ok(skyMob.level >= skycity.minLevel && skyMob.level <= skycity.maxLevel);
+  const homeMob = world.spawnMob({ id: "home", x: resident.x, y: resident.y });
+  assert.ok(homeMob.level >= 1 && homeMob.level <= 3);
+
+  // High-level gear carries a real stat budget and level to match.
+  const relic = world._rollItem(18, 4);
+  assert.equal(relic.level, 20, "item level tracks mob level plus rarity, capped at 20");
+  const statTotal = Object.values(relic.bonuses).reduce((sum, value) => sum + value, 0);
+  assert.equal(statTotal, 4 * 2 + 20, "stat budget grows with item level");
+});
+
 test("every biome has a boss with rising level and experience", () => {
   const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
   const bosses = world.spawnBosses();
-  assert.equal(bosses.length, 5);
+  assert.equal(bosses.length, 8);
   const levels = bosses.map((boss) => boss.level);
   assert.deepEqual(levels, [...levels].sort((a, b) => a - b), "boss levels rise across biomes");
   const warden = bosses.find((boss) => boss.id === "boss-warden");
-  assert.equal(warden.level, 15);
-  assert.equal(warden.xp, 1400);
+  assert.equal(warden.level, 20);
+  assert.equal(warden.xp, 2600);
 
   const player = world.addPlayer("player-1", { archetype: "vanguard" });
   const thornmaw = bosses.find((boss) => boss.id === "boss-thornmaw");

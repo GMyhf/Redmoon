@@ -57,14 +57,41 @@ export const DROP_PICKUP_RADIUS = 26;
 export const DROP_MAGNET_RADIUS = 180;
 export const DROP_MAGNET_SPEED = 320;
 
-// One boss per biome, in rising order of level and experience. Positions
-// are fractions of the map size.
+// Themed districts layered over the base terrain. Positions and radii are
+// fractions of the map size; mobs inside spawn within the level range.
+export const ZONES = Object.freeze([
+  Object.freeze({ id: "residential", theme: "residential", x: 0.4, y: 0.42, rx: 0.09, ry: 0.1, minLevel: 1, maxLevel: 3 }),
+  Object.freeze({ id: "downtown", theme: "downtown", x: 0.615, y: 0.44, rx: 0.09, ry: 0.1, minLevel: 2, maxLevel: 4 }),
+  Object.freeze({ id: "desert", theme: "desert", x: 0.26, y: 0.78, rx: 0.17, ry: 0.17, minLevel: 8, maxLevel: 11 }),
+  Object.freeze({ id: "snowmountain", theme: "snow", x: 0.19, y: 0.19, rx: 0.16, ry: 0.16, minLevel: 10, maxLevel: 13 }),
+  Object.freeze({ id: "castle", theme: "castle", x: 0.09, y: 0.52, rx: 0.085, ry: 0.11, minLevel: 12, maxLevel: 14 }),
+  Object.freeze({ id: "skycity", theme: "skycity", x: 0.875, y: 0.14, rx: 0.135, ry: 0.13, minLevel: 14, maxLevel: 18 }),
+]);
+
+// Gate ring around town: one portal per hunting ground, paired with a
+// return gate at the district hub.
+export const PORTAL_DESTINATIONS = Object.freeze([
+  Object.freeze({ id: "residential", x: 0.4, y: 0.42 }),
+  Object.freeze({ id: "downtown", x: 0.615, y: 0.44 }),
+  Object.freeze({ id: "backhill", x: 0.5, y: 0.14 }),
+  Object.freeze({ id: "scrapyard", x: 0.87, y: 0.5 }),
+  Object.freeze({ id: "desert", x: 0.26, y: 0.78 }),
+  Object.freeze({ id: "snowmountain", x: 0.19, y: 0.19 }),
+  Object.freeze({ id: "castle", x: 0.09, y: 0.52 }),
+  Object.freeze({ id: "starship", x: 0.445, y: 0.85 }),
+  Object.freeze({ id: "skycity", x: 0.875, y: 0.14 }),
+]);
+
+// One boss per hunting ground, in rising order of level and experience.
 export const BOSSES = Object.freeze([
-  Object.freeze({ id: "boss-thornmaw", type: "thornmaw", name: "Thornmaw", level: 6, maxHp: 700, damage: 18, speed: 96, xp: 320, radius: 24, x: 0.13, y: 0.5 }),
-  Object.freeze({ id: "boss-cragfather", type: "cragfather", name: "Cragfather", level: 9, maxHp: 1100, damage: 26, speed: 80, xp: 520, radius: 27, x: 0.5, y: 0.12 }),
-  Object.freeze({ id: "boss-rustking", type: "rustking", name: "Rustking", level: 11, maxHp: 1500, damage: 30, speed: 70, xp: 750, radius: 30, x: 0.9, y: 0.5 }),
-  Object.freeze({ id: "boss-hullwraith", type: "hullwraith", name: "Hullwraith", level: 13, maxHp: 1800, damage: 32, speed: 100, xp: 950, radius: 28, x: 0.42, y: 0.86 }),
-  Object.freeze({ id: "boss-warden", type: "warden", name: "Crimson Warden", level: 15, maxHp: 2400, damage: 38, speed: 92, xp: 1400, radius: 30, x: 0.9, y: 0.14 }),
+  Object.freeze({ id: "boss-thornmaw", type: "thornmaw", name: "Thornmaw", level: 7, maxHp: 900, damage: 20, speed: 96, xp: 400, radius: 24, x: 0.13, y: 0.5 }),
+  Object.freeze({ id: "boss-cragfather", type: "cragfather", name: "Cragfather", level: 9, maxHp: 1300, damage: 26, speed: 80, xp: 600, radius: 27, x: 0.5, y: 0.12 }),
+  Object.freeze({ id: "boss-sandmaw", type: "sandmaw", name: "Sandmaw", level: 11, maxHp: 1700, damage: 30, speed: 84, xp: 900, radius: 28, x: 0.26, y: 0.78 }),
+  Object.freeze({ id: "boss-rustking", type: "rustking", name: "Rustking", level: 12, maxHp: 1900, damage: 32, speed: 70, xp: 1100, radius: 30, x: 0.9, y: 0.5 }),
+  Object.freeze({ id: "boss-rimehorn", type: "rimehorn", name: "Rimehorn", level: 14, maxHp: 2300, damage: 34, speed: 78, xp: 1400, radius: 29, x: 0.19, y: 0.19 }),
+  Object.freeze({ id: "boss-gravemarch", type: "gravemarch", name: "Gravemarch", level: 15, maxHp: 2600, damage: 36, speed: 74, xp: 1700, radius: 30, x: 0.09, y: 0.52 }),
+  Object.freeze({ id: "boss-hullwraith", type: "hullwraith", name: "Hullwraith", level: 17, maxHp: 3000, damage: 38, speed: 100, xp: 2000, radius: 28, x: 0.42, y: 0.86 }),
+  Object.freeze({ id: "boss-warden", type: "warden", name: "Crimson Warden", level: 20, maxHp: 3600, damage: 44, speed: 92, xp: 2600, radius: 30, x: 0.9, y: 0.14 }),
 ]);
 
 // Auto point-allocation weights per hero: stats are filled so that
