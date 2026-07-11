@@ -107,7 +107,7 @@ test("piercing projectiles cannot damage the same enemy more than once", () => {
 });
 
 test("a defeated player observes the respawn delay and can return at full health", () => {
-  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, safeZoneRadius: 0 });
   const player = world.addPlayer("player-1", { archetype: "strider" });
   world.spawnMob({
     id: "brute",
@@ -128,4 +128,89 @@ test("a defeated player observes the respawn delay and can return at full health
   world.respawnPlayer(player.id);
   assert.equal(player.alive, true);
   assert.equal(player.hp, player.maxHp);
+});
+
+test("a click-to-move order walks the player to the destination and stops", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
+  const player = world.addPlayer("player-1", { archetype: "strider" });
+  const destination = { x: player.x + 160, y: player.y - 120 };
+
+  world.handleCommand("player-1", { type: "input", seq: 1, moveTo: destination });
+  for (let index = 0; index < 60; index += 1) world.update(0.05);
+
+  assert.ok(Math.hypot(player.x - destination.x, player.y - destination.y) < 6);
+  assert.equal(player.moveTarget, null);
+
+  // Manual keyboard movement cancels any standing order.
+  world.handleCommand("player-1", { type: "input", seq: 2, moveTo: destination });
+  world.handleCommand("player-1", { type: "input", seq: 3, move: { x: 0, y: 1 } });
+  world.update(0.05);
+  assert.equal(player.moveTarget, null);
+});
+
+test("marking an enemy walks the player into range and auto-attacks it down", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, safeZoneRadius: 0 });
+  const player = world.addPlayer("player-1", { archetype: "channeler" });
+  const enemy = world.spawnMob({
+    id: "quarry",
+    x: player.x + 700,
+    y: player.y,
+    maxHp: 30,
+    speed: 0.001,
+    damage: 0.001,
+    xp: 40,
+  });
+
+  world.handleCommand("player-1", { type: "input", seq: 1, target: enemy.id });
+  for (let index = 0; index < 200 && world.mobs.has(enemy.id); index += 1) {
+    world.update(0.05);
+  }
+
+  assert.equal(world.mobs.has(enemy.id), false);
+  assert.equal(player.xp, 40);
+  assert.equal(player.attackTarget, null);
+});
+
+test("rebirth requires the unlock level and grants permanent bonuses", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
+  const player = world.addPlayer("player-1", { archetype: "vanguard" });
+  const baselineMaxHp = player.maxHp;
+
+  assert.throws(
+    () => world.handleCommand("player-1", { type: "rebirth" }),
+    (error) => error instanceof WorldError && error.code === "REBIRTH_LEVEL_TOO_LOW",
+  );
+
+  world._grantXp(player, 10_000);
+  assert.ok(player.level >= 10);
+  const statPointsBefore = player.statPoints;
+
+  world.handleCommand("player-1", { type: "rebirth" });
+
+  assert.equal(player.rebirths, 1);
+  assert.equal(player.level, 1);
+  assert.equal(player.xp, 0);
+  assert.equal(player.statPoints, statPointsBefore + 6);
+  assert.ok(player.maxHp > baselineMaxHp);
+  assert.equal(player.hp, player.maxHp);
+  assert.ok(world.drainEvents().some((event) => event.event === "playerReborn"));
+});
+
+test("the town safe zone blocks enemy damage and keeps mobs from advancing", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
+  const player = world.addPlayer("player-1", { archetype: "channeler" });
+  const brute = world.spawnMob({
+    id: "brute",
+    x: player.x + player.radius + 14,
+    y: player.y,
+    speed: 200,
+    damage: 10_000,
+  });
+  const bruteX = brute.x;
+
+  for (let index = 0; index < 20; index += 1) world.update(0.05);
+
+  assert.equal(player.alive, true);
+  assert.equal(player.hp, player.maxHp);
+  assert.equal(brute.x, bruteX);
 });

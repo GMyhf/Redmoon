@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(npm test *)",
+      "Read(//usr/local/bin/**)",
+      "Read(//home/ubuntu/**)",
+      "Bash(curl -fsSL -o node.tar.xz https://nodejs.org/dist/v22.17.0/node-v22.17.0-linux-x64.tar.xz)",
+      "Bash(tar -xf node.tar.xz)",
+      "Bash(./node-v22.17.0-linux-x64/bin/node --version)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)"
+    ]
+  }
+}

@@ -21,7 +21,7 @@ Linux Node.js process
 ## 运行时组件
 
 - `src/server/server.js`：读取 `HOST`/`PORT`（默认 `127.0.0.1:3000`），提供健康检查和 `public/` 静态文件，只允许 `/ws` 的 WebSocket 升级。
-- `src/server/world.js`：拥有玩家、敌人、投射物、经验和成长状态；按固定 tick 消费输入并广播快照/事件。
+- `src/server/world.js`：拥有玩家、敌人、投射物、经验和成长状态；按固定 tick 消费输入并广播快照/事件。点击移动/锁定攻击指令、城镇安全区和转生结算都在这里权威执行。
 - `src/server/definitions.js`：集中定义职业、技能、敌人和成长配置，避免客户端成为规则来源。
 - `public/client.js`：采集键鼠输入、发送意图、渲染服务器状态。客户端不决定命中、伤害、经验或合法位置。
 - `test/`：覆盖 HTTP、协议校验和核心世界规则；测试应使用可控时间与随机源，避免依赖真实网络延迟。
@@ -43,17 +43,18 @@ WebSocket 使用 UTF-8 JSON 对象，单条消息上限为 16 KiB。每条命令
 | `type` | 主要字段 | 用途 |
 | --- | --- | --- |
 | `join` | `name`, `archetype` | 创建会话角色 |
-| `input` | `seq`, `move`, `aim`, `primary`, `q`, `e` | 提交有序移动与技能意图 |
+| `input` | `seq`, `move`, `aim`, `moveTo?`, `target?`, `primary`, `q`, `e` | 提交有序移动与技能意图。`moveTo`（点坐标）下达点击移动指令，`target`（敌人 id）下达锁定自动攻击指令；两者缺省表示保持现有指令，显式 `null` 表示取消，键盘移动会取消所有指令 |
 | `allocate` | `stat` | 消耗属性点 |
 | `upgrade` | `skill` | 消耗技能点 |
 | `respawn` | 无 | 请求合法重生 |
+| `rebirth` | 无 | 达到解锁等级后转生：等级归一，换取永久属性点、生命与伤害加成 |
 
 服务器消息封装：
 
 | `type` | 主要字段 | 语义 |
 | --- | --- | --- |
-| `welcome` | `protocol`, `id`, `tickRate`, `snapshotRate`, `world`, `archetypes` | 建立身份并下发初始配置 |
-| `snapshot` | `tick`, `serverTime`, `selfId`, `world`, `players`, `enemies`, `projectiles` | 可替换的当前世界状态 |
+| `welcome` | `protocol`, `id`, `tickRate`, `snapshotRate`, `world`（含 `safeZone`）, `rebirthLevel`, `archetypes` | 建立身份并下发初始配置 |
+| `snapshot` | `tick`, `serverTime`, `selfId`, `world`, `safeZone`, `players`, `enemies`, `projectiles` | 可替换的当前世界状态；玩家条目含 `moveTarget`、`targetId`、`rebirths` |
 | `event` | `event`, `tick`, `serverTime`, 事件载荷 | 短时表现或离散结果 |
 | `error` | `code`, `message`, `requestType?` | 可处理的协议错误 |
 
@@ -86,9 +87,3 @@ WebSocket 使用 UTF-8 JSON 对象，单条消息上限为 16 KiB。每条命令
 ### 4. 长线玩法
 
 副本系统先做确定性实例生命周期和奖励结算；PvP 增加独立规则集、匹配评分、赛季与反串通审计；可重复成长/转生必须由服务器事务一次性结算，并保留迁移版本，避免重试导致重复奖励。
-
-## Clean-room 规则
-
-架构和内容必须独立创作。不得读取、反编译或模拟原《红月》或第三方私服的客户端/服务端协议；不得导入其程序、数据库、地图、数值表、角色、剧情、图像、音频、字体或界面素材；不得用近似命名和视觉包装暗示官方关系。可以研究公开的通用 MMO/aRPG 设计问题，但需求应重新表述为抽象能力，并留下原创实现与素材授权记录。
-
-“CRIMSON RELAY”是本项目的原创工作名称。本项目不以兼容现有游戏、服务器或账户为目标。

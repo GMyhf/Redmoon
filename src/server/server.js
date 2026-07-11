@@ -9,6 +9,7 @@ import { WebSocket, WebSocketServer } from "ws";
 
 import {
   PROTOCOL_VERSION,
+  REBIRTH_LEVEL,
   SNAPSHOT_RATE,
   TICK_RATE,
   publicArchetypes,
@@ -159,7 +160,13 @@ export class GameServer {
       playerId: socket.playerId,
       tickRate: this.tickRate,
       snapshotRate: this.snapshotRate,
-      world: { name: this.world.name, width: this.world.width, height: this.world.height },
+      world: {
+        name: this.world.name,
+        width: this.world.width,
+        height: this.world.height,
+        safeZone: this.world.safeZone ? { ...this.world.safeZone } : null,
+      },
+      rebirthLevel: REBIRTH_LEVEL,
       archetypes: publicArchetypes(),
     });
 

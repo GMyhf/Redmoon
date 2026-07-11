@@ -2,7 +2,7 @@
   "name": "crimson-relay",
   "version": "0.1.0",
   "private": true,
-  "description": "A clean-room, server-authoritative online action RPG prototype.",
+  "description": "A server-authoritative online action RPG prototype.",
   "type": "module",
   "engines": {
     "node": ">=20"

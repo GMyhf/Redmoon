@@ -1,5 +1,10 @@
 import {
   ARCHETYPES,
+  MOB_TYPES,
+  REBIRTH_DAMAGE_BONUS,
+  REBIRTH_HP_BONUS,
+  REBIRTH_LEVEL,
+  REBIRTH_STAT_BONUS,
   SKILL_SLOTS,
   STAT_KEYS,
   TICK_RATE,
@@ -12,6 +17,8 @@ const PLAYER_RADIUS = 18;
 const MOB_RADIUS = 16;
 const RESPAWN_DELAY = 3;
 const MOB_RESPAWN_DELAY = 2.5;
+const DEFAULT_SAFE_ZONE_RADIUS = 150;
+const MOVE_ARRIVAL_EPSILON = 4;
 const QUEST_TARGET = 6;
 const QUEST_REWARD_XP = 90;
 
@@ -41,6 +48,12 @@ export class World {
       : "Glassward Outpost";
     this.width = positiveNumber(options.width, DEFAULT_WIDTH);
     this.height = positiveNumber(options.height, DEFAULT_HEIGHT);
+    const safeZoneRadius = options.safeZoneRadius === 0
+      ? 0
+      : positiveNumber(options.safeZoneRadius, DEFAULT_SAFE_ZONE_RADIUS);
+    this.safeZone = safeZoneRadius > 0
+      ? { x: this.width / 2, y: this.height / 2, radius: safeZoneRadius }
+      : null;
     this.mobTargetCount = nonNegativeInteger(options.mobTargetCount, 9);
     this.players = new Map();
     this.mobs = new Map();
@@ -91,6 +104,9 @@ export class World {
       maxHp: 1,
       alive: true,
       respawnAvailableAt: 0,
+      moveTarget: null,
+      attackTarget: null,
+      rebirths: 0,
       level: 1,
       xp: 0,
       xpToNext: xpRequiredForLevel(1),
@@ -158,6 +174,8 @@ export class World {
         return this.upgradeSkill(id, message.skill);
       case "respawn":
         return this.respawnPlayer(id);
+      case "rebirth":
+        return this.rebirthPlayer(id);
       default:
         throw new WorldError("UNKNOWN_MESSAGE", `Unknown message type: ${String(type)}`);
     }
@@ -178,6 +196,27 @@ export class World {
       q: input.q === true,
       e: input.e === true,
     };
+
+    // Click-to-move and click-to-attack persist between input messages;
+    // an absent field keeps the current order, an explicit null clears it.
+    if (input.moveTo !== undefined) {
+      const point = optionalFinitePoint(input.moveTo);
+      player.moveTarget = point
+        ? {
+          x: clamp(point.x, PLAYER_RADIUS, this.width - PLAYER_RADIUS),
+          y: clamp(point.y, PLAYER_RADIUS, this.height - PLAYER_RADIUS),
+        }
+        : null;
+      if (point) player.attackTarget = null;
+    }
+    if (input.target !== undefined) {
+      player.attackTarget = typeof input.target === "string"
+        && input.target.length >= 1
+        && input.target.length <= 80
+        ? input.target
+        : null;
+      if (player.attackTarget) player.moveTarget = null;
+    }
     return player;
   }
 
@@ -244,10 +283,41 @@ export class World {
     player.hp = player.maxHp;
     player.alive = true;
     player.input = emptyInput();
+    player.moveTarget = null;
+    player.attackTarget = null;
     player.nextPrimaryAt = this.time + 0.2;
     player.nextSkillAt.q = this.time + 0.2;
     player.nextSkillAt.e = this.time + 0.2;
     this._emit("playerRespawned", { playerId: id, x: player.x, y: player.y });
+    return player;
+  }
+
+  rebirthPlayer(id) {
+    const player = this._requirePlayer(id);
+    if (!player.alive) {
+      throw new WorldError("PLAYER_DEAD", "Rebirth is not possible while defeated.");
+    }
+    if (player.level < REBIRTH_LEVEL) {
+      throw new WorldError(
+        "REBIRTH_LEVEL_TOO_LOW",
+        `Rebirth unlocks at level ${REBIRTH_LEVEL}.`,
+      );
+    }
+
+    player.rebirths += 1;
+    player.level = 1;
+    player.xp = 0;
+    player.xpToNext = xpRequiredForLevel(1);
+    player.statPoints += REBIRTH_STAT_BONUS;
+    player.skillPoints += 1;
+    this._refreshDerivedStats(player, false);
+    player.hp = player.maxHp;
+    this._emit("playerReborn", {
+      playerId: id,
+      rebirths: player.rebirths,
+      x: round(player.x),
+      y: round(player.y),
+    });
     return player;
   }
 
@@ -308,6 +378,7 @@ export class World {
         time: round(this.time),
         tick: this.tick,
       },
+      safeZone: this.safeZone ? { ...this.safeZone } : null,
       players: [...this.players.values()].map((player) => this._serializePlayer(player)),
       enemies,
       mobs: enemies,
@@ -325,13 +396,15 @@ export class World {
     const point = overrides.x === undefined || overrides.y === undefined
       ? this._mobSpawn()
       : { x: Number(overrides.x), y: Number(overrides.y) };
-    const level = Math.max(1, nonNegativeInteger(overrides.level, 1));
+    const rolledLevel = 1 + Math.floor(clamp(this.rng(), 0, 0.999999) * MOB_TYPES.length);
+    const level = Math.max(1, nonNegativeInteger(overrides.level, rolledLevel));
+    const species = MOB_TYPES[Math.min(level, MOB_TYPES.length) - 1];
     const maxHp = positiveNumber(overrides.maxHp, 38 + (level - 1) * 8);
     const id = overrides.id ?? `mob-${++this._mobSequence}`;
     const mob = {
       id: validateId(id),
-      type: overrides.type ?? "riftling",
-      name: overrides.name ?? "Riftling",
+      type: overrides.type ?? species.type,
+      name: overrides.name ?? species.name,
       x: clamp(point.x, MOB_RADIUS, this.width - MOB_RADIUS),
       y: clamp(point.y, MOB_RADIUS, this.height - MOB_RADIUS),
       radius: MOB_RADIUS,
@@ -354,12 +427,24 @@ export class World {
     for (const player of this.players.values()) {
       if (!player.alive) continue;
       const speed = ARCHETYPES[player.archetype].baseSpeed + player.stats.agility * 3.2;
-      player.x = clamp(player.x + player.input.move.x * speed * dt, PLAYER_RADIUS, this.width - PLAYER_RADIUS);
-      player.y = clamp(player.y + player.input.move.y * speed * dt, PLAYER_RADIUS, this.height - PLAYER_RADIUS);
+      const manualMove = player.input.move.x !== 0 || player.input.move.y !== 0;
+
+      if (manualMove) {
+        player.moveTarget = null;
+        player.attackTarget = null;
+        player.x = clamp(player.x + player.input.move.x * speed * dt, PLAYER_RADIUS, this.width - PLAYER_RADIUS);
+        player.y = clamp(player.y + player.input.move.y * speed * dt, PLAYER_RADIUS, this.height - PLAYER_RADIUS);
+      } else {
+        this._advanceAutoOrders(player, speed, dt);
+      }
 
       const aim = directionTo(player, player.input.aim, player.facing);
       if (aim.x !== 0 || aim.y !== 0) player.facing = aim;
-      player.hp = Math.min(player.maxHp, player.hp + (0.35 + player.stats.vitality * 0.04) * dt);
+      const regenBoost = this._inSafeZone(player) ? 4 : 1;
+      player.hp = Math.min(
+        player.maxHp,
+        player.hp + (0.35 + player.stats.vitality * 0.04) * regenBoost * dt,
+      );
 
       if (player.input.primary) this._usePrimary(player, aim);
       if (player.input.q) this._useSkill(player, "q", aim);
@@ -367,10 +452,49 @@ export class World {
     }
   }
 
+  // Click-driven orders: walk to a point, or close on a marked enemy and
+  // keep firing the primary attack until it falls.
+  _advanceAutoOrders(player, speed, dt) {
+    let destination = null;
+    if (player.attackTarget) {
+      const mob = this.mobs.get(player.attackTarget);
+      if (!mob) {
+        player.attackTarget = null;
+      } else {
+        const range = ARCHETYPES[player.archetype].primary.range;
+        const distance = Math.hypot(mob.x - player.x, mob.y - player.y);
+        if (distance <= range * 0.85) {
+          const direction = directionTo(player, mob, player.facing);
+          player.facing = direction;
+          this._usePrimary(player, direction);
+          return;
+        }
+        destination = { x: mob.x, y: mob.y };
+      }
+    }
+    if (!destination && player.moveTarget) destination = player.moveTarget;
+    if (!destination) return;
+
+    const dx = destination.x - player.x;
+    const dy = destination.y - player.y;
+    const distance = Math.hypot(dx, dy);
+    if (distance <= MOVE_ARRIVAL_EPSILON) {
+      if (!player.attackTarget) player.moveTarget = null;
+      return;
+    }
+    const travel = Math.min(speed * dt, distance);
+    player.x = clamp(player.x + (dx / distance) * travel, PLAYER_RADIUS, this.width - PLAYER_RADIUS);
+    player.y = clamp(player.y + (dy / distance) * travel, PLAYER_RADIUS, this.height - PLAYER_RADIUS);
+    player.facing = { x: dx / distance, y: dy / distance };
+    if (!player.attackTarget && distance - travel <= MOVE_ARRIVAL_EPSILON) {
+      player.moveTarget = null;
+    }
+  }
+
   _updateMobs(dt) {
     for (const mob of [...this.mobs.values()]) {
       const target = this._nearestLivingPlayer(mob, 520);
-      if (!target) continue;
+      if (!target || this._inSafeZone(target)) continue;
 
       const dx = target.x - mob.x;
       const dy = target.y - mob.y;
@@ -527,7 +651,7 @@ export class World {
       vx: unit.x * speed,
       vy: unit.y * speed,
       radius: options.radius ?? 6,
-      damage: options.damage,
+      damage: options.damage * (1 + player.rebirths * REBIRTH_DAMAGE_BONUS),
       ttl,
       hitsRemaining: options.pierce ?? 1,
       hitIds: new Set(),
@@ -555,6 +679,9 @@ export class World {
     if (mob.hp > 0) return;
 
     this.mobs.delete(mob.id);
+    for (const other of this.players.values()) {
+      if (other.attackTarget === mob.id) other.attackTarget = null;
+    }
     const player = this.players.get(ownerId);
     if (player) {
       this._grantXp(player, mob.xp);
@@ -573,6 +700,7 @@ export class World {
 
   _damagePlayer(player, damage, sourceId) {
     if (!player.alive) return;
+    if (this._inSafeZone(player)) return;
     const mitigation = Math.min(0.38, player.stats.vitality * 0.018);
     player.hp -= Math.max(1, damage * (1 - mitigation));
     if (player.hp > 0) return;
@@ -636,9 +764,10 @@ export class World {
     const oldMax = player.maxHp;
     const ratio = oldMax > 0 ? player.hp / oldMax : 1;
     player.maxHp = Math.round(
-      ARCHETYPES[player.archetype].baseHp
+      (ARCHETYPES[player.archetype].baseHp
         + player.stats.vitality * 11
-        + (player.level - 1) * 7,
+        + (player.level - 1) * 7)
+        * (1 + player.rebirths * REBIRTH_HP_BONUS),
     );
     if (preserveHealth) {
       player.hp = Math.min(player.maxHp, Math.max(1, player.maxHp * ratio));
@@ -671,6 +800,9 @@ export class World {
       maxHp: player.maxHp,
       alive: player.alive,
       respawnIn: round(Math.max(0, player.respawnAvailableAt - this.time)),
+      moveTarget: player.moveTarget ? { x: round(player.moveTarget.x), y: round(player.moveTarget.y) } : null,
+      targetId: player.attackTarget,
+      rebirths: player.rebirths,
       level: player.level,
       xp: round(player.xp),
       xpToNext: player.xpToNext,
@@ -736,6 +868,13 @@ export class World {
     }
   }
 
+  _inSafeZone(entity) {
+    if (!this.safeZone) return false;
+    const dx = entity.x - this.safeZone.x;
+    const dy = entity.y - this.safeZone.y;
+    return dx * dx + dy * dy <= this.safeZone.radius * this.safeZone.radius;
+  }
+
   _requirePlayer(id) {
     const player = this.players.get(id);
     if (!player) throw new WorldError("NOT_JOINED", "Player is not in the world.");
@@ -777,6 +916,16 @@ function emptyInput() {
 function resolveSkillSlot(archetype, requestedSkill) {
   if (SKILL_SLOTS.includes(requestedSkill)) return requestedSkill;
   return SKILL_SLOTS.find((slot) => ARCHETYPES[archetype].skills[slot].id === requestedSkill) ?? null;
+}
+
+function optionalFinitePoint(value) {
+  if (!value || typeof value !== "object" || !Number.isFinite(value.x) || !Number.isFinite(value.y)) {
+    return null;
+  }
+  return {
+    x: clamp(value.x, -100_000, 100_000),
+    y: clamp(value.y, -100_000, 100_000),
+  };
 }
 
 function finitePoint(value, fallback = { x: 1, y: 0 }) {

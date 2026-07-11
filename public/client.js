@@ -44,6 +44,7 @@
     deathPanel: document.querySelector("#death-panel"),
     respawnTimer: document.querySelector("#respawn-timer"),
     respawnButton: document.querySelector("#respawn-button"),
+    rebirthButton: document.querySelector("#rebirth-button"),
     abilities: [...document.querySelectorAll(".ability")],
   };
 
@@ -102,6 +103,9 @@
     pointer: { x: 0, y: 0, worldX: 800, worldY: 450, down: false, seen: false },
     keys: new Set(),
     pulses: { q: false, e: false, primary: false },
+    orders: { moveTo: undefined, target: undefined },
+    dragMove: false,
+    rebirthLevel: 10,
     inputSeq: 0,
     lastInput: 0,
     lastFrame: performance.now(),
@@ -215,6 +219,8 @@
     if (type === "welcome") {
       state.id = String(first(message.id, message.playerId, message.clientId, state.id, ""));
       applyMap(first(message.map, message.world));
+      const rebirthLevel = finite(message.rebirthLevel, NaN);
+      if (Number.isFinite(rebirthLevel) && rebirthLevel > 0) state.rebirthLevel = rebirthLevel;
       if (message.archetypes && typeof message.archetypes === "object") {
         mergeArchetypes(message.archetypes);
       }
@@ -248,6 +254,12 @@
     state.map.width = clamp(first(map.width, map.w, state.map.width), 8, 8192);
     state.map.height = clamp(first(map.height, map.h, state.map.height), 8, 8192);
     state.map.name = String(first(map.name, map.label, state.map.name));
+    if (map.safeZone !== undefined) {
+      const zone = map.safeZone;
+      state.map.safeZone = zone && Number.isFinite(zone.x) && Number.isFinite(zone.y) && Number.isFinite(zone.radius)
+        ? { x: zone.x, y: zone.y, radius: zone.radius }
+        : null;
+    }
     ui.sector.textContent = `节点 // ${state.map.name}`;
   }
 
@@ -324,10 +336,15 @@
     const xpMax = Math.max(1, finite(first(player.xpToNext, player.nextLevelXp, player.maxXp), 100));
     const level = Math.max(1, Math.floor(finite(player.level, 1)));
 
+    const rebirths = Math.max(0, Math.floor(finite(player.rebirths, 0)));
     ui.name.textContent = String(first(player.name, state.profile?.name, "RELAY-07")).toUpperCase();
     ui.className.textContent = archetype.label;
     ui.sigil.textContent = archetype.sigil;
-    ui.level.textContent = `L${String(level).padStart(2, "0")}`;
+    ui.level.textContent = `L${String(level).padStart(2, "0")}${rebirths > 0 ? ` ★${rebirths}` : ""}`;
+    if (ui.rebirthButton) {
+      ui.rebirthButton.hidden = level < state.rebirthLevel;
+      ui.rebirthButton.textContent = rebirths > 0 ? `转生 ★${rebirths + 1}` : "转生";
+    }
     ui.hp.textContent = Math.ceil(hp);
     ui.maxHp.textContent = Math.ceil(maxHp);
     ui.hpFill.style.width = `${ratio(hp, maxHp) * 100}%`;
@@ -421,6 +438,7 @@
       skillupgraded: "能力已升级",
       allocated: "属性已强化",
       statallocated: "属性已强化",
+      playerreborn: "转生完成 // 力量得到升华",
     };
     if (eventName === "skillused") return;
     const text = String(first(event.message, messages[eventName], "中继信号已更新"));
@@ -449,6 +467,9 @@
       NO_STAT_POINTS: "没有可用属性点",
       NO_SKILL_POINTS: "没有可用技能点",
       RESPAWN_NOT_READY: "信号尚未恢复",
+      RESPAWN_PENDING: "信号尚未恢复",
+      REBIRTH_LEVEL_TOO_LOW: "等级不足，无法转生",
+      PLAYER_DEAD: "阵亡状态下无法执行该操作",
     };
     const message = String(first(translated[error.code], error.message, error.error, "中继请求失败"));
     pushEvent(message, true);
@@ -546,15 +567,50 @@
       state.viewHeight * 0.43,
       Math.max(state.viewWidth, state.viewHeight) * 0.7,
     );
-    glow.addColorStop(0, "#293438");
-    glow.addColorStop(0.52, "#161e22");
-    glow.addColorStop(1, "#080a0d");
+    glow.addColorStop(0, "#32282c");
+    glow.addColorStop(0.52, "#1c1519");
+    glow.addColorStop(1, "#0a0709");
     ctx.fillStyle = glow;
     ctx.fillRect(0, 0, state.viewWidth, state.viewHeight);
 
+    // The crimson moon that gives the relay its name.
+    const moonX = state.viewWidth * 0.82;
+    const moonY = state.viewHeight * 0.16;
+    const moonRadius = Math.min(state.viewWidth, state.viewHeight) * 0.09;
+    ctx.save();
+    const halo = ctx.createRadialGradient(moonX, moonY, moonRadius * 0.4, moonX, moonY, moonRadius * 3.2);
+    halo.addColorStop(0, "rgba(216, 64, 78, 0.34)");
+    halo.addColorStop(1, "rgba(216, 64, 78, 0)");
+    ctx.fillStyle = halo;
+    ctx.fillRect(moonX - moonRadius * 3.2, moonY - moonRadius * 3.2, moonRadius * 6.4, moonRadius * 6.4);
+    const disc = ctx.createRadialGradient(
+      moonX - moonRadius * 0.3,
+      moonY - moonRadius * 0.3,
+      moonRadius * 0.2,
+      moonX,
+      moonY,
+      moonRadius,
+    );
+    disc.addColorStop(0, "#e8646f");
+    disc.addColorStop(0.65, "#b03040");
+    disc.addColorStop(1, "#701c2c");
+    ctx.fillStyle = disc;
+    ctx.beginPath();
+    ctx.arc(moonX, moonY, moonRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 0.24;
+    ctx.fillStyle = "#5c1826";
+    ctx.beginPath();
+    ctx.ellipse(moonX + moonRadius * 0.32, moonY + moonRadius * 0.12, moonRadius * 0.3, moonRadius * 0.2, 0.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(moonX - moonRadius * 0.3, moonY + moonRadius * 0.4, moonRadius * 0.22, moonRadius * 0.13, -0.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
     ctx.save();
     ctx.globalAlpha = 0.08;
-    ctx.fillStyle = "#9bd9d1";
+    ctx.fillStyle = "#d9a2a8";
     const drift = (time * 0.006) % 220;
     for (let i = -1; i < 7; i += 1) {
       ctx.beginPath();
@@ -583,15 +639,54 @@
         const point = worldToScreen((x + 0.5) * WORLD_CELL, (y + 0.5) * WORLD_CELL);
         if (point.x < -TILE_W || point.x > state.viewWidth + TILE_W || point.y < -TILE_H || point.y > state.viewHeight + TILE_H) continue;
         const noise = tileHash(x, y);
-        let fill = noise > 0.77 ? "#222e2e" : noise > 0.37 ? "#20282a" : "#1d2528";
-        if ((x + y) % 11 === 0) fill = "#252b2c";
-        drawDiamond(point.x, point.y, TILE_W - 1, TILE_H - 1, fill, "rgba(143, 167, 162, 0.12)");
+        const zone = state.map.safeZone;
+        const worldX = (x + 0.5) * WORLD_CELL;
+        const worldY = (y + 0.5) * WORLD_CELL;
+        const inSafeZone = zone
+          && (worldX - zone.x) ** 2 + (worldY - zone.y) ** 2 <= zone.radius * zone.radius;
+        let fill;
+        if (inSafeZone) {
+          fill = noise > 0.6 ? "#33282b" : "#2e2427";
+        } else {
+          fill = noise > 0.77 ? "#2b2426" : noise > 0.37 ? "#272124" : "#231e21";
+          if ((x + y) % 11 === 0) fill = "#2d2527";
+        }
+        drawDiamond(
+          point.x,
+          point.y,
+          TILE_W - 1,
+          TILE_H - 1,
+          fill,
+          inSafeZone ? "rgba(226, 168, 122, 0.2)" : "rgba(167, 143, 148, 0.12)",
+        );
 
         if ((x === 2 || x === tileMapWidth - 3) && y % 5 < 2) drawRelayLine(point, time, x + y);
-        if (noise > 0.965) drawCrystal(point.x, point.y - 4, noise, time);
-        else if (noise > 0.93) drawDebris(point.x, point.y, noise);
+        if (!inSafeZone && noise > 0.965) drawCrystal(point.x, point.y - 4, noise, time);
+        else if (!inSafeZone && noise > 0.93) drawDebris(point.x, point.y, noise);
       }
     }
+    drawSafeZoneRing(time);
+  }
+
+  function drawSafeZoneRing(time) {
+    const zone = state.map.safeZone;
+    if (!zone) return;
+    ctx.save();
+    ctx.strokeStyle = `rgba(240, 193, 94, ${0.35 + Math.sin(time * 0.002) * 0.12})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    const segments = 72;
+    for (let i = 0; i <= segments; i += 1) {
+      const angle = (i / segments) * Math.PI * 2;
+      const point = worldToScreen(
+        zone.x + Math.cos(angle) * zone.radius,
+        zone.y + Math.sin(angle) * zone.radius,
+      );
+      if (i === 0) ctx.moveTo(point.x, point.y);
+      else ctx.lineTo(point.x, point.y);
+    }
+    ctx.stroke();
+    ctx.restore();
   }
 
   function drawRelayLine(point, time, seed) {
@@ -653,6 +748,12 @@
       objects.sort((a, b) => (a.y + a.x) - (b.y + b.x));
     }
 
+    const local = localPlayer();
+    if (local?.moveTarget) drawMoveMarker(local.moveTarget, time);
+    if (local?.targetId && state.enemies.has(String(local.targetId))) {
+      drawTargetRing(state.enemies.get(String(local.targetId)), time);
+    }
+
     for (const object of objects) {
       if (object.kind === "enemy") drawEnemy(object, time);
       else drawPlayer(object, time);
@@ -660,6 +761,33 @@
 
     for (const projectile of state.projectiles.values()) drawProjectile(projectile, time);
     drawEffects(time);
+  }
+
+  function drawMoveMarker(target, time) {
+    const point = worldToScreen(target.x, target.y);
+    const pulse = 1 + Math.sin(time * 0.008) * 0.18;
+    ctx.save();
+    ctx.strokeStyle = "rgba(240, 193, 94, 0.85)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(point.x, point.y, 14 * pulse, 7 * pulse, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.ellipse(point.x, point.y, 5, 2.5, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawTargetRing(enemy, time) {
+    const point = worldToScreen(enemy.x, enemy.y);
+    const pulse = 1 + Math.sin(time * 0.01) * 0.1;
+    ctx.save();
+    ctx.strokeStyle = "rgba(223, 70, 88, 0.9)";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.ellipse(point.x, point.y + 2, 22 * pulse, 10 * pulse, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
   }
 
   function drawPlayer(player, time) {
@@ -784,8 +912,15 @@
     ctx.fillRect(3, -10, 4, 3);
     ctx.restore();
     const rawName = String(first(enemy.name, enemy.type, "裂隙体"));
-    const localizedName = /riftling/i.test(rawName) ? "裂隙体" : rawName;
-    drawEntityLabel(point.x, point.y - 54, localizedName, enemy, "#f18a95");
+    const localizedName = /riftling/i.test(rawName)
+      ? "裂隙体"
+      : /duskfang/i.test(rawName)
+        ? "暮牙兽"
+        : /ashwing/i.test(rawName)
+          ? "烬翼"
+          : rawName;
+    const label = enemy.level > 1 ? `${localizedName} Lv${Math.floor(finite(enemy.level, 1))}` : localizedName;
+    drawEntityLabel(point.x, point.y - 54, label, enemy, "#f18a95");
   }
 
   function drawEntityLabel(x, y, name, entity, color) {
@@ -904,10 +1039,16 @@
       seq: ++state.inputSeq,
       move,
       aim: { x: state.pointer.worldX, y: state.pointer.worldY },
-      primary: state.pointer.down || state.pulses.primary,
+      // moveTo/target are only present when a new order was clicked;
+      // JSON.stringify drops undefined fields and the server keeps prior orders.
+      moveTo: state.orders.moveTo,
+      target: state.orders.target,
+      primary: state.pulses.primary,
       q: state.pulses.q,
       e: state.pulses.e,
     });
+    state.orders.moveTo = undefined;
+    state.orders.target = undefined;
     state.pulses.primary = false;
     state.pulses.q = false;
     state.pulses.e = false;
@@ -984,6 +1125,7 @@
   });
 
   ui.respawnButton.addEventListener("click", () => send({ type: "respawn" }));
+  ui.rebirthButton?.addEventListener("click", () => send({ type: "rebirth" }));
 
   window.addEventListener("keydown", (event) => {
     if (event.target instanceof HTMLInputElement) return;
@@ -1015,18 +1157,70 @@
     state.pointer.worldY = clamp(world.y, 0, state.map.height);
   });
 
+  function pickEnemy(screenX, screenY) {
+    let best = null;
+    let bestDistance = 30;
+    for (const enemy of state.enemies.values()) {
+      const point = worldToScreen(enemy.x, enemy.y);
+      const distance = Math.hypot(point.x - screenX, point.y - screenY - 18);
+      if (distance < bestDistance) {
+        best = enemy;
+        bestDistance = distance;
+      }
+    }
+    return best;
+  }
+
   canvas.addEventListener("pointerdown", (event) => {
+    const rect = canvas.getBoundingClientRect();
+    const screenX = event.clientX - rect.left;
+    const screenY = event.clientY - rect.top;
+
+    if (event.button === 2) {
+      // Right click: fire the primary attack toward the cursor.
+      triggerAbility("primary");
+      return;
+    }
     if (event.button !== 0) return;
     canvas.setPointerCapture?.(event.pointerId);
     state.pointer.down = true;
-    triggerAbility("primary");
+
+    const enemy = pickEnemy(screenX, screenY);
+    if (enemy) {
+      state.dragMove = false;
+      state.orders.target = String(enemy.id);
+      state.orders.moveTo = undefined;
+    } else {
+      state.dragMove = true;
+      const world = screenToWorld(screenX, screenY);
+      state.orders.moveTo = {
+        x: clamp(world.x, 0, state.map.width),
+        y: clamp(world.y, 0, state.map.height),
+      };
+      state.orders.target = null;
+    }
+  });
+
+  canvas.addEventListener("pointermove", (event) => {
+    // Dragging from a ground click keeps updating the march order.
+    if (!state.pointer.down || !state.dragMove) return;
+    const rect = canvas.getBoundingClientRect();
+    const world = screenToWorld(event.clientX - rect.left, event.clientY - rect.top);
+    state.orders.moveTo = {
+      x: clamp(world.x, 0, state.map.width),
+      y: clamp(world.y, 0, state.map.height),
+    };
   });
 
   canvas.addEventListener("pointerup", (event) => {
     state.pointer.down = false;
+    state.dragMove = false;
     canvas.releasePointerCapture?.(event.pointerId);
   });
-  canvas.addEventListener("pointercancel", () => { state.pointer.down = false; });
+  canvas.addEventListener("pointercancel", () => {
+    state.pointer.down = false;
+    state.dragMove = false;
+  });
   canvas.addEventListener("contextmenu", (event) => event.preventDefault());
   window.addEventListener("resize", resizeCanvas, { passive: true });
 

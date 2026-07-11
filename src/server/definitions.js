@@ -2,6 +2,17 @@ export const PROTOCOL_VERSION = 1;
 export const TICK_RATE = 20;
 export const SNAPSHOT_RATE = 10;
 
+export const REBIRTH_LEVEL = 10;
+export const REBIRTH_STAT_BONUS = 6;
+export const REBIRTH_HP_BONUS = 0.12;
+export const REBIRTH_DAMAGE_BONUS = 0.15;
+
+export const MOB_TYPES = Object.freeze([
+  Object.freeze({ type: "riftling", name: "Riftling" }),
+  Object.freeze({ type: "duskfang", name: "Duskfang" }),
+  Object.freeze({ type: "ashwing", name: "Ashwing" }),
+]);
+
 export const STAT_KEYS = Object.freeze([
   "power",
   "agility",
