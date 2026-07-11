@@ -4,6 +4,7 @@
   const canvas = document.querySelector("#game-canvas");
   const ctx = canvas.getContext("2d", { alpha: false });
   const ui = {
+    titleArt: document.querySelector("#title-art"),
     joinPanel: document.querySelector("#join-panel"),
     joinForm: document.querySelector("#join-form"),
     joinButton: document.querySelector("#join-button"),
@@ -782,6 +783,7 @@
       // Snap the camera straight onto the hero — no cross-map pan on entry.
       state.camera.x = local.x;
       state.camera.y = local.y;
+      ui.titleArt.classList.add("is-hidden");
       ui.joinPanel.hidden = true;
       ui.hud.hidden = false;
       ui.joinButton.disabled = false;
@@ -1389,6 +1391,7 @@
     if (error.requestType === "join") {
       state.joined = false;
       state.pendingJoin = false;
+      ui.titleArt.classList.remove("is-hidden");
       ui.joinPanel.hidden = false;
       ui.hud.hidden = true;
       ui.joinButton.disabled = false;
