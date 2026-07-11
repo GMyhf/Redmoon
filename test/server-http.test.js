@@ -10,6 +10,7 @@ test("HTTP serves the client and health status", async (t) => {
   const server = createGameServer({
     host: "127.0.0.1",
     port: 0,
+    persistPath: "",
     world: new World({ rng: () => 0.5, mobTargetCount: 1, spawnBoss: false }),
   });
   await server.listen();
@@ -34,6 +35,7 @@ test("WebSocket emits welcome, accepts join, and reports protocol errors", async
   const server = createGameServer({
     host: "127.0.0.1",
     port: 0,
+    persistPath: "",
     tickRate: 20,
     snapshotRate: 20,
     world: new World({ rng: () => 0.5, mobTargetCount: 1, spawnBoss: false }),

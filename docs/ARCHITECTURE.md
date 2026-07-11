@@ -51,6 +51,10 @@ WebSocket 使用 UTF-8 JSON 对象，单条消息上限为 16 KiB。每条命令
 | `equip` | `item` | 装备背包中的物品（受物品等级要求限制），原部位装备换回背包 |
 | `unequip` | `slot` | 卸下指定部位（weapon/armor/helm/necklace/ring/boots/charm）的装备回背包 |
 | `use` | `item` | 饮用背包中的药剂恢复生命 |
+| `revive` | 无 | 消耗 1 复苏露在阵亡原地满血复活 |
+| `buy` / `sell` | `shop`+`good` / `item` | 在商店 NPC 附近购买商品；随时出售背包物品折算金币 |
+| `partyInvite`/`partyAccept`/`partyLeave` | `target` / `from` / 无 | 组队邀请、接受与离开（上限 4 人，附近队友共享 60% 经验） |
+| `friendAdd`/`friendRemove` | `name` | 好友增删（随账号持久化） |
 | `autoEquip` | 无 | 每个部位自动穿上背包中强度评分最高且满足等级的装备 |
 | `setAuto` | `enabled` | 开关自动战斗：站立且无指令时自动反击普攻射程内最近的敌人 |
 | `setAutoLevel` | `enabled` | 开关自动加点：升级所得属性点按职业权重分配、技能点优先补最低技能（默认开启，可用 `World` 选项 `autoLevel:false` 全局关闭） |

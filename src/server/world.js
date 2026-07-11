@@ -2,15 +2,22 @@ import {
   ALLOC_WEIGHTS,
   ARCHETYPES,
   BOSSES,
+  DEW_DROP_CHANCE,
   DROP_MAGNET_RADIUS,
   DROP_MAGNET_SPEED,
   DROP_PICKUP_RADIUS,
   DROP_TTL,
   EQUIP_KEYS,
+  GOLD_PER_MOB_LEVEL,
   INVENTORY_LIMIT,
   ITEM_BASES,
   ITEM_SLOTS,
   LEVEL_CAP,
+  PARTY_LIMIT,
+  PARTY_XP_RANGE,
+  PARTY_XP_SHARE,
+  QUEST_CHAIN,
+  SHOPS,
   MOB_TYPES,
   PORTAL_DESTINATIONS,
   RARITIES,
@@ -38,6 +45,13 @@ const RESPAWN_DELAY = 3;
 const MOB_RESPAWN_DELAY = 2.5;
 const DEFAULT_SAFE_ZONE_RADIUS = 220;
 const MOVE_ARRIVAL_EPSILON = 4;
+const SHOP_RANGE = 130;
+// Fields copied between live players and their persisted account record.
+const ACCOUNT_FIELDS = Object.freeze([
+  "archetype", "level", "xp", "xpToNext", "stats", "statPoints",
+  "skillLevels", "skillPoints", "rebirths", "reputation", "will",
+  "attunement", "gold", "dew", "friends", "inventory", "equipment", "quest",
+]);
 const MAX_MOB_LEVEL = 18;
 const MAX_ITEM_LEVEL = 20;
 const ELITE_CHANCE = 0.1;
@@ -45,8 +59,6 @@ const BOSS_RESPAWN_DELAY = 90;
 const PORTAL_RADIUS = 30;
 const PORTAL_LOCK = 2.5;
 const PORTAL_DWELL = 0.6;
-const QUEST_TARGET = 6;
-const QUEST_REWARD_XP = 90;
 
 const BASE_STATS = Object.freeze({
   vanguard: Object.freeze({ power: 6, agility: 3, spirit: 2, vitality: 7 }),
@@ -100,6 +112,17 @@ export class World {
     this._itemSequence = 0;
     this._bossRespawns = new Map();
     this.autoLevelDefault = options.autoLevel !== false;
+    // Account store: plain object keyed by lowercase name; the host loads
+    // it from disk and writes it back, the world reads/updates entries.
+    this.accountStore = options.accountStore ?? {};
+    this.parties = new Map();
+    this._partyInvites = new Map();
+    this._partySequence = 0;
+    this.shops = SHOPS.map((shop) => ({
+      ...shop,
+      x: this.width / 2 + shop.dx,
+      y: this.height / 2 + shop.dy,
+    }));
     this.soulBarrierConfig = { ...SOUL_BARRIER, ...(options.soulBarrier ?? {}) };
     this.zones = ZONES.map((zone) => ({
       ...zone,
@@ -184,17 +207,13 @@ export class World {
       skillPoints: 1,
       nextPrimaryAt: 0,
       nextSkillAt: Object.fromEntries(SKILL_SLOTS.map((slot) => [slot, 0])),
-      quest: {
-        id: "stabilize-the-fringe",
-        title: "Stabilize the Fringe",
-        description: `Defeat ${QUEST_TARGET} Riftlings.`,
-        target: QUEST_TARGET,
-        progress: 0,
-        complete: false,
-        claimed: false,
-        rewardXp: QUEST_REWARD_XP,
-      },
+      gold: 0,
+      dew: 0,
+      friends: [],
+      partyId: null,
+      quest: { chainIndex: 0, progress: 0 },
     };
+    this._restoreAccount(player);
     this._refreshDerivedStats(player, false);
     player.hp = player.maxHp;
     player.mp = player.maxMp;
@@ -207,9 +226,45 @@ export class World {
     return player;
   }
 
+  // ---- Account persistence -------------------------------------------
+
+  _accountKey(name) {
+    return String(name).trim().toLowerCase();
+  }
+
+  _restoreAccount(player) {
+    const record = this.accountStore[this._accountKey(player.name)];
+    if (!record || record.archetype !== player.archetype) return;
+    for (const field of ACCOUNT_FIELDS) {
+      if (record[field] === undefined) continue;
+      player[field] = structuredClone(record[field]);
+    }
+    // Never trust a stale equipment shape after slot reworks.
+    for (const key of Object.keys(player.equipment)) {
+      if (!EQUIP_KEYS.includes(key)) delete player.equipment[key];
+    }
+    for (const key of EQUIP_KEYS) {
+      if (player.equipment[key] === undefined) player.equipment[key] = null;
+    }
+    this._refreshGear(player);
+  }
+
+  _saveAccount(player) {
+    const record = { savedAt: round(this.time) };
+    for (const field of ACCOUNT_FIELDS) record[field] = structuredClone(player[field]);
+    this.accountStore[this._accountKey(player.name)] = record;
+  }
+
+  syncAccounts() {
+    for (const player of this.players.values()) this._saveAccount(player);
+    return this.accountStore;
+  }
+
   removePlayer(id) {
     const player = this.players.get(id);
     if (!player) return false;
+    this._saveAccount(player);
+    this.leaveParty(id, true);
     this.players.delete(id);
     for (const [projectileId, projectile] of this.projectiles) {
       if (projectile.ownerId === id) this.projectiles.delete(projectileId);
@@ -243,6 +298,27 @@ export class World {
         return this.upgradeSkill(id, message.skill);
       case "respawn":
         return this.respawnPlayer(id);
+      case "revive":
+        return this.revivePlayer(id);
+      case "buy":
+        return this.buyGood(id, message.shop, message.good);
+      case "sell":
+        return this.sellItem(id, message.item);
+      case "partyInvite":
+      case "partyinvite":
+        return this.inviteParty(id, message.target);
+      case "partyAccept":
+      case "partyaccept":
+        return this.acceptParty(id, message.from);
+      case "partyLeave":
+      case "partyleave":
+        return this.leaveParty(id);
+      case "friendAdd":
+      case "friendadd":
+        return this.addFriend(id, message.name);
+      case "friendRemove":
+      case "friendremove":
+        return this.removeFriend(id, message.name);
       case "rebirth":
         return this.rebirthPlayer(id);
       case "equip":
@@ -574,6 +650,168 @@ export class World {
     if (changed > 0) {
       this._emit("autoEquipped", { playerId: id, changed });
     }
+    return player;
+  }
+
+  // Revive on the spot for one revival dew — no respawn walk, full health.
+  revivePlayer(id) {
+    const player = this._requirePlayer(id);
+    if (player.alive) {
+      throw new WorldError("ALREADY_ALIVE", "The player is already active.");
+    }
+    if (player.dew < 1) {
+      throw new WorldError("NO_DEW", "Reviving in place requires one revival dew.");
+    }
+    player.dew -= 1;
+    player.hp = player.maxHp;
+    player.alive = true;
+    player.input = emptyInput();
+    player.nextPrimaryAt = this.time + 0.2;
+    for (const slot of SKILL_SLOTS) player.nextSkillAt[slot] = this.time + 0.2;
+    this._emit("playerRevived", { playerId: id, x: round(player.x), y: round(player.y) });
+    return player;
+  }
+
+  buyGood(id, shopId, goodKey) {
+    const player = this._requirePlayer(id);
+    const shop = this.shops.find((entry) => entry.id === shopId);
+    if (!shop) throw new WorldError("INVALID_SHOP", "No such shopkeeper.");
+    if (Math.hypot(player.x - shop.x, player.y - shop.y) > SHOP_RANGE) {
+      throw new WorldError("TOO_FAR", "Walk up to the shopkeeper first.");
+    }
+    const good = shop.goods.find((entry) => entry.key === goodKey);
+    if (!good) throw new WorldError("INVALID_GOOD", "That item is not for sale here.");
+    if ((good.gold ?? 0) > player.gold) throw new WorldError("NO_GOLD", "Not enough gold.");
+    if ((good.dew ?? 0) > player.dew) throw new WorldError("NO_DEW", "Not enough revival dew.");
+    if (player.inventory.length >= INVENTORY_LIMIT) {
+      throw new WorldError("INVENTORY_FULL", "The inventory is full.");
+    }
+
+    player.gold -= good.gold ?? 0;
+    player.dew -= good.dew ?? 0;
+    let item;
+    if (good.heal) {
+      item = { ...this._rollPotion(1), heal: good.heal, name: "Mending Vial" };
+    } else if (good.key === "forge-gear") {
+      item = this._rollItem(clamp(player.level, 1, 18), 2);
+    } else {
+      item = this._rollRelic(Math.min(player.level, 20));
+    }
+    player.inventory.push(item);
+    this._emit("purchased", {
+      playerId: id,
+      shopId,
+      good: good.key,
+      itemId: item.id,
+      name: item.name,
+      rarity: item.rarity,
+    });
+    return player;
+  }
+
+  sellItem(id, itemId) {
+    const player = this._requirePlayer(id);
+    const index = player.inventory.findIndex((item) => item.id === itemId);
+    if (index < 0) {
+      throw new WorldError("INVALID_ITEM", "That item is not in the inventory.");
+    }
+    const [item] = player.inventory.splice(index, 1);
+    const value = Math.max(5, Math.floor(itemPower(item) / 4) + 5);
+    player.gold += value;
+    this._emit("itemSold", { playerId: id, itemId: item.id, name: item.name, gold: value });
+    return player;
+  }
+
+  // ---- Party & friends ------------------------------------------------
+
+  inviteParty(id, targetId) {
+    const player = this._requirePlayer(id);
+    const target = this.players.get(String(targetId));
+    if (!target || target.id === id) {
+      throw new WorldError("INVALID_TARGET", "No such player to invite.");
+    }
+    const party = player.partyId ? this.parties.get(player.partyId) : null;
+    if (party && party.members.length >= PARTY_LIMIT) {
+      throw new WorldError("PARTY_FULL", `Parties hold at most ${PARTY_LIMIT} members.`);
+    }
+    if (target.partyId) {
+      throw new WorldError("ALREADY_IN_PARTY", "That player already has a party.");
+    }
+    this._partyInvites.set(target.id, { from: id, at: this.time });
+    this._emit("partyInvited", {
+      playerId: target.id,
+      from: id,
+      fromName: player.name,
+    });
+    return player;
+  }
+
+  acceptParty(id, fromId) {
+    const player = this._requirePlayer(id);
+    const invite = this._partyInvites.get(id);
+    if (!invite || invite.from !== String(fromId) || this.time - invite.at > 60) {
+      throw new WorldError("NO_INVITE", "No standing invitation from that player.");
+    }
+    const host = this.players.get(invite.from);
+    this._partyInvites.delete(id);
+    if (!host) throw new WorldError("INVALID_TARGET", "The inviter has left.");
+    if (player.partyId) this.leaveParty(id, true);
+
+    let party = host.partyId ? this.parties.get(host.partyId) : null;
+    if (!party) {
+      party = { id: `party-${++this._partySequence}`, members: [host.id] };
+      this.parties.set(party.id, party);
+      host.partyId = party.id;
+    }
+    if (party.members.length >= PARTY_LIMIT) {
+      throw new WorldError("PARTY_FULL", `Parties hold at most ${PARTY_LIMIT} members.`);
+    }
+    party.members.push(player.id);
+    player.partyId = party.id;
+    this._emit("partyJoined", { playerId: id, partyId: party.id, name: player.name });
+    return player;
+  }
+
+  leaveParty(id, silent = false) {
+    const player = this.players.get(id);
+    if (!player?.partyId) return player;
+    const party = this.parties.get(player.partyId);
+    player.partyId = null;
+    if (party) {
+      party.members = party.members.filter((memberId) => memberId !== id);
+      if (party.members.length <= 1) {
+        for (const memberId of party.members) {
+          const member = this.players.get(memberId);
+          if (member) member.partyId = null;
+        }
+        this.parties.delete(party.id);
+      }
+    }
+    if (!silent) this._emit("partyLeft", { playerId: id, name: player.name });
+    return player;
+  }
+
+  addFriend(id, name) {
+    const player = this._requirePlayer(id);
+    const friendName = sanitizeName(name);
+    if (friendName === player.name) {
+      throw new WorldError("INVALID_TARGET", "You are already your own best ally.");
+    }
+    if (!player.friends.includes(friendName)) {
+      if (player.friends.length >= 32) {
+        throw new WorldError("FRIENDS_FULL", "The friend list is full.");
+      }
+      player.friends.push(friendName);
+    }
+    this._emit("friendAdded", { playerId: id, friend: friendName });
+    return player;
+  }
+
+  removeFriend(id, name) {
+    const player = this._requirePlayer(id);
+    const friendName = sanitizeName(name);
+    player.friends = player.friends.filter((entry) => entry !== friendName);
+    this._emit("friendRemoved", { playerId: id, friend: friendName });
     return player;
   }
 
@@ -1351,7 +1589,21 @@ export class World {
     if (player) {
       this._grantXp(player, mob.xp);
       player.will += mob.level;
-      this._advanceQuest(player);
+      player.gold += Math.round(GOLD_PER_MOB_LEVEL * mob.level * (mob.boss ? 10 : mob.elite ? 2 : 1));
+      if (mob.boss || this.rng() < DEW_DROP_CHANCE) player.dew += 1;
+      this._advanceQuest(player, mob);
+      // Party members hunting nearby share in the experience.
+      const party = player.partyId ? this.parties.get(player.partyId) : null;
+      if (party) {
+        for (const memberId of party.members) {
+          if (memberId === ownerId) continue;
+          const member = this.players.get(memberId);
+          if (!member || !member.alive) continue;
+          if (Math.hypot(member.x - mob.x, member.y - mob.y) > PARTY_XP_RANGE) continue;
+          this._grantXp(member, Math.round(mob.xp * PARTY_XP_SHARE));
+          this._advanceQuest(member, mob);
+        }
+      }
     }
     this.pendingMobSpawns.push({ at: this.time + MOB_RESPAWN_DELAY });
     this._emit("enemyDefeated", {
@@ -1423,25 +1675,41 @@ export class World {
     }
   }
 
-  _advanceQuest(player) {
-    if (player.quest.complete) return;
-    player.quest.progress = Math.min(player.quest.target, player.quest.progress + 1);
+  // Quest chain: each kill is matched against the player's current step;
+  // completing a step pays out and advances the chain (the last repeats).
+  _advanceQuest(player, mob) {
+    const step = this._questStep(player);
+    const counts =
+      (step.type === "killType" && mob.type === step.param && !mob.boss)
+      || (step.type === "killElite" && mob.elite)
+      || (step.type === "killBoss" && mob.boss && mob.type === step.param)
+      || step.type === "kill";
+    if (!counts) return;
+
+    player.quest.progress = Math.min(step.target, player.quest.progress + 1);
     this._emit("questProgress", {
       playerId: player.id,
-      questId: player.quest.id,
+      questId: step.id,
       progress: player.quest.progress,
-      target: player.quest.target,
+      target: step.target,
     });
-    if (player.quest.progress < player.quest.target) return;
+    if (player.quest.progress < step.target) return;
 
-    player.quest.complete = true;
-    player.quest.claimed = true;
+    player.gold += step.rewardGold;
+    player.dew += step.rewardDew;
     this._emit("questCompleted", {
       playerId: player.id,
-      questId: player.quest.id,
-      rewardXp: player.quest.rewardXp,
+      questId: step.id,
+      title: step.title,
+      rewardXp: step.rewardXp,
+      rewardGold: step.rewardGold,
+      rewardDew: step.rewardDew,
     });
-    this._grantXp(player, player.quest.rewardXp);
+    this._grantXp(player, step.rewardXp);
+    if (player.quest.chainIndex < QUEST_CHAIN.length - 1) {
+      player.quest.chainIndex += 1;
+    }
+    player.quest.progress = 0;
   }
 
   _refreshDerivedStats(player, preserveHealth) {
@@ -1503,10 +1771,36 @@ export class World {
       targetId: player.attackTarget,
       autoFight: player.autoFight,
       autoLevel: player.autoLevel,
+      gold: player.gold,
+      dew: player.dew,
+      friends: player.friends.map((name) => ({
+        name,
+        online: [...this.players.values()].some((other) => other.name === name),
+      })),
+      party: player.partyId
+        ? (this.parties.get(player.partyId)?.members ?? [])
+          .map((memberId) => this.players.get(memberId)?.name)
+          .filter(Boolean)
+        : [],
       rebirths: player.rebirths,
       level: player.level,
       xp: round(player.xp),
       xpToNext: player.xpToNext,
+      quest: (() => {
+        const step = this._questStep(player);
+        return {
+          id: step.id,
+          chainIndex: player.quest.chainIndex,
+          chainLength: QUEST_CHAIN.length,
+          title: step.title,
+          description: step.description,
+          target: step.target,
+          progress: player.quest.progress,
+          rewardXp: step.rewardXp,
+          rewardGold: step.rewardGold,
+          rewardDew: step.rewardDew,
+        };
+      })(),
       stats: { ...player.stats },
       gearStats: { ...player.gearStats },
       statPoints: player.statPoints,
@@ -1519,7 +1813,6 @@ export class World {
       inventory: player.inventory.map(serializeItem),
       skills,
       skillPoints: player.skillPoints,
-      quest: { ...player.quest },
       inputSeq: player.inputSeq,
     };
   }
@@ -1916,6 +2209,10 @@ export class World {
     const dx = entity.x - this.safeZone.x;
     const dy = entity.y - this.safeZone.y;
     return dx * dx + dy * dy <= this.safeZone.radius * this.safeZone.radius;
+  }
+
+  _questStep(player) {
+    return QUEST_CHAIN[Math.min(player.quest.chainIndex, QUEST_CHAIN.length - 1)];
   }
 
   _requirePlayer(id) {

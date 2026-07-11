@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
+import { createReadStream, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { stat, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -43,7 +43,23 @@ export class GameServer {
     this.tickRate = positiveRate(options.tickRate, TICK_RATE);
     this.snapshotRate = positiveRate(options.snapshotRate, SNAPSHOT_RATE);
     this.publicDir = path.resolve(options.publicDir ?? DEFAULT_PUBLIC_DIR);
-    this.world = options.world ?? new World(options.worldOptions);
+    // Account persistence: a JSON file keyed by character name. Set
+    // PERSIST_PATH ("" disables) — progress survives restarts.
+    this.persistPath = options.persistPath !== undefined
+      ? options.persistPath
+      : (process.env.PERSIST_PATH ?? path.resolve("data/accounts.json"));
+    let accountStore = {};
+    if (this.persistPath) {
+      try {
+        if (existsSync(this.persistPath)) {
+          accountStore = JSON.parse(readFileSync(this.persistPath, "utf8"));
+        }
+      } catch (error) {
+        console.error("Could not load accounts, starting fresh:", error.message);
+      }
+    }
+    this.world = options.world ?? new World({ ...options.worldOptions, accountStore });
+    this._persistTimer = null;
     this.httpServer = createHttpServer((request, response) => {
       this._handleHttp(request, response).catch((error) => {
         console.error("HTTP request failed", error);
@@ -98,7 +114,20 @@ export class GameServer {
       this.httpServer.listen(this.port, this.host);
     });
     this._startLoop();
+    if (this.persistPath && !this._persistTimer) {
+      this._persistTimer = setInterval(() => {
+        this._saveAccounts().catch((error) => console.error("Account save failed", error));
+      }, 30_000);
+      this._persistTimer.unref?.();
+    }
     return this.address();
+  }
+
+  async _saveAccounts() {
+    if (!this.persistPath) return;
+    const store = this.world.syncAccounts();
+    mkdirSync(path.dirname(this.persistPath), { recursive: true });
+    await writeFile(this.persistPath, JSON.stringify(store), "utf8");
   }
 
   address() {
@@ -112,6 +141,11 @@ export class GameServer {
       clearInterval(this._timer);
       this._timer = null;
     }
+    if (this._persistTimer) {
+      clearInterval(this._persistTimer);
+      this._persistTimer = null;
+    }
+    await this._saveAccounts().catch((error) => console.error("Final account save failed", error));
     for (const socket of this.wss.clients) socket.terminate();
     const httpClosed = this.httpServer.listening
       ? new Promise((resolve) => {
@@ -168,6 +202,7 @@ export class GameServer {
         safeZone: this.world.safeZone ? { ...this.world.safeZone } : null,
         portals: this.world.portals.map((portal) => ({ ...portal })),
         zones: this.world.zones.map((zone) => ({ ...zone })),
+        shops: this.world.shops.map((shop) => ({ id: shop.id, name: shop.name, x: shop.x, y: shop.y, goods: shop.goods.map((good) => ({ ...good })) })),
       },
       rebirthLevel: REBIRTH_LEVEL,
       inventoryLimit: INVENTORY_LIMIT,

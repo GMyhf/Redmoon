@@ -12,3 +12,5 @@ dist/
 tmp/
 
 .claude/
+
+data/

@@ -670,6 +670,117 @@ test("districts spawn mobs inside their own level band and gear scales up", () =
   assert.equal(statTotal, 4 * 2 + 20, "stat budget grows with item level");
 });
 
+test("kills pay gold, dew revives in place, and shops trade goods", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, safeZoneRadius: 0, autoLevel: false });
+  const player = world.addPlayer("player-1", { archetype: "vanguard" });
+
+  const prey = world.spawnMob({ id: "prey", x: player.x + 300, y: player.y, maxHp: 1, level: 4 });
+  world._damageMob(prey, 10, player.id);
+  assert.equal(player.gold, 2 * 4, "gold follows mob level");
+
+  // Dew revive: die, then rise on the spot at full health.
+  player.dew = 1;
+  world.spawnMob({ id: "brute", x: player.x + player.radius + 14, y: player.y, speed: 0.001, damage: 100000 });
+  world.update(0.05);
+  assert.equal(player.alive, false);
+  world.handleCommand("player-1", { type: "revive" });
+  assert.equal(player.alive, true);
+  assert.equal(player.hp, player.maxHp);
+  assert.equal(player.dew, 0);
+
+  // Shops: buying needs proximity, gold, then delivers goods.
+  const grocer = world.shops.find((shop) => shop.id === "grocer");
+  player.gold = 500;
+  player.x = grocer.x - 600;
+  player.y = grocer.y;
+  assert.throws(
+    () => world.handleCommand("player-1", { type: "buy", shop: "grocer", good: "potion-s" }),
+    (error) => error instanceof WorldError && error.code === "TOO_FAR",
+  );
+  player.x = grocer.x;
+  player.y = grocer.y;
+  world.handleCommand("player-1", { type: "buy", shop: "grocer", good: "potion-s" });
+  assert.equal(player.gold, 470);
+  assert.equal(player.inventory[0].heal, 60);
+
+  // Black market relic box costs dew.
+  const market = world.shops.find((shop) => shop.id === "blackmarket");
+  player.x = market.x;
+  player.y = market.y;
+  player.dew = 3;
+  player.level = 12;
+  world.handleCommand("player-1", { type: "buy", shop: "blackmarket", good: "relic-box" });
+  assert.equal(player.dew, 0);
+  assert.ok(player.inventory.some((item) => item.rarity === "relic"));
+
+  // Selling converts an item back into gold.
+  const goldBefore = player.gold;
+  world.handleCommand("player-1", { type: "sell", item: player.inventory[0].id });
+  assert.ok(player.gold > goldBefore);
+});
+
+test("the quest chain advances step by step with rewards", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, autoLevel: false });
+  const player = world.addPlayer("player-1", { archetype: "vanguard" });
+  assert.equal(player.quest.chainIndex, 0);
+
+  // Step 1: six riftlings.
+  for (let index = 0; index < 6; index += 1) {
+    world._advanceQuest(player, { type: "riftling", boss: false, elite: false });
+  }
+  assert.equal(player.quest.chainIndex, 1, "chain advances to step two");
+  assert.equal(player.gold, 60, "step reward paid");
+  assert.equal(player.quest.progress, 0);
+
+  // Duskfangs do not count toward a riftling step and vice versa.
+  world._advanceQuest(player, { type: "riftling", boss: false, elite: false });
+  assert.equal(player.quest.progress, 0, "wrong species does not count");
+  world._advanceQuest(player, { type: "duskfang", boss: false, elite: false });
+  assert.equal(player.quest.progress, 1);
+
+  // Serialized quest exposes the chain step details.
+  const snapshot = world.getSnapshot("player-1");
+  const quest = snapshot.players[0].quest;
+  assert.equal(quest.chainIndex, 1);
+  assert.equal(quest.title, "暮色狩猎");
+  assert.equal(quest.chainLength, 8);
+});
+
+test("parties share XP within range and accounts persist across sessions", () => {
+  const store = {};
+  const world = new World({
+    rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, autoLevel: false, accountStore: store,
+  });
+  const host = world.addPlayer("host-1", { name: "Alpha", archetype: "vanguard" });
+  const ally = world.addPlayer("ally-1", { name: "Beta", archetype: "strider" });
+
+  world.handleCommand("host-1", { type: "partyInvite", target: "ally-1" });
+  assert.ok(world.drainEvents().some((event) => event.event === "partyInvited"));
+  world.handleCommand("ally-1", { type: "partyAccept", from: "host-1" });
+  assert.equal(host.partyId, ally.partyId);
+
+  // Shared XP: the ally stands nearby and gets 60%.
+  ally.x = host.x + 100;
+  ally.y = host.y;
+  const prey = world.spawnMob({ id: "prey", x: host.x + 200, y: host.y, maxHp: 1, level: 2, xp: 100 });
+  world._damageMob(prey, 10, "host-1");
+  // Host took the full 100 XP (levelling once consumes 75); the ally got 60%.
+  assert.equal(host.level, 2);
+  assert.equal(host.xp, 25);
+  assert.equal(ally.level, 1);
+  assert.equal(ally.xp, 60);
+
+  // Friends persist along with progress.
+  world.handleCommand("host-1", { type: "friendAdd", name: "Beta" });
+  host.gold = 777;
+  world.removePlayer("host-1");
+  assert.ok(store.alpha, "account written on leave");
+
+  const rejoined = world.addPlayer("host-2", { name: "Alpha", archetype: "vanguard" });
+  assert.equal(rejoined.gold, 777, "gold restored");
+  assert.deepEqual(rejoined.friends, ["Beta"], "friends restored");
+});
+
 test("every biome has a boss with rising level and experience", () => {
   const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
   const bosses = world.spawnBosses();

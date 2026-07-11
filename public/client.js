@@ -47,6 +47,15 @@
     respawnTimer: document.querySelector("#respawn-timer"),
     respawnButton: document.querySelector("#respawn-button"),
     rebirthButton: document.querySelector("#rebirth-button"),
+    goldAmount: document.querySelector("#gold-amount"),
+    dewAmount: document.querySelector("#dew-amount"),
+    reviveButton: document.querySelector("#revive-button"),
+    shopPanel: document.querySelector("#shop-panel"),
+    shopName: document.querySelector("#shop-name"),
+    shopGoods: document.querySelector("#shop-goods"),
+    socialPanel: document.querySelector("#social-panel"),
+    partyState: document.querySelector("#party-state"),
+    socialList: document.querySelector("#social-list"),
     alignmentRow: document.querySelector("#alignment-row"),
     alignmentText: document.querySelector("#alignment-text"),
     attuneButton: document.querySelector("#attune-button"),
@@ -550,6 +559,8 @@
     dragMove: false,
     rebirthLevel: 10,
     inventoryLimit: 48,
+    shopId: null,
+    socialSignature: "",
     inputSeq: 0,
     lastInput: 0,
     lastFrame: performance.now(),
@@ -742,6 +753,11 @@
         (zone) => zone && Number.isFinite(zone.x) && Number.isFinite(zone.rx),
       );
     }
+    if (Array.isArray(map.shops)) {
+      state.map.shops = map.shops.filter(
+        (shop) => shop && Number.isFinite(shop.x) && Number.isFinite(shop.y),
+      );
+    }
     ui.sector.textContent = `节点 // ${state.map.name}`;
   }
 
@@ -877,6 +893,12 @@
       ui.autoLevelToggle.textContent = player.autoLevel ? "自动加点 · 开" : "自动加点 · 关";
       ui.autoLevelToggle.classList.toggle("is-off", !player.autoLevel);
     }
+    if (ui.goldAmount) {
+      ui.goldAmount.textContent = `金币 ${Math.floor(finite(player.gold, 0))}`;
+      ui.dewAmount.textContent = `复苏露 ${Math.floor(finite(player.dew, 0))}`;
+    }
+    updateShop(player);
+    updateSocial(player);
     if (ui.alignmentRow) {
       const isEclipse = archetypeKey === "eclipse";
       ui.alignmentRow.hidden = !isEclipse;
@@ -1022,13 +1044,13 @@
       mainButton.title = isPotion ? "使用（快捷键 R）" : "装备";
       mainButton.dataset.action = isPotion ? "use" : "equip";
       mainButton.dataset.item = String(item.id);
-      const discardButton = document.createElement("button");
-      discardButton.type = "button";
-      discardButton.textContent = "弃";
-      discardButton.title = "丢弃";
-      discardButton.dataset.action = "discard";
-      discardButton.dataset.item = String(item.id);
-      row.append(name, trend, mainButton, discardButton);
+      const sellButton = document.createElement("button");
+      sellButton.type = "button";
+      sellButton.textContent = "卖";
+      sellButton.title = "折算为金币";
+      sellButton.dataset.action = "sell";
+      sellButton.dataset.item = String(item.id);
+      row.append(name, trend, mainButton, sellButton);
       return row;
     }));
   }
@@ -1038,9 +1060,14 @@
     if (!quest || typeof quest !== "object") return;
     const current = Math.max(0, finite(first(quest.current, quest.progress, quest.count), 0));
     const target = Math.max(1, finite(first(quest.target, quest.required, quest.total), 1));
-    const isFringeQuest = quest.id === "stabilize-the-fringe";
-    ui.questTitle.textContent = isFringeQuest ? "稳定边缘区" : String(first(quest.title, quest.name, "守住中继站"));
-    ui.questSummary.textContent = isFringeQuest ? "清除裂隙体" : String(first(quest.summary, quest.description, quest.objective, "清除入侵单位"));
+    const chain = Number.isFinite(quest.chainIndex)
+      ? `第${quest.chainIndex + 1}环 · `
+      : "";
+    ui.questTitle.textContent = chain + String(first(quest.title, quest.name, "守住中继站"));
+    const reward = quest.rewardGold
+      ? `（+${quest.rewardXp}经验 +${quest.rewardGold}金${quest.rewardDew ? ` +${quest.rewardDew}露` : ""}）`
+      : "";
+    ui.questSummary.textContent = String(first(quest.summary, quest.description, "清除入侵单位")) + reward;
     ui.questCurrent.textContent = Math.floor(current);
     ui.questTarget.textContent = Math.floor(target);
     ui.questFill.style.width = `${ratio(current, target) * 100}%`;
@@ -1050,6 +1077,114 @@
     const remaining = Math.max(0, Math.ceil(finite(first(player.respawnIn, player.respawnTimer), 0)));
     ui.respawnTimer.textContent = remaining > 0 ? `信号恢复 ${remaining} 秒` : "信号可以重连";
     ui.respawnButton.disabled = remaining > 0;
+    if (ui.reviveButton) {
+      const dew = Math.floor(finite(player.dew, 0));
+      ui.reviveButton.disabled = dew < 1;
+      ui.reviveButton.textContent = `复苏露 · 原地复活（剩 ${dew}）`;
+    }
+  }
+
+  // Shop panel appears while standing near a shopkeeper.
+  function updateShop(player) {
+    if (!ui.shopPanel) return;
+    const near = (state.map.shops || []).find(
+      (shop) => Math.hypot(shop.x - player.x, shop.y - player.y) < 120,
+    );
+    if (!near) {
+      ui.shopPanel.hidden = true;
+      state.shopId = null;
+      return;
+    }
+    ui.shopPanel.hidden = false;
+    if (state.shopId === near.id) return;
+    state.shopId = near.id;
+    ui.shopName.textContent = near.name;
+    ui.shopGoods.replaceChildren(...(near.goods || []).map((good) => {
+      const row = document.createElement("div");
+      row.className = "gear-row";
+      const label = document.createElement("b");
+      label.textContent = good.label;
+      const price = document.createElement("span");
+      price.className = "gear-trend";
+      price.style.width = "auto";
+      price.textContent = good.dew ? `${good.dew}露` : `${good.gold}金`;
+      price.style.color = good.dew ? "#8fd8ff" : "#f0c15e";
+      const buy = document.createElement("button");
+      buy.type = "button";
+      buy.textContent = "买";
+      buy.dataset.shop = near.id;
+      buy.dataset.good = good.key;
+      row.append(label, price, buy);
+      return row;
+    }));
+  }
+
+  // Social: party members, online players to invite, friends with status.
+  function updateSocial(player) {
+    if (!ui.socialPanel) return;
+    const others = [...state.players.values()].filter((entry) => String(entry.id) !== String(state.id));
+    const party = Array.isArray(player.party) ? player.party : [];
+    const friends = Array.isArray(player.friends) ? player.friends : [];
+    if (others.length === 0 && party.length === 0 && friends.length === 0) {
+      ui.socialPanel.hidden = true;
+      return;
+    }
+    ui.socialPanel.hidden = false;
+    const signature = JSON.stringify([party, friends, others.map((entry) => entry.id)]);
+    if (signature === state.socialSignature) return;
+    state.socialSignature = signature;
+
+    ui.partyState.textContent = party.length > 0 ? `队伍 ${party.length}/4` : "未组队";
+    const rows = [];
+    if (party.length > 0) {
+      const row = document.createElement("div");
+      row.className = "gear-row";
+      const label = document.createElement("b");
+      label.textContent = `队伍：${party.join("、")}`;
+      const leave = document.createElement("button");
+      leave.type = "button";
+      leave.textContent = "退";
+      leave.title = "离开队伍";
+      leave.dataset.social = "party-leave";
+      row.append(label, leave);
+      rows.push(row);
+    }
+    for (const other of others) {
+      const row = document.createElement("div");
+      row.className = "gear-row";
+      const label = document.createElement("b");
+      label.textContent = String(other.name || other.id);
+      const invite = document.createElement("button");
+      invite.type = "button";
+      invite.textContent = "邀";
+      invite.title = "邀请组队";
+      invite.dataset.social = "invite";
+      invite.dataset.target = String(other.id);
+      const befriend = document.createElement("button");
+      befriend.type = "button";
+      befriend.textContent = "友";
+      befriend.title = "加为好友";
+      befriend.dataset.social = "friend-add";
+      befriend.dataset.name = String(other.name || "");
+      row.append(label, invite, befriend);
+      rows.push(row);
+    }
+    for (const friend of friends) {
+      const row = document.createElement("div");
+      row.className = "gear-row";
+      const label = document.createElement("b");
+      label.textContent = `${friend.online ? "●" : "○"} ${friend.name}`;
+      label.style.color = friend.online ? "#79d99b" : "rgba(255,255,255,0.4)";
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.textContent = "除";
+      remove.title = "移除好友";
+      remove.dataset.social = "friend-remove";
+      remove.dataset.name = friend.name;
+      row.append(label, remove);
+      rows.push(row);
+    }
+    ui.socialList.replaceChildren(...rows);
   }
 
   function updateAbilityCooldown(slot, skill) {
@@ -1149,6 +1284,57 @@
         pushEvent(`传送完成 // ${ZONE_LABELS[event.zone] || "目的地"}`);
         sfx(880, 0.14, "sine", 0.05, -520);
       }
+      return;
+    }
+    if (eventName === "questcompleted") {
+      pushEvent(`任务完成 // ${event.title || ""} +${finite(event.rewardXp, 0)}经验 +${finite(event.rewardGold, 0)}金${event.rewardDew ? ` +${event.rewardDew}露` : ""}`);
+      sfx(587, 0.15, "triangle", 0.05, 180);
+      return;
+    }
+    if (eventName === "purchased") {
+      pushEvent(`购入 ${ITEM_NAMES[event.name] || event.name}`);
+      sfx(740, 0.08, "triangle", 0.05, 120);
+      return;
+    }
+    if (eventName === "itemsold") {
+      pushEvent(`售出 ${ITEM_NAMES[event.name] || event.name} +${finite(event.gold, 0)}金`);
+      return;
+    }
+    if (eventName === "playerrevived") {
+      if (String(event.playerId) === String(state.id)) {
+        pushEvent("复苏露生效 // 原地复活");
+        sfx(523, 0.2, "triangle", 0.06, 240);
+      }
+      return;
+    }
+    if (eventName === "partyinvited") {
+      if (String(event.playerId) === String(state.id)) {
+        const item = document.createElement("div");
+        item.className = "event-message";
+        item.textContent = `${event.fromName} 邀请你组队 `;
+        const accept = document.createElement("button");
+        accept.type = "button";
+        accept.className = "mini-command";
+        accept.textContent = "接受";
+        accept.addEventListener("click", () => {
+          send({ type: "partyAccept", from: event.from });
+          item.remove();
+        });
+        item.append(accept);
+        ui.eventFeed.prepend(item);
+        window.setTimeout(() => item.remove(), 30000);
+        sfx(660, 0.12, "triangle", 0.05);
+      }
+      return;
+    }
+    if (eventName === "partyjoined" || eventName === "partyleft") {
+      pushEvent(eventName === "partyjoined" ? `${event.name} 加入了队伍` : `${event.name} 离开了队伍`);
+      state.socialSignature = "";
+      return;
+    }
+    if (eventName === "friendadded" || eventName === "friendremoved") {
+      state.socialSignature = "";
+      pushEvent(eventName === "friendadded" ? `已添加好友 ${event.friend}` : `已移除好友 ${event.friend}`);
       return;
     }
     if (eventName === "itemequipped") {
@@ -1558,6 +1744,42 @@
       ctx.fillRect(point.x - 5, point.y - 10, 10, 16);
       ctx.fillStyle = `rgba(255, 205, 130, ${0.6 + Math.sin(time * 0.003 + angle) * 0.25})`;
       ctx.fillRect(point.x + 9, point.y - 16, 7, 6);
+      ctx.restore();
+    }
+
+    // Shopkeepers stand at their stalls (simple original figures).
+    for (const shop of state.map.shops || []) {
+      const point = worldToScreen(shop.x, shop.y);
+      if (!onScreen(point, 80)) continue;
+      ctx.save();
+      propShadow(point.x, point.y + 2, 12);
+      // Stall awning behind the keeper.
+      ctx.fillStyle = "#3c332c";
+      ctx.fillRect(point.x - 16, point.y - 30, 32, 4);
+      ctx.fillRect(point.x - 15, point.y - 30, 3, 26);
+      ctx.fillRect(point.x + 12, point.y - 30, 3, 26);
+      ctx.fillStyle = shop.id === "blackmarket" ? "#4a3a58" : shop.id === "smith" ? "#5a4030" : "#4a5236";
+      ctx.beginPath();
+      ctx.moveTo(point.x - 20, point.y - 28);
+      ctx.lineTo(point.x, point.y - 40);
+      ctx.lineTo(point.x + 20, point.y - 28);
+      ctx.closePath();
+      ctx.fill();
+      // The keeper.
+      ctx.fillStyle = "#e0b890";
+      ctx.fillRect(point.x - 4, point.y - 22, 8, 7);
+      ctx.fillStyle = shop.id === "blackmarket" ? "#5a4a70" : shop.id === "smith" ? "#6e4a30" : "#5a6a3e";
+      ctx.fillRect(point.x - 6, point.y - 15, 12, 13);
+      ctx.fillStyle = "#2c2621";
+      ctx.fillRect(point.x - 5, point.y - 2, 4, 4);
+      ctx.fillRect(point.x + 1, point.y - 2, 4, 4);
+      // Nameplate.
+      ctx.font = "600 10px ui-monospace, SFMono-Regular, Menlo, monospace";
+      ctx.textAlign = "center";
+      ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
+      ctx.fillRect(point.x - 38, point.y - 58, 76, 14);
+      ctx.fillStyle = "#ffd479";
+      ctx.fillText(shop.name, point.x, point.y - 48);
       ctx.restore();
     }
 
@@ -3417,6 +3639,22 @@
   });
 
   ui.respawnButton.addEventListener("click", () => send({ type: "respawn" }));
+  ui.reviveButton?.addEventListener("click", () => send({ type: "revive" }));
+  ui.shopGoods?.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-good]");
+    if (!button) return;
+    send({ type: "buy", shop: button.dataset.shop, good: button.dataset.good });
+  });
+  ui.socialList?.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-social]");
+    if (!button) return;
+    const kind = button.dataset.social;
+    if (kind === "party-leave") send({ type: "partyLeave" });
+    if (kind === "invite") send({ type: "partyInvite", target: button.dataset.target });
+    if (kind === "friend-add") send({ type: "friendAdd", name: button.dataset.name });
+    if (kind === "friend-remove") send({ type: "friendRemove", name: button.dataset.name });
+    state.socialSignature = "";
+  });
   ui.rebirthButton?.addEventListener("click", () => send({ type: "rebirth" }));
   ui.autoEquipButton?.addEventListener("click", () => send({ type: "autoEquip" }));
   function toggleAutoFight() {

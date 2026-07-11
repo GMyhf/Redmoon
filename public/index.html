@@ -75,6 +75,10 @@
             <div class="xp-track"><i id="xp-fill"></i></div>
             <b id="xp-value">0%</b>
           </div>
+          <div id="currency-row" class="currency-row">
+            <span id="gold-amount">金币 0</span>
+            <span id="dew-amount">复苏露 0</span>
+          </div>
           <div id="alignment-row" class="alignment-row" hidden>
             <span id="alignment-text"></span>
             <button id="attune-button" class="mini-command" type="button" title="立誓转向另一条路线：此后每次施放技能，名誉都会向所选一侧偏移">转向</button>
@@ -137,6 +141,16 @@
 
         <div id="event-feed" class="event-feed" aria-live="polite"></div>
 
+        <aside id="shop-panel" class="shop-panel" hidden>
+          <div class="panel-title"><span id="shop-name">商店</span></div>
+          <div id="shop-goods" class="shop-goods"></div>
+        </aside>
+
+        <aside id="social-panel" class="social-panel" hidden>
+          <div class="panel-title"><span>社交</span><b id="party-state"></b></div>
+          <div id="social-list" class="social-list"></div>
+        </aside>
+
         <nav class="action-bar" aria-label="能力">
           <button type="button" class="ability is-primary" data-ability="primary" title="脉冲打击">
             <span class="ability-icon strike-icon" aria-hidden="true"></span>
@@ -178,6 +192,7 @@
         <strong>操作员已断开</strong>
         <p id="respawn-timer">信号可以重连</p>
         <button id="respawn-button" class="primary-command" type="button">重新连接</button>
+        <button id="revive-button" class="primary-command revive-command" type="button">复苏露 · 原地复活</button>
       </section>
 
       <div id="screen-vignette" class="screen-vignette" aria-hidden="true"></div>

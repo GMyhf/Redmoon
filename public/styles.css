@@ -619,6 +619,60 @@ button {
   transition: width 220ms ease;
 }
 
+.currency-row {
+  margin-top: 8px;
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.currency-row span:first-child { color: #f0c15e; }
+.currency-row span:last-child { color: #8fd8ff; }
+
+.revive-command {
+  margin-top: 7px;
+  border-color: rgba(143, 216, 255, 0.6);
+  background: rgba(52, 96, 128, 0.55);
+}
+
+.revive-command:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.shop-panel,
+.social-panel {
+  position: absolute;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--panel);
+  box-shadow: 0 12px 35px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(10px);
+  pointer-events: auto;
+  width: 236px;
+  padding: 10px 12px 11px;
+}
+
+.shop-panel {
+  right: max(18px, env(safe-area-inset-right));
+  top: 168px;
+}
+
+.social-panel {
+  right: max(18px, env(safe-area-inset-right));
+  bottom: 120px;
+}
+
+.shop-goods,
+.social-list {
+  margin-top: 8px;
+  display: grid;
+  gap: 4px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
 .alignment-row {
   margin-top: 9px;
   display: flex;
