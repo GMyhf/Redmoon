@@ -47,7 +47,10 @@ test("WebSocket emits welcome, accepts join, and reports protocol errors", async
   const welcome = await messages.next("welcome");
   assert.equal(welcome.protocol, 1);
   assert.equal(welcome.world.width, 4800);
-  assert.deepEqual(Object.keys(welcome.archetypes).sort(), ["channeler", "strider", "vanguard"]);
+  assert.deepEqual(
+    Object.keys(welcome.archetypes).sort(),
+    ["bulwark", "channeler", "longshot", "moonblade", "pyre", "strider", "vanguard"],
+  );
 
   socket.send(JSON.stringify({ type: "join", name: "Tester", archetype: "vanguard" }));
   const snapshot = await messages.next("snapshot");

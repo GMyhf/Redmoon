@@ -36,6 +36,10 @@ const BASE_STATS = Object.freeze({
   vanguard: Object.freeze({ power: 6, agility: 3, spirit: 2, vitality: 7 }),
   channeler: Object.freeze({ power: 2, agility: 4, spirit: 7, vitality: 4 }),
   strider: Object.freeze({ power: 4, agility: 7, spirit: 3, vitality: 4 }),
+  bulwark: Object.freeze({ power: 7, agility: 2, spirit: 2, vitality: 8 }),
+  longshot: Object.freeze({ power: 4, agility: 8, spirit: 3, vitality: 3 }),
+  pyre: Object.freeze({ power: 2, agility: 3, spirit: 8, vitality: 5 }),
+  moonblade: Object.freeze({ power: 5, agility: 7, spirit: 3, vitality: 3 }),
 });
 
 export class WorldError extends Error {
@@ -201,6 +205,9 @@ export class World {
         return this.unequipItem(id, message.slot);
       case "use":
         return this.usePotion(id, message.item);
+      case "autoEquip":
+      case "autoequip":
+        return this.autoEquip(id);
       case "discard":
         return this.discardItem(id, message.item);
       default:
@@ -401,6 +408,32 @@ export class World {
     this._refreshGear(player);
     this._refreshDerivedStats(player, true);
     this._emit("itemUnequipped", { playerId: id, itemId: item.id, name: item.name, slot });
+    return player;
+  }
+
+  // Equip the strongest eligible item for every slot in one pass.
+  autoEquip(id) {
+    const player = this._requirePlayer(id);
+    if (!player.alive) {
+      throw new WorldError("PLAYER_DEAD", "Equipment cannot be changed while defeated.");
+    }
+    let changed = 0;
+    for (const slot of ITEM_SLOTS) {
+      let best = null;
+      for (const item of player.inventory) {
+        if (item.slot !== slot) continue;
+        if (player.level < (item.level ?? 1)) continue;
+        if (!best || itemPower(item) > itemPower(best)) best = item;
+      }
+      if (!best) continue;
+      const current = player.equipment[slot];
+      if (current && itemPower(best) <= itemPower(current)) continue;
+      this.equipItem(id, best.id);
+      changed += 1;
+    }
+    if (changed > 0) {
+      this._emit("autoEquipped", { playerId: id, changed });
+    }
     return player;
   }
 
@@ -789,13 +822,87 @@ export class World {
           color: archetype.color,
         });
       }
-    } else {
+    } else if (player.archetype === "strider") {
       this._movePlayer(player, direction, 130 + level * 15);
       for (const angle of [-0.1, 0.1]) {
         this._spawnProjectile(player, rotate(direction, angle), {
           damage: 19 + level * 7 + this._statTotal(player, "agility") * 1.6,
           speed: 780,
           range: 500,
+          radius: 7,
+          color: archetype.color,
+        });
+      }
+    } else if (player.archetype === "bulwark" && slot === "q") {
+      this._radialBurst(player, 10, {
+        damage: 16 + level * 6 + this._statTotal(player, "power") * 1.6,
+        speed: 420,
+        range: 150 + level * 12,
+        radius: 11,
+        color: archetype.color,
+      });
+    } else if (player.archetype === "bulwark") {
+      this._movePlayer(player, direction, 110 + level * 12);
+      this._spawnProjectile(player, direction, {
+        damage: 30 + level * 9 + this._statTotal(player, "power") * 2.2,
+        speed: 520,
+        range: 220 + level * 14,
+        radius: 16,
+        color: archetype.color,
+      });
+    } else if (player.archetype === "longshot" && slot === "q") {
+      this._spawnProjectile(player, direction, {
+        damage: 30 + level * 10 + this._statTotal(player, "agility") * 1.8,
+        speed: 1100,
+        range: 900,
+        radius: 7,
+        pierce: 4 + Math.floor(level / 2),
+        color: archetype.color,
+      });
+    } else if (player.archetype === "longshot") {
+      this._movePlayer(player, { x: -direction.x, y: -direction.y }, 120 + level * 10);
+      for (const angle of [-0.18, 0, 0.18]) {
+        this._spawnProjectile(player, rotate(direction, angle), {
+          damage: 14 + level * 5 + this._statTotal(player, "agility") * 1.3,
+          speed: 800,
+          range: 480,
+          radius: 6,
+          color: archetype.color,
+        });
+      }
+    } else if (player.archetype === "pyre" && slot === "q") {
+      this._radialBurst(player, 12 + level, {
+        damage: 15 + level * 6 + this._statTotal(player, "spirit") * 1.5,
+        speed: 480,
+        range: 240 + level * 18,
+        radius: 9,
+        color: archetype.color,
+      });
+    } else if (player.archetype === "pyre") {
+      for (const angle of [-0.3, -0.15, 0, 0.15, 0.3]) {
+        this._spawnProjectile(player, rotate(direction, angle), {
+          damage: 16 + level * 6 + this._statTotal(player, "spirit") * 1.7,
+          speed: 600,
+          range: 420,
+          radius: 8,
+          color: archetype.color,
+        });
+      }
+    } else if (player.archetype === "moonblade" && slot === "q") {
+      this._radialBurst(player, 10, {
+        damage: 13 + level * 5 + this._statTotal(player, "agility") * 1.5,
+        speed: 520,
+        range: 120 + level * 10,
+        radius: 9,
+        color: archetype.color,
+      });
+    } else {
+      this._movePlayer(player, direction, 150 + level * 15);
+      for (const angle of [-0.08, 0.08]) {
+        this._spawnProjectile(player, rotate(direction, angle), {
+          damage: 20 + level * 7 + this._statTotal(player, "agility") * 1.7,
+          speed: 820,
+          range: 320,
           radius: 7,
           color: archetype.color,
         });
@@ -1242,6 +1349,16 @@ export function xpRequiredForLevel(level) {
 
 function zeroStats() {
   return Object.fromEntries(STAT_KEYS.map((key) => [key, 0]));
+}
+
+// Single-number strength estimate used to rank items of the same slot.
+function itemPower(item) {
+  let score = 0;
+  for (const key of STAT_KEYS) score += (item.bonuses?.[key] ?? 0) * 10;
+  score += (item.damageBonus ?? 0) * 400;
+  score += item.hpBonus ?? 0;
+  score += item.speedBonus ?? 0;
+  return score;
 }
 
 function serializeItem(item) {

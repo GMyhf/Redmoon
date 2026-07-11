@@ -342,6 +342,65 @@ test("items carry a level requirement that gates equipping", () => {
   assert.equal(player.equipment.helm.id, relic.id);
 });
 
+test("all seven heroes can join and fire both of their skills", () => {
+  const heroes = ["vanguard", "channeler", "strider", "bulwark", "longshot", "pyre", "moonblade"];
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
+  heroes.forEach((archetype, index) => {
+    const id = `hero-${index}`;
+    const player = world.addPlayer(id, { archetype });
+    assert.equal(player.archetype, archetype);
+    world.setInput(id, {
+      seq: 1,
+      aim: { x: player.x + 100, y: player.y },
+      q: true,
+      e: true,
+    });
+  });
+  world.update(0.05);
+  const owners = new Set([...world.projectiles.values()].map((projectile) => projectile.ownerId));
+  assert.equal(owners.size, heroes.length, "every hero's skills must spawn projectiles");
+});
+
+test("autoEquip dresses the strongest eligible item in every slot", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
+  const player = world.addPlayer("player-1", { archetype: "vanguard" });
+  const weak = world.giveItem("player-1", {
+    slot: "weapon",
+    bonuses: { power: 1, agility: 0, spirit: 0, vitality: 0 },
+    damageBonus: 0.03,
+  });
+  const strong = world.giveItem("player-1", {
+    slot: "weapon",
+    bonuses: { power: 5, agility: 0, spirit: 0, vitality: 0 },
+    damageBonus: 0.12,
+  });
+  const tooHigh = world.giveItem("player-1", {
+    slot: "helm",
+    level: 9,
+    bonuses: { power: 0, agility: 0, spirit: 0, vitality: 9 },
+  });
+  const boots = world.giveItem("player-1", {
+    slot: "boots",
+    bonuses: { power: 0, agility: 1, spirit: 0, vitality: 0 },
+    speedBonus: 7,
+  });
+
+  world.handleCommand("player-1", { type: "autoEquip" });
+
+  assert.equal(player.equipment.weapon.id, strong.id);
+  assert.equal(player.equipment.boots.id, boots.id);
+  assert.equal(player.equipment.helm, null, "over-level gear must stay in the bag");
+  assert.deepEqual(
+    player.inventory.map((item) => item.id).sort(),
+    [weak.id, tooHigh.id].sort(),
+  );
+  assert.ok(world.drainEvents().some((event) => event.event === "autoEquipped"));
+
+  // A second pass with nothing better changes nothing.
+  world.handleCommand("player-1", { type: "autoEquip" });
+  assert.equal(player.equipment.weapon.id, strong.id);
+});
+
 test("the town safe zone blocks enemy damage and keeps mobs from advancing", () => {
   const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
   const player = world.addPlayer("player-1", { archetype: "channeler" });

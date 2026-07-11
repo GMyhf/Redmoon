@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 150">
+  <defs>
+    <radialGradient id="bg-moonblade" cx="50%" cy="28%" r="85%">
+      <stop offset="0%" stop-color="#2b2f3f"/>
+      <stop offset="100%" stop-color="#0e1016"/>
+    </radialGradient>
+  </defs>
+  <rect width="120" height="150" fill="url(#bg-moonblade)"/>
+  <circle cx="94" cy="24" r="13" fill="#b03040" opacity="0.55"/>
+  <path d="M20 150 Q26 110 60 106 Q94 110 100 150 Z" fill="#7c86a0"/>
+  <path d="M46 108 L60 114 L74 108 L70 118 L60 122 L50 118 Z" fill="#e8eefc" opacity="0.8"/>
+  <rect x="53" y="86" width="14" height="20" fill="#eccfae"/>
+  <ellipse cx="60" cy="61" rx="23" ry="28" fill="#f0d6bd"/>
+  <path d="M37 58 Q34 28 60 25 Q86 28 83 58 L77 42 Q66 47 50 43 L43 53 Z" fill="#dfe6f2"/>
+  <path d="M37 56 Q32 92 30 124 Q38 116 41 88 Q43 66 40 52 Z" fill="#dfe6f2"/>
+  <path d="M83 56 Q88 92 90 124 Q82 116 79 88 Q77 66 80 52 Z" fill="#c9d2e4"/>
+  <path d="M45 55 L56 54" stroke="#9aa4bc" stroke-width="2" stroke-linecap="round" fill="none"/>
+  <path d="M64 54 L75 55" stroke="#9aa4bc" stroke-width="2" stroke-linecap="round" fill="none"/>
+  <ellipse cx="50" cy="64" rx="4" ry="5.4" fill="#252c3e"/>
+  <ellipse cx="70" cy="64" rx="4" ry="5.4" fill="#252c3e"/>
+  <circle cx="51.4" cy="62" r="1.5" fill="#f2f6ff"/>
+  <circle cx="71.4" cy="62" r="1.5" fill="#f2f6ff"/>
+  <path d="M47 73 L51 73 M69 73 L73 73" stroke="#d98a95" stroke-width="1.8" opacity="0.5"/>
+  <path d="M56 81 Q60 83 64 81" stroke="#b58a72" stroke-width="2" fill="none" stroke-linecap="round"/>
+  <path d="M52 32 L54 36 L58 37 L54 38 L52 42 L50 38 L46 37 L50 36 Z" fill="#e8eefc" opacity="0.9"/>
+</svg>

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 150">
+  <defs>
+    <radialGradient id="bg-strider" cx="50%" cy="28%" r="85%">
+      <stop offset="0%" stop-color="#37301d"/>
+      <stop offset="100%" stop-color="#120f08"/>
+    </radialGradient>
+  </defs>
+  <rect width="120" height="150" fill="url(#bg-strider)"/>
+  <circle cx="94" cy="24" r="13" fill="#b03040" opacity="0.5"/>
+  <path d="M18 150 Q24 108 60 104 Q96 108 102 150 Z" fill="#8a6229"/>
+  <path d="M40 108 Q60 100 80 108 L74 122 Q60 114 46 122 Z" fill="#e86969" opacity="0.85"/>
+  <rect x="52" y="86" width="16" height="22" fill="#d9a878"/>
+  <ellipse cx="60" cy="62" rx="25" ry="29" fill="#e5b287"/>
+  <path d="M35 58 Q33 28 60 25 Q87 28 85 58 L76 40 L62 46 L48 40 Z" fill="#c9873f"/>
+  <path d="M82 40 Q98 44 96 76 Q90 92 84 96 Q90 70 82 52 Z" fill="#c9873f"/>
+  <path d="M42 56 L55 54" stroke="#8a5a26" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+  <path d="M65 54 L78 56" stroke="#8a5a26" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+  <ellipse cx="49" cy="65" rx="4.2" ry="5.2" fill="#2c1d10"/>
+  <ellipse cx="71" cy="65" rx="4.2" ry="5.2" fill="#2c1d10"/>
+  <circle cx="50.5" cy="63" r="1.4" fill="#fff8e8"/>
+  <circle cx="72.5" cy="63" r="1.4" fill="#fff8e8"/>
+  <path d="M52 82 Q60 87 68 82" stroke="#9a6a44" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+  <path d="M40 70 L36 72" stroke="#b07848" stroke-width="1.6" opacity="0.7"/>
+</svg>

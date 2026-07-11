@@ -33,35 +33,10 @@
       <section id="join-panel" class="join-panel" aria-labelledby="join-title">
         <div class="join-heading">
           <span class="eyebrow">中继接入</span>
-          <h1 id="join-title">选择操作员</h1>
+          <h1 id="join-title">选择角色</h1>
         </div>
 
-        <div id="archetype-list" class="archetype-list" role="radiogroup" aria-label="操作员职业">
-          <button class="archetype is-selected" type="button" role="radio" aria-checked="true" data-archetype="vanguard">
-            <img src="/assets/vanguard.svg" alt="" />
-            <span class="archetype-copy">
-              <strong>先锋</strong>
-              <small>前线战士</small>
-            </span>
-            <span class="archetype-trait">高韧性</span>
-          </button>
-          <button class="archetype" type="button" role="radio" aria-checked="false" data-archetype="channeler">
-            <img src="/assets/channeler.svg" alt="" />
-            <span class="archetype-copy">
-              <strong>谐振者</strong>
-              <small>中继术师</small>
-            </span>
-            <span class="archetype-trait">场域控制</span>
-          </button>
-          <button class="archetype" type="button" role="radio" aria-checked="false" data-archetype="strider">
-            <img src="/assets/strider.svg" alt="" />
-            <span class="archetype-copy">
-              <strong>游击者</strong>
-              <small>机动突袭</small>
-            </span>
-            <span class="archetype-trait">高机动</span>
-          </button>
-        </div>
+        <div id="archetype-list" class="archetype-list" role="radiogroup" aria-label="选择角色"></div>
 
         <form id="join-form" class="join-form" autocomplete="off">
           <label for="operator-name">操作员呼号</label>
@@ -134,7 +109,10 @@
         <aside class="gear-panel" aria-label="装备与背包">
           <div class="panel-title">
             <span>装备</span>
-            <b id="bag-count">0/24</b>
+            <span class="panel-title-actions">
+              <button id="auto-equip-button" class="mini-command" type="button" title="自动穿上每个部位最强的装备">自动</button>
+              <b id="bag-count">0/24</b>
+            </span>
           </div>
           <div id="equipment-doll" class="equipment-doll" aria-label="穿戴部位"></div>
           <div id="inventory-list" class="inventory-list"></div>

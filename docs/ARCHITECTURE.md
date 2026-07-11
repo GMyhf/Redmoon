@@ -51,6 +51,7 @@ WebSocket 使用 UTF-8 JSON 对象，单条消息上限为 16 KiB。每条命令
 | `equip` | `item` | 装备背包中的物品（受物品等级要求限制），原部位装备换回背包 |
 | `unequip` | `slot` | 卸下指定部位（weapon/armor/helm/necklace/ring/boots/charm）的装备回背包 |
 | `use` | `item` | 饮用背包中的药剂恢复生命 |
+| `autoEquip` | 无 | 每个部位自动穿上背包中强度评分最高且满足等级的装备 |
 | `discard` | `item` | 丢弃背包中的物品 |
 
 服务器消息封装：

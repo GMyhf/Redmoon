@@ -46,35 +46,83 @@
     respawnButton: document.querySelector("#respawn-button"),
     rebirthButton: document.querySelector("#rebirth-button"),
     bagCount: document.querySelector("#bag-count"),
+    autoEquipButton: document.querySelector("#auto-equip-button"),
     equipmentDoll: document.querySelector("#equipment-doll"),
     inventoryList: document.querySelector("#inventory-list"),
     abilities: [...document.querySelectorAll(".ability")],
   };
 
+  // Seven original named heroes (names, roles, and designs are this project's own).
   const ARCHETYPES = {
     vanguard: {
-      label: "先锋",
-      sigil: "V",
+      label: "绯岚",
+      role: "重刃突击",
+      trait: "高韧性",
+      sigil: "绯",
       body: "#d74d5e",
       accent: "#f0c15e",
       q: "震荡环",
       e: "壁垒冲锋",
     },
     channeler: {
-      label: "谐振者",
-      sigil: "C",
+      label: "汀兰",
+      role: "星能术师",
+      trait: "场域控制",
+      sigil: "汀",
       body: "#52c9bd",
       accent: "#83d4ff",
       q: "中继爆发",
       e: "相位结界",
     },
     strider: {
-      label: "游击者",
-      sigil: "S",
+      label: "疾风",
+      role: "游侠",
+      trait: "高机动",
+      sigil: "疾",
       body: "#e2a64f",
       accent: "#e86969",
       q: "裂光飞刃",
       e: "相位疾步",
+    },
+    bulwark: {
+      label: "铁岳",
+      role: "壁垒守卫",
+      trait: "极限生存",
+      sigil: "铁",
+      body: "#9aa7b8",
+      accent: "#c3d0e2",
+      q: "崩地环",
+      e: "铁壁冲撞",
+    },
+    longshot: {
+      label: "星眸",
+      role: "狙击手",
+      trait: "超远射程",
+      sigil: "星",
+      body: "#7fb4e6",
+      accent: "#a9d0f5",
+      q: "贯星长矢",
+      e: "撤离连射",
+    },
+    pyre: {
+      label: "焰蝶",
+      role: "烈焰术士",
+      trait: "范围爆发",
+      sigil: "焰",
+      body: "#e07a4f",
+      accent: "#ffab72",
+      q: "烈焰新星",
+      e: "烬火扇击",
+    },
+    moonblade: {
+      label: "月绫",
+      role: "月刃舞者",
+      trait: "贴身连击",
+      sigil: "月",
+      body: "#cfd8ec",
+      accent: "#e8eefc",
+      q: "月轮回旋",
+      e: "追月突刺",
     },
   };
 
@@ -152,6 +200,25 @@
       skin: "#e5b287", hair: "#c9873f", torso: "#a3742f", torsoShade: "#7f5a24",
       legs: "#3c3830", accent: "#e86969", ponytail: true,
       defaultWeapon: "bow", weaponColor: "#caa25c",
+    },
+    bulwark: {
+      skin: "#d9a97f", hair: "#2e2a28", torso: "#6f7d8f", torsoShade: "#59667a",
+      legs: "#2c3138", accent: "#c3d0e2", defaultWeapon: "blade", weaponColor: "#cfd8e2",
+    },
+    longshot: {
+      skin: "#ecc9a4", hair: "#9fc0e2", torso: "#35577c", torsoShade: "#2a4462",
+      legs: "#22303f", accent: "#a9d0f5", ponytail: true,
+      defaultWeapon: "bow", weaponColor: "#a9d0f5",
+    },
+    pyre: {
+      skin: "#eec3a0", hair: "#d96b3a", torso: "#8f3b2a", torsoShade: "#732e21",
+      legs: "#3a2622", accent: "#ffab72", robe: true,
+      defaultWeapon: "staff", weaponColor: "#ffab72",
+    },
+    moonblade: {
+      skin: "#f0d6bd", hair: "#dfe6f2", torso: "#7c86a0", torsoShade: "#646e88",
+      legs: "#2f3442", accent: "#e8eefc", ponytail: true,
+      defaultWeapon: "blade", weaponColor: "#e8eefc",
     },
   };
 
@@ -365,7 +432,7 @@
     if (!state.profile) return;
     const archetype = ARCHETYPES[state.profile.archetype] || ARCHETYPES.vanguard;
     ui.name.textContent = state.profile.name.toUpperCase();
-    ui.className.textContent = archetype.label;
+    ui.className.textContent = `${archetype.label} · ${archetype.role}`;
     ui.sigil.textContent = archetype.sigil;
     ui.skillQ.textContent = archetype.q;
     ui.skillE.textContent = archetype.e;
@@ -520,7 +587,7 @@
 
     const rebirths = Math.max(0, Math.floor(finite(player.rebirths, 0)));
     ui.name.textContent = String(first(player.name, state.profile?.name, "RELAY-07")).toUpperCase();
-    ui.className.textContent = archetype.label;
+    ui.className.textContent = `${archetype.label} · ${archetype.role}`;
     ui.sigil.textContent = archetype.sigil;
     ui.level.textContent = `L${String(level).padStart(2, "0")}${rebirths > 0 ? ` ★${rebirths}` : ""}`;
     if (ui.rebirthButton) {
@@ -733,6 +800,14 @@
     }
     if (eventName === "lootpickedup") {
       pushEvent(`拾取 ${itemLabel(event)}`);
+      // Auto-wear upgrades the moment they hit the bag.
+      if (String(event.playerId) === String(state.id) && event.slot !== "potion") {
+        send({ type: "autoEquip" });
+      }
+      return;
+    }
+    if (eventName === "autoequipped") {
+      pushEvent(`自动换装完成 // 更新了 ${finite(event.changed, 0)} 件`);
       return;
     }
     if (eventName === "itemequipped") {
@@ -1791,6 +1866,35 @@
     }
   }
 
+  // Build the seven hero cards on the join screen.
+  const archetypeList = document.querySelector("#archetype-list");
+  if (archetypeList) {
+    archetypeList.replaceChildren(...Object.entries(ARCHETYPES).map(([id, hero]) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `archetype${id === state.selectedArchetype ? " is-selected" : ""}`;
+      button.setAttribute("role", "radio");
+      button.setAttribute("aria-checked", String(id === state.selectedArchetype));
+      button.dataset.archetype = id;
+      const portrait = document.createElement("img");
+      portrait.src = `/assets/heroes/${id}.svg`;
+      portrait.alt = "";
+      const copy = document.createElement("span");
+      copy.className = "archetype-copy";
+      const name = document.createElement("strong");
+      name.textContent = hero.label;
+      const role = document.createElement("small");
+      role.textContent = hero.role;
+      copy.append(name, role);
+      const trait = document.createElement("span");
+      trait.className = "archetype-trait";
+      trait.textContent = hero.trait;
+      button.append(portrait, copy, trait);
+      return button;
+    }));
+    ui.archetypes = [...archetypeList.querySelectorAll(".archetype")];
+  }
+
   ui.archetypes.forEach((button) => {
     button.addEventListener("click", () => {
       state.selectedArchetype = button.dataset.archetype;
@@ -1840,6 +1944,7 @@
 
   ui.respawnButton.addEventListener("click", () => send({ type: "respawn" }));
   ui.rebirthButton?.addEventListener("click", () => send({ type: "rebirth" }));
+  ui.autoEquipButton?.addEventListener("click", () => send({ type: "autoEquip" }));
   ui.inventoryList?.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-item]");
     if (!button) return;
