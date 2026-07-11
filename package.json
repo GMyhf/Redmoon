@@ -1,0 +1,19 @@
+{
+  "name": "crimson-relay",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A clean-room, server-authoritative online action RPG prototype.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server/server.js",
+    "dev": "node --watch src/server/server.js",
+    "test": "node --test --test-concurrency=2",
+    "check": "node --check src/server/server.js && node --check src/server/definitions.js && node --check src/server/world.js && node --check public/client.js"
+  },
+  "dependencies": {
+    "ws": "8.21.0"
+  }
+}

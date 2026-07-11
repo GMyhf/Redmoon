@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 170" role="img" aria-label="Vanguard operator">
+  <rect width="220" height="170" fill="#11171c"/>
+  <path fill="#1d272b" d="M0 128 110 72l110 56v42H0z"/>
+  <path fill="#263238" d="m0 137 110-55 110 55v14l-110-54L0 151z"/>
+  <circle cx="110" cy="72" r="54" fill="#3b1c25" opacity=".55"/>
+  <path fill="#171d22" d="m89 59 12-19h21l12 19-6 23H95z"/>
+  <path fill="#e6b95b" d="M98 57h26v6H98z"/>
+  <path fill="#8e293a" d="m72 86 25-19h28l27 19-10 58H82z"/>
+  <path fill="#d84c5d" d="M91 72h39l9 64H84z"/>
+  <path fill="#6f2230" d="m72 87 17-13-6 56-20-9zm80-1-17-12 5 56 20-10z"/>
+  <path fill="#1b2227" d="m91 136 17-2v36H84zm39 0-16-2v36h24z"/>
+  <path fill="#ebb95d" d="M102 82h18v7h-18zm5 7h8v27h-8z"/>
+  <path fill="none" stroke="#e24b5c" stroke-width="2" opacity=".75" d="M20 25h54m72 0h54M20 31h33m115 0h32"/>
+  <path fill="#54d3c2" d="M18 23h5v5h-5zm179 0h5v5h-5z"/>
+</svg>

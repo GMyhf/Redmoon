@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Crimson Relay mark">
+  <path fill="#11161b" d="M32 2 58 17v30L32 62 6 47V17z"/>
+  <path fill="none" stroke="#e24b5c" stroke-width="3" d="m32 7 21 12v25L32 57 11 44V19z"/>
+  <path fill="#e24b5c" d="m18 23 14-8 14 8v5L32 20l-14 8zm0 18 14 8 14-8v-5l-14 8-14-8z"/>
+  <path fill="#54d3c2" d="M29 25h6v14h-6z"/>
+  <circle cx="32" cy="32" r="3" fill="#eef2ef"/>
+</svg>

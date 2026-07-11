@@ -1,0 +1,1038 @@
+(() => {
+  "use strict";
+
+  const canvas = document.querySelector("#game-canvas");
+  const ctx = canvas.getContext("2d", { alpha: false });
+  const ui = {
+    joinPanel: document.querySelector("#join-panel"),
+    joinForm: document.querySelector("#join-form"),
+    joinButton: document.querySelector("#join-button"),
+    joinError: document.querySelector("#join-error"),
+    nameInput: document.querySelector("#operator-name"),
+    archetypes: [...document.querySelectorAll(".archetype")],
+    hud: document.querySelector("#hud"),
+    connection: document.querySelector("#connection"),
+    sector: document.querySelector("#sector-label"),
+    population: document.querySelector("#population"),
+    name: document.querySelector("#operator-display-name"),
+    className: document.querySelector("#operator-class"),
+    sigil: document.querySelector("#operator-sigil"),
+    level: document.querySelector("#operator-level"),
+    hp: document.querySelector("#health-current"),
+    maxHp: document.querySelector("#health-max"),
+    hpFill: document.querySelector("#health-fill"),
+    energy: document.querySelector("#energy-current"),
+    maxEnergy: document.querySelector("#energy-max"),
+    energyFill: document.querySelector("#energy-fill"),
+    energyMeter: document.querySelector(".energy-meter"),
+    xp: document.querySelector("#xp-value"),
+    xpFill: document.querySelector("#xp-fill"),
+    statPoints: document.querySelector("#stat-points"),
+    statRows: [...document.querySelectorAll(".stat-row")],
+    questTitle: document.querySelector("#quest-title"),
+    questSummary: document.querySelector("#quest-summary"),
+    questCurrent: document.querySelector("#quest-current"),
+    questTarget: document.querySelector("#quest-target"),
+    questFill: document.querySelector("#quest-fill"),
+    skillQ: document.querySelector("#skill-q-name"),
+    skillE: document.querySelector("#skill-e-name"),
+    skillQLevel: document.querySelector("#skill-q-level"),
+    skillELevel: document.querySelector("#skill-e-level"),
+    skillUpgrades: document.querySelector("#skill-upgrades"),
+    skillPoints: document.querySelector("#skill-points"),
+    eventFeed: document.querySelector("#event-feed"),
+    deathPanel: document.querySelector("#death-panel"),
+    respawnTimer: document.querySelector("#respawn-timer"),
+    respawnButton: document.querySelector("#respawn-button"),
+    abilities: [...document.querySelectorAll(".ability")],
+  };
+
+  const ARCHETYPES = {
+    vanguard: {
+      label: "先锋",
+      sigil: "V",
+      body: "#d74d5e",
+      accent: "#f0c15e",
+      q: "震荡环",
+      e: "壁垒冲锋",
+    },
+    channeler: {
+      label: "谐振者",
+      sigil: "C",
+      body: "#52c9bd",
+      accent: "#83d4ff",
+      q: "中继爆发",
+      e: "相位结界",
+    },
+    strider: {
+      label: "游击者",
+      sigil: "S",
+      body: "#e2a64f",
+      accent: "#e86969",
+      q: "裂光飞刃",
+      e: "相位疾步",
+    },
+  };
+
+  const STAT_LABELS = {
+    power: "力量",
+    agility: "敏捷",
+    spirit: "精神",
+    vitality: "体魄",
+  };
+
+  const state = {
+    socket: null,
+    reconnectTimer: 0,
+    reconnectAttempt: 0,
+    connected: false,
+    joined: false,
+    pendingJoin: false,
+    selectedArchetype: "vanguard",
+    profile: null,
+    id: null,
+    tick: 0,
+    map: { width: 1600, height: 900, name: "灰港中继站" },
+    players: new Map(),
+    enemies: new Map(),
+    projectiles: new Map(),
+    effects: [],
+    quest: null,
+    camera: { x: 800, y: 450 },
+    pointer: { x: 0, y: 0, worldX: 800, worldY: 450, down: false, seen: false },
+    keys: new Set(),
+    pulses: { q: false, e: false, primary: false },
+    inputSeq: 0,
+    lastInput: 0,
+    lastFrame: performance.now(),
+    dpr: 1,
+    viewWidth: innerWidth,
+    viewHeight: innerHeight,
+  };
+
+  const clamp = (value, min, max) => Math.max(min, Math.min(max, Number(value) || 0));
+  const finite = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
+  const first = (...values) => values.find((value) => value !== undefined && value !== null);
+  const ratio = (value, max) => max > 0 ? clamp(value / max, 0, 1) : 0;
+  const asList = (value) => {
+    if (Array.isArray(value)) return value;
+    if (value && typeof value === "object") {
+      return Object.entries(value).map(([id, item]) => ({ id, ...(item || {}) }));
+    }
+    return [];
+  };
+
+  function setConnection(mode, label) {
+    ui.connection.className = `connection is-${mode}`;
+    ui.connection.querySelector("b").textContent = label;
+  }
+
+  function socketUrl() {
+    if (!location.host) return null;
+    return `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
+  }
+
+  function connect() {
+    const url = socketUrl();
+    if (!url) {
+      setConnection("offline", "未连接");
+      ui.joinError.textContent = "请通过游戏服务器打开客户端";
+      ui.joinError.hidden = false;
+      return;
+    }
+
+    clearTimeout(state.reconnectTimer);
+    setConnection("connecting", state.reconnectAttempt ? "重新连接" : "连接中");
+
+    try {
+      state.socket = new WebSocket(url);
+    } catch (_error) {
+      scheduleReconnect();
+      return;
+    }
+
+    state.socket.addEventListener("open", () => {
+      state.connected = true;
+      state.reconnectAttempt = 0;
+      setConnection("online", "在线");
+      ui.joinError.hidden = true;
+      if (state.pendingJoin && state.profile) sendJoin();
+    });
+
+    state.socket.addEventListener("message", (event) => {
+      let message;
+      try {
+        message = JSON.parse(event.data);
+      } catch (_error) {
+        return;
+      }
+      if (message && typeof message === "object") handleMessage(message);
+    });
+
+    state.socket.addEventListener("close", () => {
+      state.connected = false;
+      if (state.joined && state.profile) state.pendingJoin = true;
+      setConnection("offline", "连接中断");
+      scheduleReconnect();
+    });
+
+    state.socket.addEventListener("error", () => {
+      state.socket?.close();
+    });
+  }
+
+  function scheduleReconnect() {
+    clearTimeout(state.reconnectTimer);
+    const delay = Math.min(8000, 700 * 2 ** state.reconnectAttempt);
+    state.reconnectAttempt += 1;
+    state.reconnectTimer = window.setTimeout(connect, delay);
+  }
+
+  function send(payload) {
+    if (state.socket?.readyState !== WebSocket.OPEN) return false;
+    state.socket.send(JSON.stringify(payload));
+    return true;
+  }
+
+  function sendJoin() {
+    if (!state.profile || !send({ type: "join", ...state.profile })) return;
+    state.pendingJoin = false;
+    applyProfileToHud();
+  }
+
+  function applyProfileToHud() {
+    if (!state.profile) return;
+    const archetype = ARCHETYPES[state.profile.archetype] || ARCHETYPES.vanguard;
+    ui.name.textContent = state.profile.name.toUpperCase();
+    ui.className.textContent = archetype.label;
+    ui.sigil.textContent = archetype.sigil;
+    ui.skillQ.textContent = archetype.q;
+    ui.skillE.textContent = archetype.e;
+  }
+
+  function handleMessage(message) {
+    const type = String(message.type || "").toLowerCase();
+    if (type === "welcome") {
+      state.id = String(first(message.id, message.playerId, message.clientId, state.id, ""));
+      applyMap(first(message.map, message.world));
+      if (message.archetypes && typeof message.archetypes === "object") {
+        mergeArchetypes(message.archetypes);
+      }
+      return;
+    }
+
+    if (type === "snapshot" || type === "state") {
+      applySnapshot(message);
+      return;
+    }
+
+    if (type === "event") {
+      handleEvent(message);
+      return;
+    }
+
+    if (type === "error") {
+      handleError(message);
+    }
+  }
+
+  function mergeArchetypes(definitions) {
+    for (const [key, definition] of Object.entries(definitions)) {
+      if (!ARCHETYPES[key] || !definition || typeof definition !== "object") continue;
+      ARCHETYPES[key] = { ...ARCHETYPES[key], server: definition };
+    }
+  }
+
+  function applyMap(map) {
+    if (!map || typeof map !== "object") return;
+    state.map.width = clamp(first(map.width, map.w, state.map.width), 8, 8192);
+    state.map.height = clamp(first(map.height, map.h, state.map.height), 8, 8192);
+    state.map.name = String(first(map.name, map.label, state.map.name));
+    ui.sector.textContent = `节点 // ${state.map.name}`;
+  }
+
+  function applySnapshot(snapshot) {
+    const world = snapshot.world && typeof snapshot.world === "object" ? snapshot.world : snapshot;
+    state.tick = finite(first(snapshot.tick, world.tick), state.tick);
+    state.id = String(first(snapshot.selfId, snapshot.playerId, world.selfId, state.id, ""));
+    applyMap(first(world.map, world));
+
+    const players = first(snapshot.players, world.players);
+    const enemies = first(snapshot.enemies, world.enemies, snapshot.mobs, world.mobs);
+    const projectiles = first(snapshot.projectiles, world.projectiles);
+    if (players !== undefined) updateEntities(state.players, players, "player");
+    if (enemies !== undefined) updateEntities(state.enemies, enemies, "enemy");
+    if (projectiles !== undefined) updateEntities(state.projectiles, projectiles, "projectile");
+
+    const local = localPlayer();
+    if (local && !state.joined) {
+      state.joined = true;
+      ui.joinPanel.hidden = true;
+      ui.hud.hidden = false;
+      ui.joinButton.disabled = false;
+    }
+    const quest = first(snapshot.quest, world.quest, local?.quest);
+    if (quest) state.quest = quest;
+    updateHud(local);
+
+    ui.population.textContent = `${state.players.size} 在线`;
+    ui.population.hidden = false;
+  }
+
+  function updateEntities(store, collection, kind) {
+    const seen = new Set();
+    asList(collection).forEach((raw, index) => {
+      if (!raw || typeof raw !== "object") return;
+      const id = String(first(raw.id, raw.playerId, raw.entityId, `${kind}-${index}`));
+      seen.add(id);
+      const prior = store.get(id);
+      const nextX = finite(first(raw.x, raw.position?.x), prior?.targetX ?? state.camera.x);
+      const nextY = finite(first(raw.y, raw.position?.y), prior?.targetY ?? state.camera.y);
+      store.set(id, {
+        ...(prior || {}),
+        ...raw,
+        id,
+        kind,
+        x: prior ? prior.x : nextX,
+        y: prior ? prior.y : nextY,
+        targetX: nextX,
+        targetY: nextY,
+        receivedAt: performance.now(),
+      });
+    });
+    for (const id of store.keys()) {
+      if (!seen.has(id)) store.delete(id);
+    }
+  }
+
+  function localPlayer() {
+    if (state.id && state.players.has(state.id)) return state.players.get(state.id);
+    return [...state.players.values()].find((player) => player.self || player.isSelf || player.local) || null;
+  }
+
+  function updateHud(player) {
+    if (!player) return;
+    const archetypeKey = String(first(player.archetype, player.class, state.profile?.archetype, "vanguard")).toLowerCase();
+    const archetype = ARCHETYPES[archetypeKey] || ARCHETYPES.vanguard;
+    const hp = finite(first(player.hp, player.health), 0);
+    const maxHp = Math.max(1, finite(first(player.maxHp, player.maxHealth), 100));
+    const rawEnergy = first(player.energy, player.mana, player.resource);
+    const rawMaxEnergy = first(player.maxEnergy, player.maxMana, player.maxResource);
+    const energy = finite(rawEnergy, 0);
+    const maxEnergy = Math.max(1, finite(rawMaxEnergy, 1));
+    const xp = finite(first(player.xp, player.experience), 0);
+    const xpMax = Math.max(1, finite(first(player.xpToNext, player.nextLevelXp, player.maxXp), 100));
+    const level = Math.max(1, Math.floor(finite(player.level, 1)));
+
+    ui.name.textContent = String(first(player.name, state.profile?.name, "RELAY-07")).toUpperCase();
+    ui.className.textContent = archetype.label;
+    ui.sigil.textContent = archetype.sigil;
+    ui.level.textContent = `L${String(level).padStart(2, "0")}`;
+    ui.hp.textContent = Math.ceil(hp);
+    ui.maxHp.textContent = Math.ceil(maxHp);
+    ui.hpFill.style.width = `${ratio(hp, maxHp) * 100}%`;
+    ui.energy.textContent = Math.ceil(energy);
+    ui.maxEnergy.textContent = Math.ceil(maxEnergy);
+    ui.energyFill.style.width = `${ratio(energy, maxEnergy) * 100}%`;
+    ui.energyMeter.hidden = rawEnergy === undefined && rawMaxEnergy === undefined;
+    ui.xp.textContent = `${Math.floor(ratio(xp, xpMax) * 100)}%`;
+    ui.xpFill.style.width = `${ratio(xp, xpMax) * 100}%`;
+
+    const stats = player.stats && typeof player.stats === "object" ? player.stats : player.attributes || {};
+    const statPoints = Math.max(0, Math.floor(finite(first(player.statPoints, player.attributePoints, player.points), 0)));
+    ui.statPoints.textContent = `${statPoints} 点`;
+    for (const row of ui.statRows) {
+      const key = row.dataset.stat;
+      row.querySelector(".stat-value").textContent = Math.floor(finite(stats[key], 0));
+      row.querySelector(".allocate-button").disabled = statPoints < 1;
+    }
+
+    const skills = player.skills && typeof player.skills === "object" ? player.skills : {};
+    const q = skills.q || skills.Q || {};
+    const e = skills.e || skills.E || {};
+    const qLevel = Math.max(1, Math.floor(finite(first(q.level, player.qLevel), 1)));
+    const eLevel = Math.max(1, Math.floor(finite(first(e.level, player.eLevel), 1)));
+    ui.skillQ.textContent = archetype.q;
+    ui.skillE.textContent = archetype.e;
+    ui.skillQLevel.textContent = roman(qLevel);
+    ui.skillELevel.textContent = roman(eLevel);
+    const skillPoints = Math.max(0, Math.floor(finite(first(player.skillPoints, skills.points), 0)));
+    ui.skillPoints.textContent = `${skillPoints} 技能点`;
+    ui.skillUpgrades.hidden = skillPoints < 1;
+    updateAbilityCooldown("q", q);
+    updateAbilityCooldown("e", e);
+
+    updateQuest();
+    const alive = first(player.alive, !player.dead, hp > 0);
+    ui.deathPanel.hidden = Boolean(alive);
+    if (!alive) updateRespawn(player);
+  }
+
+  function updateQuest() {
+    const quest = state.quest;
+    if (!quest || typeof quest !== "object") return;
+    const current = Math.max(0, finite(first(quest.current, quest.progress, quest.count), 0));
+    const target = Math.max(1, finite(first(quest.target, quest.required, quest.total), 1));
+    const isFringeQuest = quest.id === "stabilize-the-fringe";
+    ui.questTitle.textContent = isFringeQuest ? "稳定边缘区" : String(first(quest.title, quest.name, "守住中继站"));
+    ui.questSummary.textContent = isFringeQuest ? "清除裂隙体" : String(first(quest.summary, quest.description, quest.objective, "清除入侵单位"));
+    ui.questCurrent.textContent = Math.floor(current);
+    ui.questTarget.textContent = Math.floor(target);
+    ui.questFill.style.width = `${ratio(current, target) * 100}%`;
+  }
+
+  function updateRespawn(player) {
+    const remaining = Math.max(0, Math.ceil(finite(first(player.respawnIn, player.respawnTimer), 0)));
+    ui.respawnTimer.textContent = remaining > 0 ? `信号恢复 ${remaining} 秒` : "信号可以重连";
+    ui.respawnButton.disabled = remaining > 0;
+  }
+
+  function updateAbilityCooldown(slot, skill) {
+    const button = ui.abilities.find((item) => item.dataset.ability === slot);
+    if (!button) return;
+    const remaining = Math.max(0, finite(skill.remaining, 0));
+    const duration = Math.max(0.01, finite(skill.cooldown, 1));
+    button.classList.toggle("is-cooling", remaining > 0);
+    button.querySelector(".cooldown").style.setProperty("--cooldown-ratio", ratio(remaining, duration));
+    button.disabled = remaining > 0;
+  }
+
+  function roman(value) {
+    return ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"][clamp(value, 1, 10) - 1];
+  }
+
+  function handleEvent(event) {
+    const eventName = String(first(event.event, event.name, event.kind, "signal")).toLowerCase();
+    const messages = {
+      joined: "新信号已接入",
+      playerjoined: "新信号已接入",
+      playerleft: "一条信号已离开",
+      levelup: `同步等级提升至 ${first(event.level, "新阶段")}`,
+      kill: `目标已清除${event.target ? ` // ${event.target}` : ""}`,
+      enemydefeated: "裂隙体已清除",
+      playerdefeated: "操作员信号丢失",
+      quest: "目标进度已更新",
+      questprogress: "目标进度已更新",
+      questcomplete: "中继任务完成",
+      questcompleted: "中继任务完成",
+      respawn: "操作员信号已恢复",
+      playerrespawned: "操作员信号已恢复",
+      upgrade: "能力已升级",
+      skillupgraded: "能力已升级",
+      allocated: "属性已强化",
+      statallocated: "属性已强化",
+    };
+    if (eventName === "skillused") return;
+    const text = String(first(event.message, messages[eventName], "中继信号已更新"));
+    pushEvent(text, eventName === "playerdefeated" || eventName.includes("death") || eventName.includes("error"));
+
+    const x = finite(first(event.x, event.position?.x), NaN);
+    const y = finite(first(event.y, event.position?.y), NaN);
+    if (Number.isFinite(x) && Number.isFinite(y)) {
+      state.effects.push({
+        x,
+        y,
+        born: performance.now(),
+        duration: finite(event.duration, 650),
+        color: eventName.includes("heal") ? "#67d69b" : "#ee5968",
+        text: event.amount ? String(Math.abs(Math.round(event.amount))) : "",
+      });
+    }
+  }
+
+  function handleError(error) {
+    const translated = {
+      INVALID_NAME: "呼号不符合中继规范",
+      INVALID_ARCHETYPE: "所选职业不可用",
+      ALREADY_JOINED: "操作员已接入中继",
+      NOT_JOINED: "操作员尚未接入",
+      NO_STAT_POINTS: "没有可用属性点",
+      NO_SKILL_POINTS: "没有可用技能点",
+      RESPAWN_NOT_READY: "信号尚未恢复",
+    };
+    const message = String(first(translated[error.code], error.message, error.error, "中继请求失败"));
+    pushEvent(message, true);
+    if (!state.joined) {
+      ui.joinError.textContent = message;
+      ui.joinError.hidden = false;
+      ui.joinButton.disabled = false;
+    }
+    if (error.requestType === "join") {
+      state.joined = false;
+      state.pendingJoin = false;
+      ui.joinPanel.hidden = false;
+      ui.hud.hidden = true;
+      ui.joinButton.disabled = false;
+    }
+  }
+
+  function pushEvent(text, alert = false) {
+    const item = document.createElement("div");
+    item.className = `event-message${alert ? " is-alert" : ""}`;
+    item.textContent = text;
+    ui.eventFeed.prepend(item);
+    while (ui.eventFeed.children.length > 4) ui.eventFeed.lastElementChild.remove();
+    window.setTimeout(() => item.remove(), 4600);
+  }
+
+  function resizeCanvas() {
+    state.viewWidth = Math.max(320, innerWidth);
+    state.viewHeight = Math.max(480, innerHeight);
+    state.dpr = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = Math.round(state.viewWidth * state.dpr);
+    canvas.height = Math.round(state.viewHeight * state.dpr);
+    canvas.style.width = `${state.viewWidth}px`;
+    canvas.style.height = `${state.viewHeight}px`;
+  }
+
+  const TILE_W = 76;
+  const TILE_H = 38;
+  const WORLD_CELL = 48;
+
+  function worldToScreen(x, y, z = 0) {
+    return {
+      x: state.viewWidth * 0.5 + (((x - state.camera.x) - (y - state.camera.y)) / WORLD_CELL) * TILE_W * 0.5,
+      y: state.viewHeight * 0.43 + (((x - state.camera.x) + (y - state.camera.y)) / WORLD_CELL) * TILE_H * 0.5 - z,
+    };
+  }
+
+  function screenToWorld(x, y) {
+    const dx = (x - state.viewWidth * 0.5) / (TILE_W * 0.5);
+    const dy = (y - state.viewHeight * 0.43) / (TILE_H * 0.5);
+    return {
+      x: state.camera.x + (dx + dy) * 0.5 * WORLD_CELL,
+      y: state.camera.y + (dy - dx) * 0.5 * WORLD_CELL,
+    };
+  }
+
+  function tileHash(x, y) {
+    let value = (x * 374761393 + y * 668265263) ^ (x * y * 69069);
+    value = (value ^ (value >> 13)) * 1274126177;
+    return ((value ^ (value >> 16)) >>> 0) / 4294967295;
+  }
+
+  function drawDiamond(x, y, width, height, fill, stroke) {
+    ctx.beginPath();
+    ctx.moveTo(x, y - height * 0.5);
+    ctx.lineTo(x + width * 0.5, y);
+    ctx.lineTo(x, y + height * 0.5);
+    ctx.lineTo(x - width * 0.5, y);
+    ctx.closePath();
+    ctx.fillStyle = fill;
+    ctx.fill();
+    if (stroke) {
+      ctx.strokeStyle = stroke;
+      ctx.stroke();
+    }
+  }
+
+  function drawWorld(time) {
+    ctx.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
+    ctx.fillStyle = "#0b0f13";
+    ctx.fillRect(0, 0, state.viewWidth, state.viewHeight);
+
+    drawAtmosphere(time);
+    drawTiles(time);
+    drawObjects(time);
+    drawCursor(time);
+  }
+
+  function drawAtmosphere(time) {
+    const glow = ctx.createRadialGradient(
+      state.viewWidth * 0.56,
+      state.viewHeight * 0.43,
+      20,
+      state.viewWidth * 0.56,
+      state.viewHeight * 0.43,
+      Math.max(state.viewWidth, state.viewHeight) * 0.7,
+    );
+    glow.addColorStop(0, "#293438");
+    glow.addColorStop(0.52, "#161e22");
+    glow.addColorStop(1, "#080a0d");
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, state.viewWidth, state.viewHeight);
+
+    ctx.save();
+    ctx.globalAlpha = 0.08;
+    ctx.fillStyle = "#9bd9d1";
+    const drift = (time * 0.006) % 220;
+    for (let i = -1; i < 7; i += 1) {
+      ctx.beginPath();
+      ctx.ellipse(i * 220 + drift, 120 + (i % 3) * 94, 170, 23, -0.32, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawTiles(time) {
+    const radiusX = Math.ceil(state.viewWidth / TILE_W) + 5;
+    const radiusY = Math.ceil(state.viewHeight / TILE_H) + 7;
+    const tileMapWidth = Math.ceil(state.map.width / WORLD_CELL);
+    const tileMapHeight = Math.ceil(state.map.height / WORLD_CELL);
+    const cameraTileX = state.camera.x / WORLD_CELL;
+    const cameraTileY = state.camera.y / WORLD_CELL;
+    const minX = Math.max(0, Math.floor(cameraTileX - radiusX));
+    const maxX = Math.min(tileMapWidth - 1, Math.ceil(cameraTileX + radiusX));
+    const minY = Math.max(0, Math.floor(cameraTileY - radiusY));
+    const maxY = Math.min(tileMapHeight - 1, Math.ceil(cameraTileY + radiusY));
+
+    for (let sum = minX + minY; sum <= maxX + maxY; sum += 1) {
+      for (let x = minX; x <= maxX; x += 1) {
+        const y = sum - x;
+        if (y < minY || y > maxY) continue;
+        const point = worldToScreen((x + 0.5) * WORLD_CELL, (y + 0.5) * WORLD_CELL);
+        if (point.x < -TILE_W || point.x > state.viewWidth + TILE_W || point.y < -TILE_H || point.y > state.viewHeight + TILE_H) continue;
+        const noise = tileHash(x, y);
+        let fill = noise > 0.77 ? "#222e2e" : noise > 0.37 ? "#20282a" : "#1d2528";
+        if ((x + y) % 11 === 0) fill = "#252b2c";
+        drawDiamond(point.x, point.y, TILE_W - 1, TILE_H - 1, fill, "rgba(143, 167, 162, 0.12)");
+
+        if ((x === 2 || x === tileMapWidth - 3) && y % 5 < 2) drawRelayLine(point, time, x + y);
+        if (noise > 0.965) drawCrystal(point.x, point.y - 4, noise, time);
+        else if (noise > 0.93) drawDebris(point.x, point.y, noise);
+      }
+    }
+  }
+
+  function drawRelayLine(point, time, seed) {
+    ctx.save();
+    ctx.globalAlpha = 0.45 + Math.sin(time * 0.003 + seed) * 0.18;
+    ctx.strokeStyle = "#bf394a";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(point.x - 22, point.y);
+    ctx.lineTo(point.x, point.y + 10);
+    ctx.lineTo(point.x + 22, point.y);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawCrystal(x, y, seed, time) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.globalAlpha = 0.64 + Math.sin(time * 0.002 + seed * 8) * 0.12;
+    ctx.shadowColor = "#4dd1c0";
+    ctx.shadowBlur = 12;
+    ctx.fillStyle = "#4da79f";
+    ctx.beginPath();
+    ctx.moveTo(0, -17);
+    ctx.lineTo(7, -4);
+    ctx.lineTo(2, 2);
+    ctx.lineTo(-6, -4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawDebris(x, y, seed) {
+    ctx.save();
+    ctx.translate(x, y - 2);
+    ctx.rotate(seed * 5);
+    ctx.fillStyle = "#343e3f";
+    ctx.fillRect(-7, -4, 14, 7);
+    ctx.fillStyle = "#111719";
+    ctx.fillRect(-4, -5, 5, 2);
+    ctx.restore();
+  }
+
+  function drawObjects(time) {
+    const objects = [];
+    for (const player of state.players.values()) objects.push(player);
+    for (const enemy of state.enemies.values()) objects.push(enemy);
+    objects.sort((a, b) => (a.y + a.x) - (b.y + b.x));
+
+    if (!state.joined && objects.length === 0) {
+      const orbit = time * 0.0003;
+      const centerX = state.map.width * 0.5;
+      const centerY = state.map.height * 0.5;
+      objects.push(
+        { id: "preview", kind: "player", name: "RELAY-07", archetype: state.selectedArchetype, x: centerX, y: centerY, hp: 100, maxHp: 100 },
+        { id: "preview-enemy-1", kind: "enemy", type: "守望体", x: centerX - 115 + Math.cos(orbit) * 18, y: centerY + 72 + Math.sin(orbit) * 18, hp: 62, maxHp: 100 },
+        { id: "preview-enemy-2", kind: "enemy", type: "巡弋体", x: centerX + 122, y: centerY - 104, hp: 100, maxHp: 100 },
+      );
+      objects.sort((a, b) => (a.y + a.x) - (b.y + b.x));
+    }
+
+    for (const object of objects) {
+      if (object.kind === "enemy") drawEnemy(object, time);
+      else drawPlayer(object, time);
+    }
+
+    for (const projectile of state.projectiles.values()) drawProjectile(projectile, time);
+    drawEffects(time);
+  }
+
+  function drawPlayer(player, time) {
+    const point = worldToScreen(player.x, player.y);
+    if (point.x < -80 || point.x > state.viewWidth + 80 || point.y < -100 || point.y > state.viewHeight + 80) return;
+    const key = String(first(player.archetype, player.class, "vanguard")).toLowerCase();
+    const archetype = ARCHETYPES[key] || ARCHETYPES.vanguard;
+    const isSelf = String(player.id) === String(state.id) || player.id === "preview" || player.self;
+    const bob = Math.sin(time * 0.004 + finite(player.x) * 2) * 1.4;
+
+    ctx.save();
+    ctx.translate(point.x, point.y);
+    ctx.fillStyle = "rgba(0, 0, 0, 0.43)";
+    ctx.beginPath();
+    ctx.ellipse(0, 3, 21, 9, 0, 0, Math.PI * 2);
+    ctx.fill();
+    if (isSelf) {
+      ctx.strokeStyle = "rgba(84, 211, 194, 0.75)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(0, 2, 25, 11, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    ctx.translate(0, bob - 10);
+    if (key === "channeler") drawChanneler(archetype);
+    else if (key === "strider") drawStrider(archetype);
+    else drawVanguard(archetype);
+    ctx.restore();
+
+    drawEntityLabel(point.x, point.y - 64 + bob, String(first(player.name, "操作员")), player, isSelf ? archetype.accent : "#d7dddb");
+  }
+
+  function drawVanguard(archetype) {
+    ctx.fillStyle = archetype.body;
+    ctx.fillRect(-13, -25, 26, 27);
+    ctx.fillStyle = "#9e3544";
+    ctx.fillRect(-18, -22, 7, 20);
+    ctx.fillRect(11, -22, 7, 20);
+    ctx.fillStyle = "#1a2024";
+    ctx.fillRect(-9, -37, 18, 13);
+    ctx.fillStyle = archetype.accent;
+    ctx.fillRect(-8, -34, 16, 3);
+    ctx.fillStyle = "#20272a";
+    ctx.fillRect(-12, 2, 8, 13);
+    ctx.fillRect(4, 2, 8, 13);
+  }
+
+  function drawChanneler(archetype) {
+    ctx.fillStyle = archetype.body;
+    ctx.beginPath();
+    ctx.moveTo(0, -28);
+    ctx.lineTo(18, 8);
+    ctx.lineTo(-18, 8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#151d22";
+    ctx.fillRect(-8, -38, 16, 13);
+    ctx.strokeStyle = archetype.accent;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, -16, 8, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = archetype.accent;
+    ctx.fillRect(-2, -19, 4, 4);
+  }
+
+  function drawStrider(archetype) {
+    ctx.fillStyle = archetype.body;
+    ctx.beginPath();
+    ctx.moveTo(-12, -27);
+    ctx.lineTo(12, -23);
+    ctx.lineTo(9, 4);
+    ctx.lineTo(-14, 7);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#182024";
+    ctx.beginPath();
+    ctx.moveTo(-7, -38);
+    ctx.lineTo(11, -32);
+    ctx.lineTo(6, -23);
+    ctx.lineTo(-10, -27);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = archetype.accent;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(10, -22);
+    ctx.lineTo(21, 2);
+    ctx.stroke();
+    ctx.fillStyle = "#20272a";
+    ctx.fillRect(-11, 5, 7, 12);
+    ctx.fillRect(4, 3, 7, 12);
+  }
+
+  function drawEnemy(enemy, time) {
+    const point = worldToScreen(enemy.x, enemy.y);
+    if (point.x < -70 || point.x > state.viewWidth + 70 || point.y < -90 || point.y > state.viewHeight + 70) return;
+    const pulse = 1 + Math.sin(time * 0.006 + finite(enemy.x)) * 0.04;
+    ctx.save();
+    ctx.translate(point.x, point.y);
+    ctx.fillStyle = "rgba(0, 0, 0, 0.48)";
+    ctx.beginPath();
+    ctx.ellipse(0, 2, 18, 7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.translate(0, -16);
+    ctx.scale(pulse, pulse);
+    ctx.fillStyle = "#711f30";
+    ctx.beginPath();
+    ctx.moveTo(0, -25);
+    ctx.lineTo(18, -8);
+    ctx.lineTo(13, 11);
+    ctx.lineTo(-13, 11);
+    ctx.lineTo(-18, -8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "#dc5261";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = "#f2b758";
+    ctx.fillRect(-7, -10, 4, 3);
+    ctx.fillRect(3, -10, 4, 3);
+    ctx.restore();
+    const rawName = String(first(enemy.name, enemy.type, "裂隙体"));
+    const localizedName = /riftling/i.test(rawName) ? "裂隙体" : rawName;
+    drawEntityLabel(point.x, point.y - 54, localizedName, enemy, "#f18a95");
+  }
+
+  function drawEntityLabel(x, y, name, entity, color) {
+    const hp = finite(first(entity.hp, entity.health), 1);
+    const maxHp = Math.max(1, finite(first(entity.maxHp, entity.maxHealth), 1));
+    ctx.save();
+    ctx.font = "600 10px ui-monospace, SFMono-Regular, Menlo, monospace";
+    ctx.textAlign = "center";
+    ctx.fillStyle = "rgba(0, 0, 0, 0.58)";
+    ctx.fillRect(x - 33, y - 12, 66, 18);
+    ctx.fillStyle = color;
+    ctx.fillText(name.slice(0, 18), x, y - 2);
+    ctx.fillStyle = "rgba(255,255,255,0.12)";
+    ctx.fillRect(x - 29, y + 2, 58, 2);
+    ctx.fillStyle = entity.kind === "enemy" ? "#df4658" : "#54cbbd";
+    ctx.fillRect(x - 29, y + 2, 58 * ratio(hp, maxHp), 2);
+    ctx.restore();
+  }
+
+  function drawProjectile(projectile, time) {
+    const point = worldToScreen(projectile.x, projectile.y, finite(projectile.z, 18));
+    const color = String(first(projectile.color, projectile.team === "enemy" ? "#ef5365" : "#65e1d0"));
+    ctx.save();
+    ctx.translate(point.x, point.y);
+    ctx.fillStyle = color;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 16;
+    ctx.rotate(time * 0.008 + finite(projectile.x));
+    ctx.fillRect(-4, -4, 8, 8);
+    ctx.restore();
+  }
+
+  function drawEffects(time) {
+    state.effects = state.effects.filter((effect) => time - effect.born < effect.duration);
+    for (const effect of state.effects) {
+      const progress = clamp((time - effect.born) / effect.duration, 0, 1);
+      const point = worldToScreen(effect.x, effect.y, 10 + progress * 22);
+      ctx.save();
+      ctx.globalAlpha = 1 - progress;
+      ctx.strokeStyle = effect.color;
+      ctx.lineWidth = 3 * (1 - progress);
+      ctx.beginPath();
+      ctx.ellipse(point.x, point.y + 10, 8 + progress * 30, 4 + progress * 14, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      if (effect.text) {
+        ctx.fillStyle = effect.color;
+        ctx.font = "700 13px ui-monospace, monospace";
+        ctx.textAlign = "center";
+        ctx.fillText(effect.text, point.x, point.y - 13);
+      }
+      ctx.restore();
+    }
+  }
+
+  function drawCursor(time) {
+    if (!state.joined) return;
+    const point = worldToScreen(state.pointer.worldX, state.pointer.worldY);
+    ctx.save();
+    ctx.translate(point.x, point.y);
+    ctx.rotate(time * 0.001);
+    ctx.strokeStyle = state.pointer.down ? "#e75b69" : "rgba(212, 226, 222, 0.55)";
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i < 4; i += 1) {
+      ctx.rotate(Math.PI * 0.5);
+      ctx.beginPath();
+      ctx.moveTo(10, 0);
+      ctx.lineTo(17, 0);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function interpolateEntities(delta) {
+    const factor = 1 - Math.exp(-delta * 0.014);
+    for (const store of [state.players, state.enemies, state.projectiles]) {
+      for (const entity of store.values()) {
+        entity.x += (entity.targetX - entity.x) * factor;
+        entity.y += (entity.targetY - entity.y) * factor;
+      }
+    }
+    const local = localPlayer();
+    const targetX = local?.x ?? state.map.width * 0.5;
+    const targetY = local?.y ?? state.map.height * 0.5;
+    const cameraFactor = 1 - Math.exp(-delta * 0.005);
+    state.camera.x += (targetX - state.camera.x) * cameraFactor;
+    state.camera.y += (targetY - state.camera.y) * cameraFactor;
+  }
+
+  function currentMove() {
+    let screenX = 0;
+    let screenY = 0;
+    if (state.keys.has("KeyA") || state.keys.has("ArrowLeft")) screenX -= 1;
+    if (state.keys.has("KeyD") || state.keys.has("ArrowRight")) screenX += 1;
+    if (state.keys.has("KeyW") || state.keys.has("ArrowUp")) screenY -= 1;
+    if (state.keys.has("KeyS") || state.keys.has("ArrowDown")) screenY += 1;
+    const length = Math.hypot(screenX, screenY) || 1;
+    screenX /= length;
+    screenY /= length;
+    return {
+      x: (screenY + screenX) / Math.SQRT2,
+      y: (screenY - screenX) / Math.SQRT2,
+    };
+  }
+
+  function sendInput(time) {
+    if (!state.joined || time - state.lastInput < 50) return;
+    state.lastInput = time;
+    if (state.pointer.seen) {
+      const aim = screenToWorld(state.pointer.x, state.pointer.y);
+      state.pointer.worldX = clamp(aim.x, 0, state.map.width);
+      state.pointer.worldY = clamp(aim.y, 0, state.map.height);
+    }
+    const move = currentMove();
+    send({
+      type: "input",
+      seq: ++state.inputSeq,
+      move,
+      aim: { x: state.pointer.worldX, y: state.pointer.worldY },
+      primary: state.pointer.down || state.pulses.primary,
+      q: state.pulses.q,
+      e: state.pulses.e,
+    });
+    state.pulses.primary = false;
+    state.pulses.q = false;
+    state.pulses.e = false;
+  }
+
+  function frame(time) {
+    const delta = Math.min(50, time - state.lastFrame);
+    state.lastFrame = time;
+    interpolateEntities(delta);
+    sendInput(time);
+    drawWorld(time);
+    requestAnimationFrame(frame);
+  }
+
+  function triggerAbility(ability) {
+    if (!state.joined) return;
+    const button = ui.abilities.find((item) => item.dataset.ability === ability);
+    if (button?.classList.contains("is-cooling")) return;
+    if (ability === "primary") state.pulses.primary = true;
+    else state.pulses[ability] = true;
+    if (button) {
+      button.classList.remove("is-active");
+      void button.offsetWidth;
+      button.classList.add("is-active");
+      window.setTimeout(() => button.classList.remove("is-active"), 140);
+    }
+  }
+
+  ui.archetypes.forEach((button) => {
+    button.addEventListener("click", () => {
+      state.selectedArchetype = button.dataset.archetype;
+      ui.archetypes.forEach((item) => {
+        const selected = item === button;
+        item.classList.toggle("is-selected", selected);
+        item.setAttribute("aria-checked", String(selected));
+      });
+    });
+  });
+
+  ui.joinForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const name = ui.nameInput.value.trim().replace(/\s+/g, " ");
+    if (name.length < 2) {
+      ui.joinError.textContent = "呼号至少需要 2 个字符";
+      ui.joinError.hidden = false;
+      return;
+    }
+    state.profile = { name: name.slice(0, 16), archetype: state.selectedArchetype };
+    state.pendingJoin = true;
+    ui.joinButton.disabled = true;
+    if (state.connected) sendJoin();
+    else {
+      ui.joinError.textContent = "正在等待中继连接";
+      ui.joinError.hidden = false;
+      if (!state.socket || state.socket.readyState >= WebSocket.CLOSING) connect();
+    }
+  });
+
+  ui.statRows.forEach((row) => {
+    row.querySelector("button").addEventListener("click", () => {
+      send({ type: "allocate", stat: row.dataset.stat });
+    });
+  });
+
+  document.querySelectorAll("[data-upgrade]").forEach((button) => {
+    button.addEventListener("click", () => send({ type: "upgrade", skill: button.dataset.upgrade }));
+  });
+
+  ui.abilities.forEach((button) => {
+    button.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      triggerAbility(button.dataset.ability);
+    });
+  });
+
+  ui.respawnButton.addEventListener("click", () => send({ type: "respawn" }));
+
+  window.addEventListener("keydown", (event) => {
+    if (event.target instanceof HTMLInputElement) return;
+    if (["KeyW", "KeyA", "KeyS", "KeyD", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.code)) {
+      event.preventDefault();
+      state.keys.add(event.code);
+    }
+    if (!event.repeat && event.code === "KeyQ") triggerAbility("q");
+    if (!event.repeat && event.code === "KeyE") triggerAbility("e");
+    if (!event.repeat && event.code === "Space") {
+      event.preventDefault();
+      triggerAbility("primary");
+    }
+  });
+
+  window.addEventListener("keyup", (event) => state.keys.delete(event.code));
+  window.addEventListener("blur", () => {
+    state.keys.clear();
+    state.pointer.down = false;
+  });
+
+  canvas.addEventListener("pointermove", (event) => {
+    const rect = canvas.getBoundingClientRect();
+    state.pointer.x = event.clientX - rect.left;
+    state.pointer.y = event.clientY - rect.top;
+    state.pointer.seen = true;
+    const world = screenToWorld(state.pointer.x, state.pointer.y);
+    state.pointer.worldX = clamp(world.x, 0, state.map.width);
+    state.pointer.worldY = clamp(world.y, 0, state.map.height);
+  });
+
+  canvas.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    canvas.setPointerCapture?.(event.pointerId);
+    state.pointer.down = true;
+    triggerAbility("primary");
+  });
+
+  canvas.addEventListener("pointerup", (event) => {
+    state.pointer.down = false;
+    canvas.releasePointerCapture?.(event.pointerId);
+  });
+  canvas.addEventListener("pointercancel", () => { state.pointer.down = false; });
+  canvas.addEventListener("contextmenu", (event) => event.preventDefault());
+  window.addEventListener("resize", resizeCanvas, { passive: true });
+
+  resizeCanvas();
+  applyProfileToHud();
+  updateQuest();
+  connect();
+  requestAnimationFrame(frame);
+})();

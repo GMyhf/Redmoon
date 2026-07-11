@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 170" role="img" aria-label="Channeler operator">
+  <rect width="220" height="170" fill="#11171c"/>
+  <path fill="#1b282a" d="M0 128 110 72l110 56v42H0z"/>
+  <path fill="none" stroke="#438e89" stroke-width="2" opacity=".35" d="m0 143 110-56 110 56M32 159l78-39 78 39"/>
+  <circle cx="110" cy="75" r="55" fill="#163538" opacity=".7"/>
+  <circle cx="110" cy="67" r="39" fill="none" stroke="#54d3c2" stroke-width="2" stroke-dasharray="5 8"/>
+  <path fill="#182126" d="m91 60 12-21h17l12 21-5 20H96z"/>
+  <path fill="#71c8c0" d="m76 91 26-21h20l27 21-13 68H85z"/>
+  <path fill="#328c88" d="m96 75 14 22 15-22 11 74H85z"/>
+  <path fill="#192227" d="m85 145 20-3 5 28H78zm51 0-20-3-5 28h33z"/>
+  <path fill="#82d7ff" d="M101 56h20v5h-20z"/>
+  <circle cx="111" cy="104" r="9" fill="#182126" stroke="#82d7ff" stroke-width="3"/>
+  <circle cx="111" cy="104" r="3" fill="#eef2ef"/>
+  <path fill="#54d3c2" d="M18 23h5v5h-5zm179 0h5v5h-5z"/>
+  <path fill="none" stroke="#54d3c2" stroke-width="2" opacity=".65" d="M20 25h54m72 0h54"/>
+</svg>

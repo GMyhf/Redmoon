@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 170" role="img" aria-label="Strider operator">
+  <rect width="220" height="170" fill="#11171c"/>
+  <path fill="#282722" d="M0 128 110 72l110 56v42H0z"/>
+  <path fill="#353027" d="m0 137 110-55 110 55v14l-110-54L0 151z"/>
+  <circle cx="110" cy="72" r="54" fill="#44301c" opacity=".48"/>
+  <path fill="#171e23" d="m89 57 15-20 28 10 4 17-13 18-28-7z"/>
+  <path fill="#e95d66" d="m99 57 26 8-3 5-26-7z"/>
+  <path fill="#d49a43" d="m77 88 29-15 23 7 17 24-22 52-42-8z"/>
+  <path fill="#9d6d2f" d="m106 75 18 6-10 69-31-3z"/>
+  <path fill="#1b2227" d="m85 144 19 4-7 22H73zm38 7 17-6 10 25h-25z"/>
+  <path fill="#d94e59" d="m134 73 6-3 28 58-7 3z"/>
+  <path fill="#e8b655" d="m156 117 14 12-7 8-15-12z"/>
+  <path fill="none" stroke="#e7ba5b" stroke-width="2" opacity=".65" d="M20 25h54m72 0h54"/>
+  <path fill="#e24b5c" d="M18 23h5v5h-5zm179 0h5v5h-5z"/>
+</svg>
