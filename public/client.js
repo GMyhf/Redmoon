@@ -106,6 +106,29 @@
 
   const SLOT_LABELS = { weapon: "武器", armor: "护甲", charm: "饰品" };
 
+  // Original pixel-figure looks for each archetype (skin/hair/outfit palettes).
+  const CLASS_LOOKS = {
+    vanguard: {
+      skin: "#e9b98d", hair: "#43302a", torso: "#b6404e", torsoShade: "#8e3140",
+      legs: "#2c3138", accent: "#f0c15e", defaultWeapon: "blade", weaponColor: "#ccd5da",
+    },
+    channeler: {
+      skin: "#ecc79d", hair: "#2b4a46", torso: "#2f7d74", torsoShade: "#25635c",
+      legs: "#233a37", accent: "#83d4ff", robe: true, hood: true,
+      defaultWeapon: "staff", weaponColor: "#69e0cf",
+    },
+    strider: {
+      skin: "#e5b287", hair: "#c9873f", torso: "#a3742f", torsoShade: "#7f5a24",
+      legs: "#3c3830", accent: "#e86969", defaultWeapon: "bow", weaponColor: "#caa25c",
+    },
+  };
+
+  const WEAPON_SHAPES = {
+    "Pulse Edge": "blade",
+    "Starrift Bow": "bow",
+    "Resonant Staff": "staff",
+  };
+
   function rarityInfo(rarity) {
     return RARITY_INFO[String(rarity || "common").toLowerCase()] || RARITY_INFO.common;
   }
@@ -866,8 +889,8 @@
       const centerY = state.map.height * 0.5;
       objects.push(
         { id: "preview", kind: "player", name: "RELAY-07", archetype: state.selectedArchetype, x: centerX, y: centerY, hp: 100, maxHp: 100 },
-        { id: "preview-enemy-1", kind: "enemy", type: "守望体", x: centerX - 115 + Math.cos(orbit) * 18, y: centerY + 72 + Math.sin(orbit) * 18, hp: 62, maxHp: 100 },
-        { id: "preview-enemy-2", kind: "enemy", type: "巡弋体", x: centerX + 122, y: centerY - 104, hp: 100, maxHp: 100 },
+        { id: "preview-enemy-1", kind: "enemy", type: "riftling", name: "Riftling", x: centerX - 115 + Math.cos(orbit) * 18, y: centerY + 72 + Math.sin(orbit) * 18, hp: 62, maxHp: 100 },
+        { id: "preview-enemy-2", kind: "enemy", type: "duskfang", name: "Duskfang", x: centerX + 122, y: centerY - 104, hp: 100, maxHp: 100 },
       );
       objects.sort((a, b) => (a.y + a.x) - (b.y + b.x));
     }
@@ -909,11 +932,41 @@
       ctx.fillRect(point.x - 3, point.y - 46, 6, 44);
     }
     ctx.translate(point.x, point.y - 12 + bob);
-    ctx.rotate(time * 0.002 + finite(drop.x));
-    ctx.fillStyle = info.color;
     ctx.shadowColor = info.color;
-    ctx.shadowBlur = 12;
-    ctx.fillRect(-5, -5, 10, 10);
+    ctx.shadowBlur = 11;
+    if (drop.slot === "weapon") {
+      // Slanted blade with a bright guard.
+      ctx.rotate(-0.6);
+      ctx.fillStyle = info.color;
+      ctx.fillRect(-1.5, -10, 3, 14);
+      ctx.fillStyle = "#e8e2d2";
+      ctx.fillRect(-4, 2, 8, 2);
+      ctx.fillStyle = "#2a2024";
+      ctx.fillRect(-1.5, 4, 3, 4);
+    } else if (drop.slot === "armor") {
+      // Chestpiece silhouette with shoulder notches.
+      ctx.fillStyle = info.color;
+      ctx.fillRect(-7, -6, 14, 11);
+      ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
+      ctx.fillRect(-3, -6, 6, 3);
+      ctx.fillRect(-5, -1, 10, 4);
+    } else {
+      // Amulet: ring on a short chain with a bright core.
+      ctx.strokeStyle = info.color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, -10);
+      ctx.lineTo(0, -5);
+      ctx.stroke();
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(0, 0, 5, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = info.color;
+      ctx.beginPath();
+      ctx.arc(0, 0, 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
     ctx.restore();
   }
 
@@ -950,120 +1003,191 @@
     const key = String(first(player.archetype, player.class, "vanguard")).toLowerCase();
     const archetype = ARCHETYPES[key] || ARCHETYPES.vanguard;
     const isSelf = String(player.id) === String(state.id) || player.id === "preview" || player.self;
-    const bob = Math.sin(time * 0.004 + finite(player.x) * 2) * 1.4;
+    const bob = Math.sin(time * 0.004 + finite(player.x) * 2) * 1.2;
+
+    // Walk cycle driven by how far the interpolated sprite actually moved.
+    const moved = Math.hypot(player.x - (player.lastDrawX ?? player.x), player.y - (player.lastDrawY ?? player.y));
+    player.lastDrawX = player.x;
+    player.lastDrawY = player.y;
+    player.walkPhase = (player.walkPhase || 0) + Math.min(moved, 7) * 0.24;
+    const legSwing = moved > 0.08 ? Math.sin(player.walkPhase) * 3 : 0;
+    const facing = player.facing && Number.isFinite(player.facing.x) ? player.facing : { x: 1, y: 0 };
+    const flip = (facing.x - facing.y) < -0.001;
 
     ctx.save();
     ctx.translate(point.x, point.y);
     ctx.fillStyle = "rgba(0, 0, 0, 0.43)";
     ctx.beginPath();
-    ctx.ellipse(0, 3, 21, 9, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 3, 17, 8, 0, 0, Math.PI * 2);
     ctx.fill();
     if (isSelf) {
       ctx.strokeStyle = "rgba(84, 211, 194, 0.75)";
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.ellipse(0, 2, 25, 11, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 2, 22, 10, 0, 0, Math.PI * 2);
       ctx.stroke();
     }
 
-    ctx.translate(0, bob - 10);
-    if (key === "channeler") drawChanneler(archetype);
-    else if (key === "strider") drawStrider(archetype);
-    else drawVanguard(archetype);
+    ctx.translate(0, bob - 12);
+    if (flip) ctx.scale(-1, 1);
+    drawHumanoid(key, player, legSwing, time);
     ctx.restore();
 
     drawEntityLabel(point.x, point.y - 64 + bob, String(first(player.name, "操作员")), player, isSelf ? archetype.accent : "#d7dddb");
   }
 
-  function drawVanguard(archetype) {
-    ctx.fillStyle = archetype.body;
-    ctx.fillRect(-13, -25, 26, 27);
-    ctx.fillStyle = "#9e3544";
-    ctx.fillRect(-18, -22, 7, 20);
-    ctx.fillRect(11, -22, 7, 20);
-    ctx.fillStyle = "#1a2024";
-    ctx.fillRect(-9, -37, 18, 13);
-    ctx.fillStyle = archetype.accent;
-    ctx.fillRect(-8, -34, 16, 3);
-    ctx.fillStyle = "#20272a";
-    ctx.fillRect(-12, 2, 8, 13);
-    ctx.fillRect(4, 2, 8, 13);
+  function drawHumanoid(key, player, legSwing, time) {
+    const look = CLASS_LOOKS[key] || CLASS_LOOKS.vanguard;
+    const gear = player.equipment && typeof player.equipment === "object" ? player.equipment : {};
+    const weaponShape = gear.weapon
+      ? WEAPON_SHAPES[gear.weapon.name] || look.defaultWeapon
+      : look.defaultWeapon;
+    const weaponColor = gear.weapon ? rarityInfo(gear.weapon.rarity).color : look.weaponColor;
+    const armorColor = gear.armor ? rarityInfo(gear.armor.rarity).color : null;
+
+    // Back arm.
+    ctx.fillStyle = look.skin;
+    ctx.fillRect(-9, -7, 3, 9);
+
+    // Legs and boots, swinging while walking.
+    ctx.fillStyle = look.legs;
+    ctx.fillRect(-6, 3, 4, 11 + legSwing);
+    ctx.fillRect(2, 3, 4, 11 - legSwing);
+    ctx.fillStyle = "#191418";
+    ctx.fillRect(-7, 12 + legSwing, 6, 3);
+    ctx.fillRect(1, 12 - legSwing, 6, 3);
+
+    if (look.robe) {
+      // Long robe over the legs; hem stays above the boots.
+      ctx.fillStyle = look.torso;
+      ctx.beginPath();
+      ctx.moveTo(-7, -8);
+      ctx.lineTo(7, -8);
+      ctx.lineTo(10, 10);
+      ctx.lineTo(-10, 10);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = look.accent;
+      ctx.fillRect(-10, 8, 20, 2);
+    } else {
+      ctx.fillStyle = look.torso;
+      ctx.fillRect(-7, -8, 14, 12);
+      ctx.fillStyle = look.torsoShade;
+      ctx.fillRect(-7, 0, 14, 4);
+      ctx.fillStyle = look.accent;
+      ctx.fillRect(-7, 2, 14, 2);
+    }
+
+    // Equipped armor reads as glowing pauldrons and a chest core.
+    if (armorColor) {
+      ctx.fillStyle = armorColor;
+      ctx.fillRect(-10, -10, 6, 5);
+      ctx.fillRect(4, -10, 6, 5);
+      ctx.fillRect(-2, -6, 4, 3);
+    }
+
+    // Front arm.
+    ctx.fillStyle = look.skin;
+    ctx.fillRect(6, -7, 3, 9);
+
+    // Head, hair or hood, and an eye on the facing side.
+    ctx.fillStyle = look.skin;
+    ctx.fillRect(-4, -19, 9, 9);
+    ctx.fillStyle = look.hair;
+    if (look.hood) {
+      ctx.fillRect(-6, -21, 13, 5);
+      ctx.fillRect(-6, -19, 3, 8);
+      ctx.fillRect(4, -19, 3, 8);
+    } else {
+      ctx.fillRect(-5, -22, 11, 5);
+      ctx.fillRect(-5, -19, 3, 5);
+    }
+    ctx.fillStyle = "#1c1518";
+    ctx.fillRect(2, -15, 2, 2);
+
+    drawHeldWeapon(weaponShape, weaponColor, look.accent);
+
+    // Equipped charm floats behind the shoulder as a glowing mote.
+    if (gear.charm) {
+      const charmColor = rarityInfo(gear.charm.rarity).color;
+      ctx.save();
+      ctx.fillStyle = charmColor;
+      ctx.shadowColor = charmColor;
+      ctx.shadowBlur = 9;
+      ctx.beginPath();
+      ctx.arc(-12, -21 + Math.sin(time * 0.005) * 2, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
   }
 
-  function drawChanneler(archetype) {
-    ctx.fillStyle = archetype.body;
-    ctx.beginPath();
-    ctx.moveTo(0, -28);
-    ctx.lineTo(18, 8);
-    ctx.lineTo(-18, 8);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = "#151d22";
-    ctx.fillRect(-8, -38, 16, 13);
-    ctx.strokeStyle = archetype.accent;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(0, -16, 8, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.fillStyle = archetype.accent;
-    ctx.fillRect(-2, -19, 4, 4);
-  }
-
-  function drawStrider(archetype) {
-    ctx.fillStyle = archetype.body;
-    ctx.beginPath();
-    ctx.moveTo(-12, -27);
-    ctx.lineTo(12, -23);
-    ctx.lineTo(9, 4);
-    ctx.lineTo(-14, 7);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = "#182024";
-    ctx.beginPath();
-    ctx.moveTo(-7, -38);
-    ctx.lineTo(11, -32);
-    ctx.lineTo(6, -23);
-    ctx.lineTo(-10, -27);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = archetype.accent;
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(10, -22);
-    ctx.lineTo(21, 2);
-    ctx.stroke();
-    ctx.fillStyle = "#20272a";
-    ctx.fillRect(-11, 5, 7, 12);
-    ctx.fillRect(4, 3, 7, 12);
+  function drawHeldWeapon(shape, color, accent) {
+    if (shape === "staff") {
+      ctx.fillStyle = "#6b5236";
+      ctx.fillRect(8, -25, 3, 35);
+      ctx.save();
+      ctx.fillStyle = color;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 9;
+      ctx.beginPath();
+      ctx.arc(9.5, -27, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      return;
+    }
+    if (shape === "bow") {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(5, -3, 11, -1.15, 1.15);
+      ctx.stroke();
+      ctx.strokeStyle = "#d8d3c8";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(9.5, -13);
+      ctx.lineTo(9.5, 7);
+      ctx.stroke();
+      ctx.fillStyle = accent;
+      ctx.fillRect(14, -5, 3, 5);
+      return;
+    }
+    // Blade held forward at an angle.
+    ctx.save();
+    ctx.translate(8, -3);
+    ctx.rotate(-0.5);
+    ctx.fillStyle = color;
+    ctx.fillRect(-1.5, -18, 3, 18);
+    ctx.fillStyle = accent;
+    ctx.fillRect(-4, -1, 8, 2);
+    ctx.fillStyle = "#2a2024";
+    ctx.fillRect(-1.5, 1, 3, 5);
+    ctx.restore();
   }
 
   function drawEnemy(enemy, time) {
     const point = worldToScreen(enemy.x, enemy.y);
     if (point.x < -70 || point.x > state.viewWidth + 70 || point.y < -90 || point.y > state.viewHeight + 70) return;
     const pulse = 1 + Math.sin(time * 0.006 + finite(enemy.x)) * 0.04;
+    const species = String(first(enemy.type, "riftling")).toLowerCase();
     ctx.save();
     ctx.translate(point.x, point.y);
     ctx.fillStyle = "rgba(0, 0, 0, 0.48)";
     ctx.beginPath();
-    ctx.ellipse(0, 2, 18, 7, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 2, species.includes("ashwing") ? 11 : 15, 6, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.translate(0, -16);
-    ctx.scale(pulse, pulse);
-    ctx.fillStyle = "#711f30";
-    ctx.beginPath();
-    ctx.moveTo(0, -25);
-    ctx.lineTo(18, -8);
-    ctx.lineTo(13, 11);
-    ctx.lineTo(-13, 11);
-    ctx.lineTo(-18, -8);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = "#dc5261";
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    ctx.fillStyle = "#f2b758";
-    ctx.fillRect(-7, -10, 4, 3);
-    ctx.fillRect(3, -10, 4, 3);
+    if (species.includes("duskfang")) {
+      ctx.translate(0, -9);
+      ctx.scale(pulse, pulse);
+      drawDuskfang(time, enemy);
+    } else if (species.includes("ashwing")) {
+      ctx.translate(0, -26 + Math.sin(time * 0.005 + finite(enemy.x)) * 3);
+      ctx.scale(pulse, pulse);
+      drawAshwing(time);
+    } else {
+      ctx.translate(0, -11);
+      ctx.scale(pulse, pulse);
+      drawRiftling(time, enemy);
+    }
     ctx.restore();
     const rawName = String(first(enemy.name, enemy.type, "裂隙体"));
     const localizedName = /riftling/i.test(rawName)
@@ -1075,6 +1199,114 @@
           : rawName;
     const label = enemy.level > 1 ? `${localizedName} Lv${Math.floor(finite(enemy.level, 1))}` : localizedName;
     drawEntityLabel(point.x, point.y - 54, label, enemy, "#f18a95");
+  }
+
+  function drawRiftling(time, enemy) {
+    // Spiny little rift-creature: round body, crystal spikes, stubby legs.
+    ctx.fillStyle = "#2a1a20";
+    ctx.fillRect(-6, 7, 3, 4);
+    ctx.fillRect(3, 7, 3, 4);
+    ctx.fillStyle = "#711f30";
+    ctx.beginPath();
+    ctx.arc(0, 0, 9, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#dc5261";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.fillStyle = "#dc5261";
+    for (const [sx, sy, w] of [[-8, -4, 4], [-3, -9, 5], [4, -7, 4]]) {
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx + w * 0.5, sy - 6);
+      ctx.lineTo(sx + w, sy);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.fillStyle = "#f2b758";
+    ctx.fillRect(-5, -2, 3, 3);
+    ctx.fillRect(2, -2, 3, 3);
+  }
+
+  function drawDuskfang(time, enemy) {
+    // Low four-legged beast with bared fangs and a whip tail.
+    const trot = Math.sin(time * 0.012 + finite(enemy.x)) * 1.5;
+    ctx.fillStyle = "#231622";
+    ctx.fillRect(-10, 4, 3, 6 + trot);
+    ctx.fillRect(-4, 4, 3, 6 - trot);
+    ctx.fillRect(2, 4, 3, 6 + trot);
+    ctx.fillRect(7, 4, 3, 6 - trot);
+    ctx.strokeStyle = "#6d3a5c";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-12, 1);
+    ctx.quadraticCurveTo(-19, -2, -18, -8);
+    ctx.stroke();
+    ctx.fillStyle = "#452038";
+    ctx.beginPath();
+    ctx.ellipse(-1, 0, 12, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#b04a72";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.fillStyle = "#452038";
+    ctx.beginPath();
+    ctx.arc(11, -3, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#b04a72";
+    ctx.beginPath();
+    ctx.moveTo(8, -8);
+    ctx.lineTo(9.5, -12);
+    ctx.lineTo(11, -8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#efe6da";
+    ctx.beginPath();
+    ctx.moveTo(9, 1);
+    ctx.lineTo(10, 4.5);
+    ctx.lineTo(11, 1);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(12, 1);
+    ctx.lineTo(13, 4.5);
+    ctx.lineTo(14, 1);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#f2b758";
+    ctx.fillRect(11, -5, 3, 2);
+  }
+
+  function drawAshwing(time) {
+    // Hovering ember-eyed creature with flapping ash-grey wings.
+    const flap = Math.sin(time * 0.014) * 5;
+    ctx.fillStyle = "rgba(122, 106, 100, 0.85)";
+    ctx.beginPath();
+    ctx.moveTo(-4, -2);
+    ctx.lineTo(-17, -8 - flap);
+    ctx.lineTo(-14, 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(4, -2);
+    ctx.lineTo(17, -8 - flap);
+    ctx.lineTo(14, 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#5c4f4c";
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 6, 7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#8a7770";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.save();
+    ctx.fillStyle = "#f2a13e";
+    ctx.shadowColor = "#f2a13e";
+    ctx.shadowBlur = 7;
+    ctx.beginPath();
+    ctx.arc(0, -1, 2.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   }
 
   function drawEntityLabel(x, y, name, entity, color) {
