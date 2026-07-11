@@ -117,7 +117,7 @@ export class World {
       attackTarget: null,
       rebirths: 0,
       inventory: [],
-      equipment: { weapon: null, armor: null, charm: null },
+      equipment: Object.fromEntries(ITEM_SLOTS.map((slot) => [slot, null])),
       gearStats: zeroStats(),
       gearMods: { damage: 0, maxHp: 0, speed: 0 },
       level: 1,
@@ -191,6 +191,8 @@ export class World {
         return this.rebirthPlayer(id);
       case "equip":
         return this.equipItem(id, message.item);
+      case "unequip":
+        return this.unequipItem(id, message.slot);
       case "discard":
         return this.discardItem(id, message.item);
       default:
@@ -348,7 +350,14 @@ export class World {
       throw new WorldError("INVALID_ITEM", "That item is not in the inventory.");
     }
 
-    const item = player.inventory.splice(index, 1)[0];
+    const item = player.inventory[index];
+    if (player.level < (item.level ?? 1)) {
+      throw new WorldError(
+        "ITEM_LEVEL_TOO_HIGH",
+        `This item requires level ${item.level}.`,
+      );
+    }
+    player.inventory.splice(index, 1);
     const previous = player.equipment[item.slot];
     player.equipment[item.slot] = item;
     if (previous) player.inventory.push(previous);
@@ -361,6 +370,26 @@ export class World {
       rarity: item.rarity,
       slot: item.slot,
     });
+    return player;
+  }
+
+  unequipItem(id, slot) {
+    const player = this._requirePlayer(id);
+    if (!ITEM_SLOTS.includes(slot)) {
+      throw new WorldError("INVALID_SLOT", `slot must be one of: ${ITEM_SLOTS.join(", ")}`);
+    }
+    const item = player.equipment[slot];
+    if (!item) {
+      throw new WorldError("INVALID_ITEM", "Nothing is equipped in that slot.");
+    }
+    if (player.inventory.length >= INVENTORY_LIMIT) {
+      throw new WorldError("INVENTORY_FULL", "The inventory is full.");
+    }
+    player.equipment[slot] = null;
+    player.inventory.push(item);
+    this._refreshGear(player);
+    this._refreshDerivedStats(player, true);
+    this._emit("itemUnequipped", { playerId: id, itemId: item.id, name: item.name, slot });
     return player;
   }
 
@@ -1034,12 +1063,23 @@ export class World {
       slot,
       rarity: rarity.id,
       tier: rarity.tier,
+      level: Math.max(1, level + rarity.tier - 1),
       name,
       bonuses,
     };
     if (slot === "weapon") item.damageBonus = rarity.tier * 0.06;
+    if (slot === "necklace") item.damageBonus = rarity.tier * 0.03;
+    if (slot === "ring") {
+      item.damageBonus = rarity.tier * 0.02;
+      item.hpBonus = rarity.tier * 4;
+    }
     if (slot === "armor") item.hpBonus = rarity.tier * 14;
-    if (slot === "charm") item.speedBonus = rarity.tier * 7;
+    if (slot === "helm") item.hpBonus = rarity.tier * 8;
+    if (slot === "boots") item.speedBonus = rarity.tier * 7;
+    if (slot === "charm") {
+      item.speedBonus = rarity.tier * 3;
+      item.hpBonus = rarity.tier * 5;
+    }
     return item;
   }
 
@@ -1093,6 +1133,7 @@ function serializeItem(item) {
     slot: item.slot,
     rarity: item.rarity,
     tier: item.tier,
+    level: item.level ?? 1,
     name: item.name,
     bonuses: { ...item.bonuses },
     ...(item.damageBonus !== undefined ? { damageBonus: item.damageBonus } : {}),

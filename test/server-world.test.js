@@ -261,6 +261,50 @@ test("equipping gear raises combat power and swaps the old piece back to the bag
   );
 });
 
+test("gear slots cover the whole body and items can be unequipped", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
+  const player = world.addPlayer("player-1", { archetype: "strider" });
+  assert.deepEqual(
+    Object.keys(player.equipment).sort(),
+    ["armor", "boots", "charm", "helm", "necklace", "ring", "weapon"],
+  );
+
+  const boots = world.giveItem("player-1", {
+    slot: "boots",
+    bonuses: { power: 0, agility: 2, spirit: 0, vitality: 0 },
+    speedBonus: 14,
+  });
+  world.handleCommand("player-1", { type: "equip", item: boots.id });
+  assert.equal(player.equipment.boots.id, boots.id);
+  assert.equal(player.gearMods.speed, 14);
+  assert.equal(player.gearStats.agility, 2);
+
+  world.handleCommand("player-1", { type: "unequip", slot: "boots" });
+  assert.equal(player.equipment.boots, null);
+  assert.equal(player.gearMods.speed, 0);
+  assert.deepEqual(player.inventory.map((item) => item.id), [boots.id]);
+  assert.throws(
+    () => world.handleCommand("player-1", { type: "unequip", slot: "boots" }),
+    (error) => error instanceof WorldError && error.code === "INVALID_ITEM",
+  );
+});
+
+test("items carry a level requirement that gates equipping", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
+  const player = world.addPlayer("player-1", { archetype: "vanguard" });
+  const relic = world.giveItem("player-1", { slot: "helm", level: 5 });
+
+  assert.throws(
+    () => world.handleCommand("player-1", { type: "equip", item: relic.id }),
+    (error) => error instanceof WorldError && error.code === "ITEM_LEVEL_TOO_HIGH",
+  );
+
+  world._grantXp(player, 2_000);
+  assert.ok(player.level >= 5);
+  world.handleCommand("player-1", { type: "equip", item: relic.id });
+  assert.equal(player.equipment.helm.id, relic.id);
+});
+
 test("the town safe zone blocks enemy damage and keeps mobs from advancing", () => {
   const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
   const player = world.addPlayer("player-1", { archetype: "channeler" });

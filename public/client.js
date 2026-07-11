@@ -46,7 +46,7 @@
     respawnButton: document.querySelector("#respawn-button"),
     rebirthButton: document.querySelector("#rebirth-button"),
     bagCount: document.querySelector("#bag-count"),
-    equipmentList: document.querySelector("#equipment-list"),
+    equipmentDoll: document.querySelector("#equipment-doll"),
     inventoryList: document.querySelector("#inventory-list"),
     abilities: [...document.querySelectorAll(".ability")],
   };
@@ -99,12 +99,32 @@
     "Weave Plate": "织钢甲",
     "Phase Guard": "相位护盾",
     "Moonthread Robe": "月纹罩袍",
+    "Ridge Helm": "棱脊盔",
+    "Duskwatch Hood": "暮哨兜帽",
+    "Lunar Circlet": "月环冠",
+    "Signal Torque": "信标项环",
+    "Emberbead Chain": "烬珠链",
+    "Tidebound Pendant": "潮缚坠",
+    "Orbit Band": "轨环戒",
+    "Rift Seal": "裂隙印戒",
+    "Dawnspark Ring": "晨火戒",
+    "Skimmer Boots": "掠地靴",
+    "Duneswift Greaves": "沙迅胫甲",
+    "Nightpath Treads": "夜路靴",
     "Crimson Locket": "赤月坠饰",
-    "Echo Ring": "回响指环",
+    "Echo Halo": "回响光环",
     "Stardust Sigil": "星屑护符",
   };
 
-  const SLOT_LABELS = { weapon: "武器", armor: "护甲", charm: "饰品" };
+  const SLOT_LABELS = {
+    weapon: "武器",
+    armor: "护甲",
+    helm: "头盔",
+    necklace: "项链",
+    ring: "戒指",
+    boots: "靴子",
+    charm: "饰品",
+  };
 
   // Original pixel-figure looks for each archetype (skin/hair/outfit palettes).
   const CLASS_LOOKS = {
@@ -119,7 +139,8 @@
     },
     strider: {
       skin: "#e5b287", hair: "#c9873f", torso: "#a3742f", torsoShade: "#7f5a24",
-      legs: "#3c3830", accent: "#e86969", defaultWeapon: "bow", weaponColor: "#caa25c",
+      legs: "#3c3830", accent: "#e86969", ponytail: true,
+      defaultWeapon: "bow", weaponColor: "#caa25c",
     },
   };
 
@@ -138,7 +159,7 @@
     return `${rarityInfo(item.rarity).prefix}${base}`;
   }
 
-  function itemTooltip(item) {
+  function itemStatLines(item) {
     const parts = [];
     const bonuses = item.bonuses && typeof item.bonuses === "object" ? item.bonuses : {};
     for (const [key, label] of Object.entries(STAT_LABELS)) {
@@ -148,7 +169,34 @@
     if (finite(item.damageBonus, 0) > 0) parts.push(`伤害+${Math.round(item.damageBonus * 100)}%`);
     if (finite(item.hpBonus, 0) > 0) parts.push(`生命+${item.hpBonus}`);
     if (finite(item.speedBonus, 0) > 0) parts.push(`移速+${item.speedBonus}`);
-    return parts.join(" ") || "无加成";
+    return parts;
+  }
+
+  // Rough single-number power score so good and bad drops are easy to compare.
+  function itemScore(item) {
+    const bonuses = item.bonuses && typeof item.bonuses === "object" ? item.bonuses : {};
+    let score = 0;
+    for (const key of Object.keys(STAT_LABELS)) score += finite(bonuses[key], 0) * 10;
+    score += finite(item.damageBonus, 0) * 400;
+    score += finite(item.hpBonus, 0);
+    score += finite(item.speedBonus, 0);
+    return Math.round(score);
+  }
+
+  function itemTooltip(item, equipped) {
+    const lines = [
+      `${itemLabel(item)} // ${SLOT_LABELS[item.slot] || item.slot} · ${rarityInfo(item.rarity).label} · 需要等级 ${Math.max(1, finite(item.level, 1))}`,
+      itemStatLines(item).join(" ") || "无加成",
+      `强度评分 ${itemScore(item)}`,
+    ];
+    if (equipped && equipped.id !== item.id) {
+      const delta = itemScore(item) - itemScore(equipped);
+      const arrow = delta > 0 ? `↑ 提升 ${delta}` : delta < 0 ? `↓ 降低 ${-delta}` : "≈ 持平";
+      lines.push(`对比已装备 ${itemLabel(equipped)}：${arrow}`);
+    } else if (!equipped) {
+      lines.push("该部位为空，装备即生效");
+    }
+    return lines.join("\n");
   }
 
   const state = {
@@ -429,11 +477,16 @@
     ui.xpFill.style.width = `${ratio(xp, xpMax) * 100}%`;
 
     const stats = player.stats && typeof player.stats === "object" ? player.stats : player.attributes || {};
+    const gearStats = player.gearStats && typeof player.gearStats === "object" ? player.gearStats : {};
     const statPoints = Math.max(0, Math.floor(finite(first(player.statPoints, player.attributePoints, player.points), 0)));
     ui.statPoints.textContent = `${statPoints} 点`;
     for (const row of ui.statRows) {
       const key = row.dataset.stat;
-      row.querySelector(".stat-value").textContent = Math.floor(finite(stats[key], 0));
+      const base = Math.floor(finite(stats[key], 0));
+      const bonus = Math.floor(finite(gearStats[key], 0));
+      row.querySelector(".stat-value").innerHTML = bonus > 0
+        ? `${base}<i class="stat-bonus">+${bonus}</i>`
+        : String(base);
       row.querySelector(".allocate-button").disabled = statPoints < 1;
     }
 
@@ -460,43 +513,61 @@
   }
 
   function updateGear(player) {
-    if (!ui.equipmentList || !ui.inventoryList) return;
+    if (!ui.equipmentDoll || !ui.inventoryList) return;
     const equipment = player.equipment && typeof player.equipment === "object" ? player.equipment : {};
     const inventory = Array.isArray(player.inventory) ? player.inventory : [];
     const signature = JSON.stringify([
-      Object.entries(SLOT_LABELS).map(([slot]) => equipment[slot]?.id ?? null),
+      Object.keys(SLOT_LABELS).map((slot) => equipment[slot]?.id ?? null),
       inventory.map((item) => item.id),
     ]);
     if (signature === state.gearSignature) return;
     state.gearSignature = signature;
 
-    ui.bagCount.textContent = `${inventory.length}/12`;
-    ui.equipmentList.replaceChildren(...Object.entries(SLOT_LABELS).map(([slot, label]) => {
-      const row = document.createElement("div");
-      row.className = "gear-row";
+    ui.bagCount.textContent = `${inventory.length}/24`;
+
+    // Paper-doll: one box per body slot arranged around a figure silhouette.
+    ui.equipmentDoll.replaceChildren(...Object.entries(SLOT_LABELS).map(([slot, label]) => {
+      const box = document.createElement("button");
+      box.type = "button";
+      box.className = `slot-box slot-${slot}`;
       const item = equipment[slot];
-      const name = document.createElement("b");
       if (item) {
-        name.textContent = itemLabel(item);
-        name.style.color = rarityInfo(item.rarity).color;
-        row.title = itemTooltip(item);
+        const info = rarityInfo(item.rarity);
+        box.classList.add("is-filled");
+        box.style.borderColor = info.color;
+        box.style.boxShadow = `0 0 7px ${info.color}55 inset`;
+        box.title = `${itemTooltip(item)}\n点击卸下`;
+        box.dataset.action = "unequip";
+        box.dataset.slot = slot;
+        const name = document.createElement("b");
+        name.textContent = itemLabel(item).slice(0, 4);
+        name.style.color = info.color;
+        const level = document.createElement("i");
+        level.textContent = `L${Math.max(1, finite(item.level, 1))}`;
+        box.append(name, level);
       } else {
-        name.textContent = "—";
-        name.style.color = "rgba(255,255,255,0.28)";
+        box.disabled = true;
+        box.title = `${label}（空）`;
+        const empty = document.createElement("span");
+        empty.textContent = label;
+        box.append(empty);
       }
-      const slotLabel = document.createElement("span");
-      slotLabel.textContent = label;
-      row.append(slotLabel, name);
-      return row;
+      return box;
     }));
 
     ui.inventoryList.replaceChildren(...inventory.map((item) => {
       const row = document.createElement("div");
       row.className = "gear-row";
-      row.title = itemTooltip(item);
+      const equipped = equipment[item.slot];
+      row.title = itemTooltip(item, equipped);
+      const delta = equipped ? itemScore(item) - itemScore(equipped) : itemScore(item);
       const name = document.createElement("b");
-      name.textContent = itemLabel(item);
+      name.textContent = `${itemLabel(item)} L${Math.max(1, finite(item.level, 1))}`;
       name.style.color = rarityInfo(item.rarity).color;
+      const trend = document.createElement("span");
+      trend.className = "gear-trend";
+      trend.textContent = delta > 0 ? "↑" : delta < 0 ? "↓" : "＝";
+      trend.style.color = delta > 0 ? "#79d99b" : delta < 0 ? "#e0596d" : "rgba(255,255,255,0.35)";
       const equipButton = document.createElement("button");
       equipButton.type = "button";
       equipButton.textContent = "装";
@@ -509,7 +580,7 @@
       discardButton.title = "丢弃";
       discardButton.dataset.action = "discard";
       discardButton.dataset.item = String(item.id);
-      row.append(name, equipButton, discardButton);
+      row.append(name, trend, equipButton, discardButton);
       return row;
     }));
   }
@@ -586,6 +657,10 @@
       pushEvent(`已装备 ${itemLabel(event)}`);
       return;
     }
+    if (eventName === "itemunequipped") {
+      pushEvent(`已卸下 ${ITEM_NAMES[event.name] || event.name}`);
+      return;
+    }
     const text = String(first(event.message, messages[eventName], "中继信号已更新"));
     pushEvent(text, eventName === "playerdefeated" || eventName.includes("death") || eventName.includes("error"));
 
@@ -616,7 +691,9 @@
       REBIRTH_LEVEL_TOO_LOW: "等级不足，无法转生",
       PLAYER_DEAD: "阵亡状态下无法执行该操作",
       INVALID_ITEM: "背包中没有该装备",
+      INVALID_SLOT: "无效的装备部位",
       INVENTORY_FULL: "背包已满",
+      ITEM_LEVEL_TOO_HIGH: "等级不足，无法穿戴该装备",
     };
     const message = String(first(translated[error.code], error.message, error.error, "中继请求失败"));
     pushEvent(message, true);
@@ -1029,11 +1106,11 @@
     }
 
     ctx.translate(0, bob - 12);
-    if (flip) ctx.scale(-1, 1);
+    ctx.scale(flip ? -1.25 : 1.25, 1.25);
     drawHumanoid(key, player, legSwing, time);
     ctx.restore();
 
-    drawEntityLabel(point.x, point.y - 64 + bob, String(first(player.name, "操作员")), player, isSelf ? archetype.accent : "#d7dddb");
+    drawEntityLabel(point.x, point.y - 72 + bob, String(first(player.name, "操作员")), player, isSelf ? archetype.accent : "#d7dddb");
   }
 
   function drawHumanoid(key, player, legSwing, time) {
@@ -1049,11 +1126,11 @@
     ctx.fillStyle = look.skin;
     ctx.fillRect(-9, -7, 3, 9);
 
-    // Legs and boots, swinging while walking.
+    // Legs and boots, swinging while walking; equipped boots take the rarity color.
     ctx.fillStyle = look.legs;
     ctx.fillRect(-6, 3, 4, 11 + legSwing);
     ctx.fillRect(2, 3, 4, 11 - legSwing);
-    ctx.fillStyle = "#191418";
+    ctx.fillStyle = gear.boots ? rarityInfo(gear.boots.rarity).color : "#191418";
     ctx.fillRect(-7, 12 + legSwing, 6, 3);
     ctx.fillRect(1, 12 - legSwing, 6, 3);
 
@@ -1098,12 +1175,39 @@
       ctx.fillRect(-6, -21, 13, 5);
       ctx.fillRect(-6, -19, 3, 8);
       ctx.fillRect(4, -19, 3, 8);
+    } else if (look.ponytail) {
+      ctx.fillRect(-5, -22, 11, 5);
+      ctx.fillRect(-5, -19, 3, 4);
+      ctx.fillRect(-8, -20, 3, 9);
     } else {
       ctx.fillRect(-5, -22, 11, 5);
       ctx.fillRect(-5, -19, 3, 5);
+      ctx.fillRect(-2, -24, 3, 3);
+      ctx.fillRect(2, -23, 3, 2);
     }
     ctx.fillStyle = "#1c1518";
     ctx.fillRect(2, -15, 2, 2);
+    ctx.fillStyle = "#d98a70";
+    ctx.fillRect(2, -12, 2, 1);
+
+    // Equipped helm sits over the hair as a banded cap.
+    if (gear.helm) {
+      const helmColor = rarityInfo(gear.helm.rarity).color;
+      ctx.fillStyle = "#3a3440";
+      ctx.fillRect(-6, -23, 13, 5);
+      ctx.fillStyle = helmColor;
+      ctx.fillRect(-6, -20, 13, 2);
+    }
+    // Necklace: pendant at the collar.
+    if (gear.necklace) {
+      ctx.fillStyle = rarityInfo(gear.necklace.rarity).color;
+      ctx.fillRect(-1, -9, 3, 3);
+    }
+    // Ring: a glint on the front hand.
+    if (gear.ring) {
+      ctx.fillStyle = rarityInfo(gear.ring.rarity).color;
+      ctx.fillRect(6.5, -1, 2, 2);
+    }
 
     drawHeldWeapon(weaponShape, weaponColor, look.accent);
 
@@ -1516,6 +1620,11 @@
     const button = event.target.closest("button[data-item]");
     if (!button) return;
     send({ type: button.dataset.action, item: button.dataset.item });
+  });
+  ui.equipmentDoll?.addEventListener("click", (event) => {
+    const box = event.target.closest("button[data-slot]");
+    if (!box) return;
+    send({ type: "unequip", slot: box.dataset.slot });
   });
 
   window.addEventListener("keydown", (event) => {
