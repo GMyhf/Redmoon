@@ -787,9 +787,10 @@ button {
   padding: 6px 4px 8px;
   display: grid;
   grid-template-areas:
-    ".      helm     necklace"
-    "weapon armor    ring"
-    "charm  boots    .";
+    "helm   necklace ring1"
+    "weapon chest    ring2"
+    "shield belt     ring3"
+    "gloves pants    boots";
   grid-template-columns: repeat(3, 1fr);
   gap: 5px;
   border-bottom: 1px solid var(--line);
@@ -839,12 +840,17 @@ button {
 }
 
 .slot-weapon { grid-area: weapon; }
-.slot-armor { grid-area: armor; }
+.slot-shield { grid-area: shield; }
 .slot-helm { grid-area: helm; }
 .slot-necklace { grid-area: necklace; }
-.slot-ring { grid-area: ring; }
+.slot-chest { grid-area: chest; }
+.slot-belt { grid-area: belt; }
+.slot-gloves { grid-area: gloves; }
+.slot-pants { grid-area: pants; }
 .slot-boots { grid-area: boots; }
-.slot-charm { grid-area: charm; }
+.slot-ring1 { grid-area: ring1; }
+.slot-ring2 { grid-area: ring2; }
+.slot-ring3 { grid-area: ring3; }
 
 .inventory-list {
   margin-top: 6px;

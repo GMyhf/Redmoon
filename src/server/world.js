@@ -6,13 +6,18 @@ import {
   DROP_MAGNET_SPEED,
   DROP_PICKUP_RADIUS,
   DROP_TTL,
+  EQUIP_KEYS,
   INVENTORY_LIMIT,
   ITEM_BASES,
   ITEM_SLOTS,
+  LEVEL_CAP,
   MOB_TYPES,
   PORTAL_DESTINATIONS,
   RARITIES,
+  RELIC_JEWELRY,
+  RELIC_WEAPONS,
   REPUTATION_LIMIT,
+  RING_KEYS,
   SOUL_BARRIER,
   ZONES,
   REBIRTH_DAMAGE_BONUS,
@@ -166,9 +171,10 @@ export class World {
       portalDwell: null,
       rebirths: 0,
       inventory: [],
-      equipment: Object.fromEntries(ITEM_SLOTS.map((slot) => [slot, null])),
+      equipment: Object.fromEntries(EQUIP_KEYS.map((key) => [key, null])),
       gearStats: zeroStats(),
-      gearMods: { damage: 0, maxHp: 0, speed: 0 },
+      gearMods: { damage: 0, maxHp: 0, speed: 0, defense: 0 },
+      gearAttacks: [],
       level: 1,
       xp: 0,
       xpToNext: xpRequiredForLevel(1),
@@ -424,9 +430,11 @@ export class World {
         `This item requires level ${item.level}.`,
       );
     }
+    // Rings fill any of the three ring keys, displacing the weakest.
+    const key = item.slot === "ring" ? this._ringKeyFor(player) : item.slot;
     player.inventory.splice(index, 1);
-    const previous = player.equipment[item.slot];
-    player.equipment[item.slot] = item;
+    const previous = player.equipment[key];
+    player.equipment[key] = item;
     if (previous) player.inventory.push(previous);
     this._refreshGear(player);
     this._refreshDerivedStats(player, true);
@@ -435,28 +443,36 @@ export class World {
       itemId: item.id,
       name: item.name,
       rarity: item.rarity,
-      slot: item.slot,
+      slot: key,
     });
     return player;
   }
 
-  unequipItem(id, slot) {
+  _ringKeyFor(player) {
+    const empty = RING_KEYS.find((key) => !player.equipment[key]);
+    if (empty) return empty;
+    return RING_KEYS.reduce((worst, key) =>
+      itemPower(player.equipment[key]) < itemPower(player.equipment[worst]) ? key : worst,
+    RING_KEYS[0]);
+  }
+
+  unequipItem(id, key) {
     const player = this._requirePlayer(id);
-    if (!ITEM_SLOTS.includes(slot)) {
-      throw new WorldError("INVALID_SLOT", `slot must be one of: ${ITEM_SLOTS.join(", ")}`);
+    if (!EQUIP_KEYS.includes(key)) {
+      throw new WorldError("INVALID_SLOT", `slot must be one of: ${EQUIP_KEYS.join(", ")}`);
     }
-    const item = player.equipment[slot];
+    const item = player.equipment[key];
     if (!item) {
       throw new WorldError("INVALID_ITEM", "Nothing is equipped in that slot.");
     }
     if (player.inventory.length >= INVENTORY_LIMIT) {
       throw new WorldError("INVENTORY_FULL", "The inventory is full.");
     }
-    player.equipment[slot] = null;
+    player.equipment[key] = null;
     player.inventory.push(item);
     this._refreshGear(player);
     this._refreshDerivedStats(player, true);
-    this._emit("itemUnequipped", { playerId: id, itemId: item.id, name: item.name, slot });
+    this._emit("itemUnequipped", { playerId: id, itemId: item.id, name: item.name, slot: key });
     return player;
   }
 
@@ -538,17 +554,22 @@ export class World {
     }
     let changed = 0;
     for (const slot of ITEM_SLOTS) {
-      let best = null;
-      for (const item of player.inventory) {
-        if (item.slot !== slot) continue;
-        if (player.level < (item.level ?? 1)) continue;
-        if (!best || itemPower(item) > itemPower(best)) best = item;
+      // Rings get up to three passes: best-of-bag into each weaker key.
+      const passes = slot === "ring" ? RING_KEYS.length : 1;
+      for (let pass = 0; pass < passes; pass += 1) {
+        let best = null;
+        for (const item of player.inventory) {
+          if (item.slot !== slot) continue;
+          if (player.level < (item.level ?? 1)) continue;
+          if (!best || itemPower(item) > itemPower(best)) best = item;
+        }
+        if (!best) break;
+        const key = slot === "ring" ? this._ringKeyFor(player) : slot;
+        const current = player.equipment[key];
+        if (current && itemPower(best) <= itemPower(current)) break;
+        this.equipItem(id, best.id);
+        changed += 1;
       }
-      if (!best) continue;
-      const current = player.equipment[slot];
-      if (current && itemPower(best) <= itemPower(current)) continue;
-      this.equipItem(id, best.id);
-      changed += 1;
     }
     if (changed > 0) {
       this._emit("autoEquipped", { playerId: id, changed });
@@ -1264,7 +1285,7 @@ export class World {
       vx: unit.x * speed,
       vy: unit.y * speed,
       radius: options.radius ?? 6,
-      damage: options.damage
+      damage: (options.damage + this._gearAttackFlat(player))
         * (1 + player.rebirths * REBIRTH_DAMAGE_BONUS)
         * (1 + player.gearMods.damage),
       ttl,
@@ -1274,6 +1295,21 @@ export class World {
     };
     this.projectiles.set(id, projectile);
     return projectile;
+  }
+
+  // Flat damage from relic formulas: level × stat ÷ divisor (× multiplier).
+  // A divisor pair rolls between the two ends per shot.
+  _gearAttackFlat(player) {
+    let flat = 0;
+    for (const formula of player.gearAttacks ?? []) {
+      const stat = this._statTotal(player, formula.stat);
+      let divisor = formula.divisor;
+      if (formula.maxDivisor) {
+        divisor = formula.maxDivisor + this.rng() * (formula.divisor - formula.maxDivisor);
+      }
+      flat += (player.level * stat / divisor) * (formula.multiplier ?? 1);
+    }
+    return flat;
   }
 
   _radialBurst(player, count, options) {
@@ -1331,7 +1367,10 @@ export class World {
   _damagePlayer(player, damage, sourceId) {
     if (!player.alive) return;
     if (this._inSafeZone(player)) return;
-    const mitigation = Math.min(0.38, this._statTotal(player, "vitality") * 0.018);
+    const mitigation = Math.min(
+      0.8,
+      Math.min(0.38, this._statTotal(player, "vitality") * 0.018) + (player.gearMods.defense ?? 0),
+    );
     let final = Math.max(1, damage * (1 - mitigation));
 
     // Soul Barrier: pay part of the hit from MP at the configured price.
@@ -1362,9 +1401,10 @@ export class World {
   }
 
   _grantXp(player, amount) {
+    if (player.level >= LEVEL_CAP) return;
     player.xp += amount;
     let gainedLevels = 0;
-    while (player.xp >= player.xpToNext) {
+    while (player.xp >= player.xpToNext && player.level < LEVEL_CAP) {
       player.xp -= player.xpToNext;
       player.level += 1;
       gainedLevels += 1;
@@ -1471,9 +1511,9 @@ export class World {
       gearStats: { ...player.gearStats },
       statPoints: player.statPoints,
       equipment: Object.fromEntries(
-        ITEM_SLOTS.map((slot) => [
-          slot,
-          player.equipment[slot] ? serializeItem(player.equipment[slot]) : null,
+        EQUIP_KEYS.map((key) => [
+          key,
+          player.equipment[key] ? serializeItem(player.equipment[key]) : null,
         ]),
       ),
       inventory: player.inventory.map(serializeItem),
@@ -1622,6 +1662,10 @@ export class World {
         item,
       );
     }
+    // Strong bosses may leave behind a relic.
+    if (this.rng() < 0.15 + mob.level * 0.01) {
+      this._placeDrop(mob.x, mob.y - 30, this._rollRelic(mob.level));
+    }
     this._placeDrop(mob.x, mob.y + 30, this._rollPotion(mob.level));
   }
 
@@ -1700,28 +1744,72 @@ export class World {
       item.damageBonus = round(rarity.tier * 0.015 + itemLevel * 0.0015);
       item.hpBonus = Math.round(rarity.tier * 3 + itemLevel * 1.5);
     }
-    if (slot === "armor") item.hpBonus = Math.round(rarity.tier * 10 + itemLevel * 4);
-    if (slot === "helm") item.hpBonus = Math.round(rarity.tier * 6 + itemLevel * 2.5);
-    if (slot === "boots") item.speedBonus = Math.round(rarity.tier * 5 + itemLevel);
-    if (slot === "charm") {
-      item.speedBonus = Math.round(rarity.tier * 2 + itemLevel * 0.5);
-      item.hpBonus = Math.round(rarity.tier * 4 + itemLevel * 2);
+    if (slot === "shield") {
+      item.defenseBonus = round(rarity.tier * 0.02 + itemLevel * 0.002);
+      item.hpBonus = Math.round(rarity.tier * 5 + itemLevel * 2);
     }
+    if (slot === "chest") item.hpBonus = Math.round(rarity.tier * 10 + itemLevel * 4);
+    if (slot === "helm") item.hpBonus = Math.round(rarity.tier * 6 + itemLevel * 2.5);
+    if (slot === "belt") item.hpBonus = Math.round(rarity.tier * 4 + itemLevel * 2);
+    if (slot === "gloves") item.damageBonus = round(rarity.tier * 0.02 + itemLevel * 0.002);
+    if (slot === "pants") item.hpBonus = Math.round(rarity.tier * 5 + itemLevel * 3);
+    if (slot === "boots") item.speedBonus = Math.round(rarity.tier * 5 + itemLevel);
     return item;
+  }
+
+  // Relic drops: legendary weapons whose strike scales with the wearer's
+  // level and attributes, and jewellery with massive stat bundles.
+  _rollRelic(bossLevel) {
+    const wantJewelry = this.rng() < 0.3;
+    if (wantJewelry) {
+      const template = RELIC_JEWELRY[Math.floor(clamp(this.rng(), 0, 0.999999) * RELIC_JEWELRY.length)];
+      return {
+        id: `item-${++this._itemSequence}`,
+        slot: template.slot,
+        rarity: "relic",
+        tier: 5,
+        level: Math.max(10, bossLevel),
+        name: template.name,
+        bonuses: { ...zeroStats(), ...(template.bonuses ?? {}) },
+        defenseBonus: template.defense,
+        ...(template.attack ? { attackFormula: { ...template.attack } } : {}),
+      };
+    }
+    const template = RELIC_WEAPONS[Math.floor(clamp(this.rng(), 0, 0.999999) * RELIC_WEAPONS.length)];
+    return {
+      id: `item-${++this._itemSequence}`,
+      slot: "weapon",
+      rarity: "relic",
+      tier: 5,
+      level: Math.max(10, bossLevel),
+      name: template.name,
+      bonuses: zeroStats(),
+      defenseBonus: template.defense,
+      attackFormula: {
+        stat: template.stat,
+        divisor: template.divisor,
+        ...(template.maxDivisor ? { maxDivisor: template.maxDivisor } : {}),
+        ...(template.multiplier ? { multiplier: template.multiplier } : {}),
+      },
+    };
   }
 
   _refreshGear(player) {
     const gearStats = zeroStats();
-    const mods = { damage: 0, maxHp: 0, speed: 0 };
+    const mods = { damage: 0, maxHp: 0, speed: 0, defense: 0 };
+    const attacks = [];
     for (const item of Object.values(player.equipment)) {
       if (!item) continue;
       for (const key of STAT_KEYS) gearStats[key] += item.bonuses?.[key] ?? 0;
       mods.damage += item.damageBonus ?? 0;
       mods.maxHp += item.hpBonus ?? 0;
       mods.speed += item.speedBonus ?? 0;
+      mods.defense += item.defenseBonus ?? 0;
+      if (item.attackFormula) attacks.push(item.attackFormula);
     }
     player.gearStats = gearStats;
     player.gearMods = mods;
+    player.gearAttacks = attacks;
   }
 
   _statTotal(player, key) {
@@ -1856,6 +1944,8 @@ function itemPower(item) {
   score += (item.damageBonus ?? 0) * 400;
   score += item.hpBonus ?? 0;
   score += item.speedBonus ?? 0;
+  score += (item.defenseBonus ?? 0) * 600;
+  if (item.attackFormula) score += 300;
   return score;
 }
 
@@ -1871,6 +1961,8 @@ function serializeItem(item) {
     ...(item.damageBonus !== undefined ? { damageBonus: item.damageBonus } : {}),
     ...(item.hpBonus !== undefined ? { hpBonus: item.hpBonus } : {}),
     ...(item.speedBonus !== undefined ? { speedBonus: item.speedBonus } : {}),
+    ...(item.defenseBonus !== undefined ? { defenseBonus: item.defenseBonus } : {}),
+    ...(item.attackFormula !== undefined ? { attackFormula: { ...item.attackFormula } } : {}),
     ...(item.heal !== undefined ? { heal: item.heal } : {}),
   };
 }

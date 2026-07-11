@@ -23,15 +23,38 @@ export const MOB_TYPES = Object.freeze([
   Object.freeze({ type: "voidmaw", name: "Voidmaw", hpMul: 2.6, xpMul: 3.2, size: 12, speedMul: 0.8 }),
 ]);
 
+// Item slot types; rings occupy three interchangeable equip keys.
 export const ITEM_SLOTS = Object.freeze([
   "weapon",
-  "armor",
+  "shield",
   "helm",
   "necklace",
-  "ring",
+  "chest",
+  "belt",
+  "gloves",
+  "pants",
   "boots",
-  "charm",
+  "ring",
 ]);
+
+export const EQUIP_KEYS = Object.freeze([
+  "weapon",
+  "shield",
+  "helm",
+  "necklace",
+  "chest",
+  "belt",
+  "gloves",
+  "pants",
+  "boots",
+  "ring1",
+  "ring2",
+  "ring3",
+]);
+
+export const RING_KEYS = Object.freeze(["ring1", "ring2", "ring3"]);
+
+export const LEVEL_CAP = 1000;
 
 export const RARITIES = Object.freeze([
   Object.freeze({ id: "common", tier: 1, baseWeight: 62, levelWeight: 0 }),
@@ -42,13 +65,45 @@ export const RARITIES = Object.freeze([
 
 export const ITEM_BASES = Object.freeze({
   weapon: Object.freeze(["Pulse Edge", "Starrift Bow", "Resonant Staff"]),
-  armor: Object.freeze(["Weave Plate", "Phase Guard", "Moonthread Robe"]),
+  shield: Object.freeze(["Aegis Plate", "Wardwall", "Echo Buckler"]),
+  chest: Object.freeze(["Weave Plate", "Phase Guard", "Moonthread Robe"]),
   helm: Object.freeze(["Ridge Helm", "Duskwatch Hood", "Lunar Circlet"]),
   necklace: Object.freeze(["Signal Torque", "Emberbead Chain", "Tidebound Pendant"]),
+  belt: Object.freeze(["Relay Girdle", "Duneclasp Belt", "Thornloop Sash"]),
+  gloves: Object.freeze(["Embergrip Gloves", "Weaver Mitts", "Stonefist Gauntlets"]),
+  pants: Object.freeze(["Trail Greaves", "Duskweave Pants", "Plated Leggings"]),
   ring: Object.freeze(["Orbit Band", "Rift Seal", "Dawnspark Ring"]),
   boots: Object.freeze(["Skimmer Boots", "Duneswift Greaves", "Nightpath Treads"]),
-  charm: Object.freeze(["Crimson Locket", "Echo Halo", "Stardust Sigil"]),
 });
+
+// Relic gear (original designs): weapon damage follows level×stat/divisor,
+// some pieces trade nothing for raw output, others add a defense rider.
+// A divisor pair means the shot rolls between the two.
+export const RELIC_WEAPONS = Object.freeze([
+  Object.freeze({ name: "霜月刀·霁澜", stat: "power", divisor: 55, defense: 0.2 }),
+  Object.freeze({ name: "曦阳剑·灼金", stat: "power", divisor: 50, defense: 0.2 }),
+  Object.freeze({ name: "潮汐叉·沧浪", stat: "power", divisor: 50, defense: 0.2 }),
+  Object.freeze({ name: "幽渊矛·噬暗", stat: "power", divisor: 55, defense: 0.2 }),
+  Object.freeze({ name: "流星铳·掠火", stat: "power", divisor: 55, defense: 0 }),
+  Object.freeze({ name: "蚀夜铳·吞辉", stat: "power", divisor: 50, defense: 0 }),
+  Object.freeze({ name: "虹弦弓·析光", stat: "agility", divisor: 85, maxDivisor: 60, defense: 0 }),
+  Object.freeze({ name: "风暴弓·涡澜", stat: "agility", divisor: 85, maxDivisor: 50, defense: 0 }),
+  Object.freeze({ name: "星祷杖·引冥", stat: "spirit", divisor: 55, multiplier: 0.8, defense: 0 }),
+  Object.freeze({ name: "献辉杖·燃愿", stat: "spirit", divisor: 50, multiplier: 0.8, defense: 0 }),
+]);
+
+// Relic jewellery: huge flat attribute bundles with a defense rider; the
+// two attuned pieces trade stats for a spirit-scaled strike.
+export const RELIC_JEWELRY = Object.freeze([
+  Object.freeze({ name: "凝神之戒", slot: "ring", bonuses: Object.freeze({ power: 400, spirit: 1500, agility: 500, vitality: 500 }), defense: 0.05 }),
+  Object.freeze({ name: "长明之链", slot: "necklace", bonuses: Object.freeze({ power: 400, spirit: 1500, agility: 500, vitality: 500 }), defense: 0.1 }),
+  Object.freeze({ name: "无衰之戒", slot: "ring", bonuses: Object.freeze({ power: 900, spirit: 1700, agility: 800, vitality: 600 }), defense: 0.05 }),
+  Object.freeze({ name: "无衰之链", slot: "necklace", bonuses: Object.freeze({ power: 600, spirit: 1700, agility: 800, vitality: 700 }), defense: 0.1 }),
+  Object.freeze({ name: "心焰之戒", slot: "ring", attack: Object.freeze({ stat: "spirit", divisor: 60, multiplier: 0.4 }), defense: 0.05 }),
+  Object.freeze({ name: "心焰之链", slot: "necklace", bonuses: Object.freeze({ power: 1200, spirit: 1200, agility: 1500, vitality: 1000 }), defense: 0.1 }),
+  Object.freeze({ name: "回澜之戒", slot: "ring", attack: Object.freeze({ stat: "spirit", divisor: 60, multiplier: 0.5 }), defense: 0.05 }),
+  Object.freeze({ name: "回澜之链", slot: "necklace", bonuses: Object.freeze({ power: 1400, spirit: 1400, agility: 2000, vitality: 1200 }), defense: 0.1 }),
+]);
 
 export const INVENTORY_LIMIT = 48;
 export const DROP_TTL = 60;

@@ -219,6 +219,7 @@
     fine: { label: "精制", prefix: "精制·", color: "#79d99b" },
     rare: { label: "谐振", prefix: "谐振·", color: "#63aef0" },
     epic: { label: "赤月", prefix: "赤月·", color: "#e0596d" },
+    relic: { label: "遗物", prefix: "", color: "#ffd479" },
   };
 
   const ITEM_NAMES = {
@@ -240,24 +241,44 @@
     "Skimmer Boots": "掠地靴",
     "Duneswift Greaves": "沙迅胫甲",
     "Nightpath Treads": "夜路靴",
-    "Crimson Locket": "赤月坠饰",
-    "Echo Halo": "回响光环",
-    "Stardust Sigil": "星屑护符",
+    "Aegis Plate": "御星盾",
+    "Wardwall": "壁垒盾",
+    "Echo Buckler": "回响盾",
+    "Relay Girdle": "中继束带",
+    "Duneclasp Belt": "沙扣腰带",
+    "Thornloop Sash": "棘环腰带",
+    "Embergrip Gloves": "烬握手套",
+    "Weaver Mitts": "织流手套",
+    "Stonefist Gauntlets": "岩拳手套",
+    "Trail Greaves": "行路护腿",
+    "Duskweave Pants": "暮纹裤",
+    "Plated Leggings": "覆甲护腿",
     "Mending Vial": "修复药剂",
   };
 
   const SLOT_LABELS = {
     weapon: "武器",
-    armor: "护甲",
+    shield: "护盾",
     helm: "头盔",
     necklace: "项链",
-    ring: "戒指",
+    chest: "胸甲",
+    belt: "腰带",
+    gloves: "手套",
+    pants: "裤子",
     boots: "靴子",
-    charm: "饰品",
+    ring: "戒指",
+    ring1: "戒指Ⅰ",
+    ring2: "戒指Ⅱ",
+    ring3: "戒指Ⅲ",
     potion: "药剂",
   };
 
-  const DOLL_SLOTS = ["weapon", "armor", "helm", "necklace", "ring", "boots", "charm"];
+  const DOLL_SLOTS = [
+    "helm", "necklace", "ring1",
+    "weapon", "chest", "ring2",
+    "shield", "belt", "ring3",
+    "gloves", "pants", "boots",
+  ];
 
   const MOB_NAMES = {
     riftling: "裂隙体",
@@ -458,6 +479,16 @@
     if (finite(item.damageBonus, 0) > 0) parts.push(`伤害+${Math.round(item.damageBonus * 100)}%`);
     if (finite(item.hpBonus, 0) > 0) parts.push(`生命+${item.hpBonus}`);
     if (finite(item.speedBonus, 0) > 0) parts.push(`移速+${item.speedBonus}`);
+    if (finite(item.defenseBonus, 0) > 0) parts.push(`防御+${Math.round(item.defenseBonus * 100)}%`);
+    if (item.attackFormula && typeof item.attackFormula === "object") {
+      const formula = item.attackFormula;
+      const statName = STAT_LABELS[formula.stat] || formula.stat;
+      const divisorText = formula.maxDivisor
+        ? `${formula.maxDivisor}~${formula.divisor}`
+        : String(formula.divisor);
+      const multiplierText = formula.multiplier ? ` ×${formula.multiplier}` : "";
+      parts.push(`攻击 = 等级×${statName}÷${divisorText}${multiplierText}`);
+    }
     if (finite(item.heal, 0) > 0) parts.push(`使用后恢复 ${item.heal} 生命`);
     return parts;
   }
@@ -470,6 +501,8 @@
     score += finite(item.damageBonus, 0) * 400;
     score += finite(item.hpBonus, 0);
     score += finite(item.speedBonus, 0);
+    score += finite(item.defenseBonus, 0) * 600;
+    if (item.attackFormula) score += 300;
     return Math.round(score);
   }
 
@@ -916,7 +949,7 @@
     const equipment = player.equipment && typeof player.equipment === "object" ? player.equipment : {};
     const inventory = Array.isArray(player.inventory) ? player.inventory : [];
     const signature = JSON.stringify([
-      Object.keys(SLOT_LABELS).map((slot) => equipment[slot]?.id ?? null),
+      DOLL_SLOTS.map((slot) => equipment[slot]?.id ?? null),
       inventory.map((item) => item.id),
     ]);
     if (signature === state.gearSignature) return;
@@ -955,11 +988,21 @@
       return box;
     }));
 
+    // The comparison target: same key, or the weakest of the three rings.
+    const equippedFor = (slot) => {
+      if (slot === "ring") {
+        const rings = ["ring1", "ring2", "ring3"].map((key) => equipment[key]).filter(Boolean);
+        if (rings.length < 3) return null;
+        return rings.sort((a, b) => itemScore(a) - itemScore(b))[0];
+      }
+      return equipment[slot];
+    };
+
     ui.inventoryList.replaceChildren(...inventory.map((item) => {
       const row = document.createElement("div");
       row.className = "gear-row";
       const isPotion = Number.isFinite(finite(item.heal, NaN));
-      const equipped = equipment[item.slot];
+      const equipped = equippedFor(item.slot);
       row.title = isPotion ? itemStatLines(item).join(" ") : itemTooltip(item, equipped);
       const name = document.createElement("b");
       name.textContent = isPotion
@@ -2544,7 +2587,8 @@
       ? WEAPON_SHAPES[gear.weapon.name] || look.defaultWeapon
       : look.defaultWeapon;
     const weaponColor = gear.weapon ? rarityInfo(gear.weapon.rarity).color : look.weaponColor;
-    const armorColor = gear.armor ? rarityInfo(gear.armor.rarity).color : null;
+    const armorColor = gear.chest ? rarityInfo(gear.chest.rarity).color : null;
+    const firstRing = gear.ring1 || gear.ring2 || gear.ring3;
 
     // Back arm.
     ctx.fillStyle = look.skin;
@@ -2628,25 +2672,27 @@
       ctx.fillRect(-1, -9, 3, 3);
     }
     // Ring: a glint on the front hand.
-    if (gear.ring) {
-      ctx.fillStyle = rarityInfo(gear.ring.rarity).color;
+    if (firstRing) {
+      ctx.fillStyle = rarityInfo(firstRing.rarity).color;
       ctx.fillRect(6.5, -1, 2, 2);
+    }
+    // Shield: a small buckler on the off-hand side.
+    if (gear.shield) {
+      const shieldColor = rarityInfo(gear.shield.rarity).color;
+      ctx.fillStyle = "#3a3440";
+      ctx.beginPath();
+      ctx.arc(-10, -3, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = shieldColor;
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+      ctx.fillStyle = shieldColor;
+      ctx.beginPath();
+      ctx.arc(-10, -3, 2, 0, Math.PI * 2);
+      ctx.fill();
     }
 
     drawHeldWeapon(weaponShape, weaponColor, look.accent);
-
-    // Equipped charm floats behind the shoulder as a glowing mote.
-    if (gear.charm) {
-      const charmColor = rarityInfo(gear.charm.rarity).color;
-      ctx.save();
-      ctx.fillStyle = charmColor;
-      ctx.shadowColor = charmColor;
-      ctx.shadowBlur = 9;
-      ctx.beginPath();
-      ctx.arc(-12, -21 + Math.sin(time * 0.005) * 2, 3, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-    }
   }
 
   function drawHeldWeapon(shape, color, accent) {

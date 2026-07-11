@@ -308,7 +308,7 @@ test("gear slots cover the whole body and items can be unequipped", () => {
   const player = world.addPlayer("player-1", { archetype: "strider" });
   assert.deepEqual(
     Object.keys(player.equipment).sort(),
-    ["armor", "boots", "charm", "helm", "necklace", "ring", "weapon"],
+    ["belt", "boots", "chest", "gloves", "helm", "necklace", "pants", "ring1", "ring2", "ring3", "shield", "weapon"],
   );
 
   const boots = world.giveItem("player-1", {
@@ -598,6 +598,59 @@ test("full bags swap the weakest item for a stronger find; drops magnetise", () 
   world._placeDrop(player.x, player.y, junk);
   world.update(0.05);
   assert.equal(world.drops.size, 1, "junk stays on the ground when the bag is full");
+});
+
+test("three rings stack, relic formulas scale with level, and the cap is 1000", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, autoLevel: false });
+  const player = world.addPlayer("player-1", { archetype: "vanguard" });
+
+  // Three rings occupy ring1..ring3; a fourth stronger ring displaces the weakest.
+  for (const power of [1, 2, 3]) {
+    const ring = world.giveItem("player-1", {
+      slot: "ring",
+      bonuses: { power, agility: 0, spirit: 0, vitality: 0 },
+      damageBonus: 0, hpBonus: 0, speedBonus: 0,
+    });
+    world.handleCommand("player-1", { type: "equip", item: ring.id });
+  }
+  assert.ok(player.equipment.ring1 && player.equipment.ring2 && player.equipment.ring3);
+  const strong = world.giveItem("player-1", {
+    slot: "ring",
+    bonuses: { power: 9, agility: 0, spirit: 0, vitality: 0 },
+    damageBonus: 0, hpBonus: 0, speedBonus: 0,
+  });
+  world.handleCommand("player-1", { type: "equip", item: strong.id });
+  const ringPowers = ["ring1", "ring2", "ring3"].map((key) => player.equipment[key].bonuses.power).sort();
+  assert.deepEqual(ringPowers, [2, 3, 9], "weakest ring is displaced");
+
+  // Relic weapon: flat damage follows level × power ÷ divisor and adds defense.
+  const relic = world.giveItem("player-1", {
+    slot: "weapon",
+    level: 1,
+    bonuses: { power: 0, agility: 0, spirit: 0, vitality: 0 },
+    damageBonus: 0, hpBonus: 0, speedBonus: 0,
+    defenseBonus: 0.2,
+    attackFormula: { stat: "power", divisor: 55 },
+  });
+  world.handleCommand("player-1", { type: "equip", item: relic.id });
+  player.level = 550;
+  world.setInput("player-1", { seq: 1, aim: { x: player.x + 100, y: player.y }, primary: true });
+  world.update(0.05);
+  const projectile = [...world.projectiles.values()][0];
+  const power = world._statTotal(player, "power");
+  const flat = 550 * power / 55;
+  const base = 13 + power * 1.55 + world._statTotal(player, "spirit") * 0.38;
+  assert.ok(Math.abs(projectile.damage - (base + flat)) < 0.000001, "relic adds level×power/55 flat damage");
+  assert.equal(player.gearMods.defense, 0.2);
+
+  // Level cap: experience stops at 1000.
+  player.level = 999;
+  player.xpToNext = 10;
+  world._grantXp(player, 1_000_000);
+  assert.equal(player.level, 1000);
+  const xpAtCap = player.xp;
+  world._grantXp(player, 500);
+  assert.equal(player.xp, xpAtCap, "no further XP at the cap");
 });
 
 test("districts spawn mobs inside their own level band and gear scales up", () => {
