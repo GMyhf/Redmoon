@@ -412,6 +412,81 @@ test("autoEquip dresses the strongest eligible item in every slot", () => {
   assert.equal(player.equipment.weapon.id, strong.id);
 });
 
+test("the soul barrier spends MP instead of HP at a configurable ratio", () => {
+  const world = new World({
+    rng: () => 0.5,
+    spawnMobs: false,
+    mobTargetCount: 0,
+    safeZoneRadius: 0,
+    soulBarrier: { absorb: 0.5, mpPerHp: 2 },
+  });
+  const player = world.addPlayer("player-1", { archetype: "eclipse" });
+  assert.ok(player.maxMp > 0);
+  assert.equal(player.mp, player.maxMp);
+
+  const mitigation = 1 - Math.min(0.38, world._statTotal(player, "vitality") * 0.018);
+  const hpBefore = player.hp;
+  const mpBefore = player.mp;
+  world._damagePlayer(player, 40, "test");
+  const mitigated = 40 * mitigation;
+  assert.ok(Math.abs((hpBefore - player.hp) - mitigated * 0.5) < 0.000001, "half the hit goes to HP");
+  assert.ok(Math.abs((mpBefore - player.mp) - mitigated * 0.5 * 2) < 0.000001, "MP pays double per HP absorbed");
+
+  // With MP drained, the full mitigated hit lands on HP.
+  player.mp = 0;
+  const hpDrained = player.hp;
+  world._damagePlayer(player, 20, "test");
+  assert.ok(Math.abs((hpDrained - player.hp) - 20 * mitigation) < 0.000001);
+
+  // Non-eclipse heroes have MP but no active barrier.
+  const other = world.addPlayer("player-2", { archetype: "vanguard" });
+  const otherMp = other.mp;
+  world._damagePlayer(other, 20, "test");
+  assert.equal(other.mp, otherMp);
+});
+
+test("eclipse skills branch on reputation sign and attunement drags it over", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
+  const player = world.addPlayer("player-1", { archetype: "eclipse" });
+  const east = { x: 1, y: 0 };
+
+  // Radiant Q: one piercing lance; reputation drifts +2.
+  world._useSkill(player, "q", east);
+  assert.equal(world.projectiles.size, 1);
+  assert.ok([...world.projectiles.values()][0].hitsRemaining > 1);
+  assert.equal(player.reputation, 2);
+
+  // Swear to the abyss and cast until the sign flips.
+  world.handleCommand("player-1", { type: "attune", path: "abyss" });
+  world.projectiles.clear();
+  world.time += 100;
+  player.nextSkillAt.q = 0;
+  world._useSkill(player, "q", east); // rep 2 -> 0, still radiant
+  world.time += 100;
+  player.nextSkillAt.q = 0;
+  world._useSkill(player, "q", east); // rep 0 -> -2, cast resolved radiant
+  assert.equal(player.reputation, -2);
+  assert.ok(world.drainEvents().some((event) => event.event === "alignmentShifted"));
+
+  // Now below zero: Q becomes the three-bolt abyssal fan.
+  world.projectiles.clear();
+  world.time += 100;
+  player.nextSkillAt.q = 0;
+  world._useSkill(player, "q", east);
+  assert.equal(world.projectiles.size, 3);
+  assert.equal(player.reputation, -4);
+
+  // Will accrues from kills.
+  const prey = world.spawnMob({ id: "prey", x: player.x + 300, y: player.y, maxHp: 1, level: 5 });
+  world._damageMob(prey, 10, player.id);
+  assert.equal(player.will, 5);
+
+  assert.throws(
+    () => world.handleCommand("player-1", { type: "attune", path: "sideways" }),
+    (error) => error instanceof WorldError && error.code === "INVALID_MESSAGE",
+  );
+});
+
 test("idle players auto-attack enemies in reach, and the toggle disables it", () => {
   const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, safeZoneRadius: 0 });
   const player = world.addPlayer("player-1", { archetype: "channeler" });

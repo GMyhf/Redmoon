@@ -49,7 +49,7 @@ test("WebSocket emits welcome, accepts join, and reports protocol errors", async
   assert.equal(welcome.world.width, 4800);
   assert.deepEqual(
     Object.keys(welcome.archetypes).sort(),
-    ["bulwark", "channeler", "longshot", "moonblade", "pyre", "strider", "vanguard"],
+    ["bulwark", "channeler", "eclipse", "longshot", "moonblade", "pyre", "strider", "vanguard"],
   );
 
   socket.send(JSON.stringify({ type: "join", name: "Tester", archetype: "vanguard" }));

@@ -619,6 +619,21 @@ button {
   transition: width 220ms ease;
 }
 
+.alignment-row {
+  margin-top: 9px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.alignment-row span {
+  flex: 1;
+  min-width: 0;
+  font-size: 9px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.04em;
+}
+
 .auto-fight-toggle {
   margin-top: 9px;
   width: 100%;

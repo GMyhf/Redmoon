@@ -2,6 +2,11 @@ export const PROTOCOL_VERSION = 1;
 export const TICK_RATE = 20;
 export const SNAPSHOT_RATE = 10;
 
+// Soul Barrier: damage is paid from MP before HP. `absorb` is the fraction
+// of incoming damage redirected to MP; `mpPerHp` is the conversion price.
+export const SOUL_BARRIER = Object.freeze({ absorb: 0.6, mpPerHp: 1.4 });
+export const REPUTATION_LIMIT = 1000;
+
 export const REBIRTH_LEVEL = 10;
 export const REBIRTH_STAT_BONUS = 6;
 export const REBIRTH_HP_BONUS = 0.12;
@@ -289,6 +294,45 @@ export const ARCHETYPES = Object.freeze({
         name: "Skyfire",
         description: "Ignite the air itself in a vast double ring of flame.",
         cooldown: 19,
+        maxLevel: 5,
+      }),
+    }),
+  }),
+  eclipse: Object.freeze({
+    id: "eclipse",
+    name: "Eclipse",
+    description: "A twin-souled adept whose own deeds tip him between radiance and the abyss.",
+    color: "#9d8fe0",
+    baseHp: 92,
+    baseSpeed: 190,
+    primary: Object.freeze({
+      name: "Twin Veil Bolt",
+      cooldown: 0.45,
+      damage: 11,
+      speed: 640,
+      range: 460,
+      color: "#cbbcf5",
+    }),
+    skills: Object.freeze({
+      q: Object.freeze({
+        id: "rift-of-two-lights",
+        name: "Rift of Two Lights",
+        description: "A radiant lance — or a fan of frost-dark bolts. Reputation decides.",
+        cooldown: 4,
+        maxLevel: 10,
+      }),
+      e: Object.freeze({
+        id: "soulguard-surge",
+        name: "Soulguard Surge",
+        description: "Mend and harden the soul barrier, or vent a ring of deep frost.",
+        cooldown: 7,
+        maxLevel: 10,
+      }),
+      f: Object.freeze({
+        id: "zenith-and-nadir",
+        name: "Zenith and Nadir",
+        description: "The full weight of dawn, or the deepest cold of night.",
+        cooldown: 17,
         maxLevel: 5,
       }),
     }),

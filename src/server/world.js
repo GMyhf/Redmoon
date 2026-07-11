@@ -7,6 +7,8 @@ import {
   ITEM_SLOTS,
   MOB_TYPES,
   RARITIES,
+  REPUTATION_LIMIT,
+  SOUL_BARRIER,
   REBIRTH_DAMAGE_BONUS,
   REBIRTH_HP_BONUS,
   REBIRTH_LEVEL,
@@ -43,6 +45,7 @@ const BASE_STATS = Object.freeze({
   longshot: Object.freeze({ power: 4, agility: 8, spirit: 3, vitality: 3 }),
   pyre: Object.freeze({ power: 2, agility: 3, spirit: 8, vitality: 5 }),
   moonblade: Object.freeze({ power: 5, agility: 7, spirit: 3, vitality: 3 }),
+  eclipse: Object.freeze({ power: 3, agility: 4, spirit: 7, vitality: 4 }),
 });
 
 export class WorldError extends Error {
@@ -85,6 +88,7 @@ export class World {
     this._dropSequence = 0;
     this._itemSequence = 0;
     this._nextBossAt = null;
+    this.soulBarrierConfig = { ...SOUL_BARRIER, ...(options.soulBarrier ?? {}) };
     this._buildPortals();
 
     if (options.spawnMobs !== false) {
@@ -125,6 +129,19 @@ export class World {
       inputSeq: 0,
       hp: 1,
       maxHp: 1,
+      mp: 0,
+      maxMp: 0,
+      // Reputation swings positive (radiant) or negative (abyssal) with use;
+      // will is a lifetime resource earned from kills.
+      reputation: 0,
+      will: 0,
+      attunement: "radiant",
+      soulBarrier: {
+        active: archetype === "eclipse",
+        absorb: this.soulBarrierConfig.absorb,
+        mpPerHp: this.soulBarrierConfig.mpPerHp,
+        boostUntil: 0,
+      },
       alive: true,
       respawnAvailableAt: 0,
       moveTarget: null,
@@ -159,6 +176,7 @@ export class World {
     };
     this._refreshDerivedStats(player, false);
     player.hp = player.maxHp;
+    player.mp = player.maxMp;
     this.players.set(playerId, player);
     this._emit("playerJoined", {
       playerId,
@@ -218,6 +236,8 @@ export class World {
       case "setAuto":
       case "setauto":
         return this.setAutoFight(id, message.enabled);
+      case "attune":
+        return this.attune(id, message.path);
       case "discard":
         return this.discardItem(id, message.item);
       default:
@@ -418,6 +438,16 @@ export class World {
     this._refreshGear(player);
     this._refreshDerivedStats(player, true);
     this._emit("itemUnequipped", { playerId: id, itemId: item.id, name: item.name, slot });
+    return player;
+  }
+
+  attune(id, path) {
+    const player = this._requirePlayer(id);
+    if (path !== "radiant" && path !== "abyss") {
+      throw new WorldError("INVALID_MESSAGE", "path must be 'radiant' or 'abyss'.");
+    }
+    player.attunement = path;
+    this._emit("attuned", { playerId: id, path });
     return player;
   }
 
@@ -681,6 +711,10 @@ export class World {
         player.maxHp,
         player.hp + (0.35 + this._statTotal(player, "vitality") * 0.04) * regenBoost * dt,
       );
+      player.mp = Math.min(
+        player.maxMp,
+        player.mp + (1.2 + this._statTotal(player, "spirit") * 0.06) * regenBoost * dt,
+      );
 
       if (player.input.primary) this._usePrimary(player, aim);
       if (player.input.q) this._useSkill(player, "q", aim);
@@ -808,7 +842,9 @@ export class World {
     const cooldownReduction = 1 - Math.min(0.4, (level - 1) * 0.05);
     player.nextSkillAt[slot] = this.time + skill.cooldown * cooldownReduction;
 
-    if (slot === "f") {
+    if (player.archetype === "eclipse") {
+      this._useEclipseSkill(player, slot, direction, level);
+    } else if (slot === "f") {
       this._useUltimate(player, direction, level, archetype);
     } else if (player.archetype === "vanguard" && slot === "q") {
       this._movePlayer(player, direction, 94 + level * 10);
@@ -947,6 +983,89 @@ export class World {
       skillId: skill.id,
       level,
     });
+  }
+
+  // Eclipse: every skill resolves on the radiant branch while reputation
+  // is non-negative and on the abyssal branch below zero. Each cast pulls
+  // reputation two points toward the player's chosen attunement, so
+  // changing sides is a deliberate climb, not a toggle.
+  _useEclipseSkill(player, slot, direction, level) {
+    const radiant = player.reputation >= 0;
+    const spirit = this._statTotal(player, "spirit");
+    if (slot === "q") {
+      if (radiant) {
+        this._spawnProjectile(player, direction, {
+          damage: 24 + level * 8 + spirit * 2,
+          speed: 820,
+          range: 720,
+          radius: 10,
+          pierce: 3 + Math.floor(level / 3),
+          color: "#ffe9b0",
+        });
+      } else {
+        for (const angle of [-0.2, 0, 0.2]) {
+          this._spawnProjectile(player, rotate(direction, angle), {
+            damage: 14 + level * 5 + spirit * 1.4,
+            speed: 620,
+            range: 480,
+            radius: 7,
+            color: "#7ac8ff",
+          });
+        }
+      }
+    } else if (slot === "e") {
+      if (radiant) {
+        player.hp = Math.min(player.maxHp, player.hp + 12 + level * 4 + spirit);
+        player.soulBarrier.boostUntil = this.time + 4 + level * 0.4;
+        this._emit("barrierSurged", {
+          playerId: player.id,
+          until: round(player.soulBarrier.boostUntil),
+        });
+      } else {
+        this._radialBurst(player, 10 + level, {
+          damage: 12 + level * 4 + spirit * 1.3,
+          speed: 500,
+          range: 260 + level * 14,
+          radius: 8,
+          color: "#7ac8ff",
+        });
+      }
+    } else if (radiant) {
+      this._radialBurst(player, 14, {
+        damage: 26 + level * 9 + spirit * 2.2,
+        speed: 520,
+        range: 340 + level * 20,
+        radius: 12,
+        color: "#ffe9b0",
+      });
+      player.mp = Math.min(player.maxMp, player.mp + player.maxMp * 0.4);
+    } else {
+      this._radialBurst(player, 12, {
+        damage: 24 + level * 8 + spirit * 1.9,
+        speed: 460,
+        range: 320 + level * 22,
+        radius: 12,
+        color: "#7ac8ff",
+      });
+      this._radialBurst(player, 8, {
+        damage: 16 + level * 6 + spirit * 1.2,
+        speed: 640,
+        range: 220 + level * 14,
+        radius: 9,
+        color: "#a9d8ff",
+      });
+    }
+
+    const before = player.reputation;
+    const drift = player.attunement === "abyss" ? -2 : 2;
+    player.reputation = clamp(before + drift, -REPUTATION_LIMIT, REPUTATION_LIMIT);
+    if ((before >= 0) !== (player.reputation >= 0)) {
+      this._emit("alignmentShifted", {
+        playerId: player.id,
+        branch: player.reputation >= 0 ? "radiant" : "abyss",
+        reputation: player.reputation,
+      });
+    }
   }
 
   // Ultimates: one signature finisher per hero, built from the same
@@ -1104,6 +1223,7 @@ export class World {
     const player = this.players.get(ownerId);
     if (player) {
       this._grantXp(player, mob.xp);
+      player.will += mob.level;
       this._advanceQuest(player);
     }
     this.pendingMobSpawns.push({ at: this.time + MOB_RESPAWN_DELAY });
@@ -1121,7 +1241,20 @@ export class World {
     if (!player.alive) return;
     if (this._inSafeZone(player)) return;
     const mitigation = Math.min(0.38, this._statTotal(player, "vitality") * 0.018);
-    player.hp -= Math.max(1, damage * (1 - mitigation));
+    let final = Math.max(1, damage * (1 - mitigation));
+
+    // Soul Barrier: pay part of the hit from MP at the configured price.
+    const barrier = player.soulBarrier;
+    if (barrier?.active && player.mp > 0.01) {
+      const boosted = this.time < barrier.boostUntil;
+      const absorb = Math.min(0.95, barrier.absorb + (boosted ? 0.2 : 0));
+      const mpPerHp = barrier.mpPerHp * (boosted ? 0.6 : 1);
+      const absorbed = Math.min(final * absorb, player.mp / mpPerHp);
+      player.mp = Math.max(0, player.mp - absorbed * mpPerHp);
+      final -= absorbed;
+    }
+
+    player.hp -= final;
     if (player.hp > 0) return;
 
     player.hp = 0;
@@ -1192,6 +1325,8 @@ export class World {
     if (preserveHealth) {
       player.hp = Math.min(player.maxHp, Math.max(1, player.maxHp * ratio));
     }
+    player.maxMp = Math.round(30 + this._statTotal(player, "spirit") * 6 + (player.level - 1) * 3);
+    player.mp = Math.min(player.mp, player.maxMp);
   }
 
   _serializePlayer(player) {
@@ -1218,6 +1353,18 @@ export class World {
       facing: { x: round(player.facing.x), y: round(player.facing.y) },
       hp: round(player.hp),
       maxHp: player.maxHp,
+      mp: round(player.mp),
+      maxMp: player.maxMp,
+      reputation: player.reputation,
+      will: player.will,
+      attunement: player.attunement,
+      barrier: player.soulBarrier.active
+        ? {
+          absorb: player.soulBarrier.absorb,
+          mpPerHp: player.soulBarrier.mpPerHp,
+          boosted: this.time < player.soulBarrier.boostUntil,
+        }
+        : null,
       alive: player.alive,
       respawnIn: round(Math.max(0, player.respawnAvailableAt - this.time)),
       moveTarget: player.moveTarget ? { x: round(player.moveTarget.x), y: round(player.moveTarget.y) } : null,

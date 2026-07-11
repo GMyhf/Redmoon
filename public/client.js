@@ -47,6 +47,9 @@
     respawnTimer: document.querySelector("#respawn-timer"),
     respawnButton: document.querySelector("#respawn-button"),
     rebirthButton: document.querySelector("#rebirth-button"),
+    alignmentRow: document.querySelector("#alignment-row"),
+    alignmentText: document.querySelector("#alignment-text"),
+    attuneButton: document.querySelector("#attune-button"),
     autoFightToggle: document.querySelector("#auto-fight-toggle"),
     bagCount: document.querySelector("#bag-count"),
     autoEquipButton: document.querySelector("#auto-equip-button"),
@@ -164,6 +167,24 @@
       f: "焚天",
       fDesc: "内外两圈烈焰同时炸开，焚尽周身",
       stats: { power: 2, agility: 3, spirit: 8, vitality: 5 },
+    },
+    eclipse: {
+      label: "玄晓",
+      role: "明暗行者",
+      trait: "双线成长",
+      sigil: "晓",
+      body: "#9d8fe0",
+      accent: "#ffe9b0",
+      q: "两光裂隙",
+      e: "魂障涌流",
+      f: "昼夜两极",
+      lore: "红月之下诞生的双魂者，晨光与深渊在他体内此消彼长；他的每一次出手都在为其中一方投票。",
+      primaryName: "双络弹",
+      primaryDesc: "光暗交替的速射星弹",
+      qDesc: "光辉线：贯穿圣枪；深渊线：三向蚀寒弹",
+      eDesc: "光辉线：治愈并强化魂力护障；深渊线：寒霜环爆",
+      fDesc: "光辉线：黎明环爆并回复魂力；深渊线：双重永夜冰环",
+      stats: { power: 3, agility: 4, spirit: 7, vitality: 4 },
     },
     moonblade: {
       label: "月绫",
@@ -318,6 +339,11 @@
       skin: "#f0d6bd", hair: "#dfe6f2", torso: "#7c86a0", torsoShade: "#646e88",
       legs: "#2f3442", accent: "#e8eefc", ponytail: true,
       defaultWeapon: "blade", weaponColor: "#e8eefc",
+    },
+    eclipse: {
+      skin: "#e8cdb2", hair: "#d8d4e8", torso: "#5a5382", torsoShade: "#474070",
+      legs: "#2c2a3c", accent: "#ffe9b0", robe: true,
+      defaultWeapon: "staff", weaponColor: "#cbbcf5",
     },
   };
 
@@ -699,8 +725,8 @@
     const archetype = ARCHETYPES[archetypeKey] || ARCHETYPES.vanguard;
     const hp = finite(first(player.hp, player.health), 0);
     const maxHp = Math.max(1, finite(first(player.maxHp, player.maxHealth), 100));
-    const rawEnergy = first(player.energy, player.mana, player.resource);
-    const rawMaxEnergy = first(player.maxEnergy, player.maxMana, player.maxResource);
+    const rawEnergy = first(player.energy, player.mana, player.mp, player.resource);
+    const rawMaxEnergy = first(player.maxEnergy, player.maxMana, player.maxMp, player.maxResource);
     const energy = finite(rawEnergy, 0);
     const maxEnergy = Math.max(1, finite(rawMaxEnergy, 1));
     const xp = finite(first(player.xp, player.experience), 0);
@@ -719,6 +745,22 @@
     if (ui.autoFightToggle && player.autoFight !== undefined) {
       ui.autoFightToggle.textContent = player.autoFight ? "自动战斗 · 开" : "自动战斗 · 关";
       ui.autoFightToggle.classList.toggle("is-off", !player.autoFight);
+    }
+    if (ui.alignmentRow) {
+      const isEclipse = archetypeKey === "eclipse";
+      ui.alignmentRow.hidden = !isEclipse;
+      if (isEclipse) {
+        const reputation = Math.round(finite(player.reputation, 0));
+        const will = Math.round(finite(player.will, 0));
+        const radiant = reputation >= 0;
+        const boosted = player.barrier?.boosted ? " · 护障强化中" : "";
+        ui.alignmentText.textContent =
+          `名誉 ${reputation >= 0 ? "+" : ""}${reputation} · 意志 ${will} · ${radiant ? "光辉线" : "深渊线"}${boosted}`;
+        ui.alignmentText.style.color = radiant ? "#ffe9b0" : "#7ac8ff";
+        const attuningAbyss = player.attunement !== "abyss";
+        ui.attuneButton.textContent = attuningAbyss ? "转向深渊" : "转向光辉";
+        ui.attuneButton.dataset.path = attuningAbyss ? "abyss" : "radiant";
+      }
     }
     ui.hp.textContent = Math.ceil(hp);
     ui.maxHp.textContent = Math.ceil(maxHp);
@@ -908,6 +950,8 @@
       bossslain: "深红督军已被击破，遗落了大量装备",
       potionused: "使用了修复药剂",
       autofightchanged: "自动战斗设置已更新",
+      barriersurged: "魂力护障强化 // 转换效率提升",
+      attuned: "已立誓转向 // 名誉将随施法偏移",
     };
     const sounds = {
       enemydefeated: () => sfx(330, 0.09, "square", 0.035, -160),
@@ -940,6 +984,14 @@
     }
     if (eventName === "autoequipped") {
       pushEvent(`自动换装完成 // 更新了 ${finite(event.changed, 0)} 件`);
+      return;
+    }
+    if (eventName === "alignmentshifted") {
+      if (String(event.playerId) === String(state.id)) {
+        const radiant = event.branch === "radiant";
+        pushEvent(radiant ? "天平倒向光辉 // 技能已切换至光辉线" : "天平倒向深渊 // 技能已切换至深渊线", !radiant);
+        sfx(radiant ? 660 : 180, 0.25, "triangle", 0.05, radiant ? 220 : -80);
+      }
       return;
     }
     if (eventName === "teleported") {
@@ -2736,6 +2788,9 @@
     send({ type: "setAuto", enabled: local.autoFight === false });
   }
   ui.autoFightToggle?.addEventListener("click", toggleAutoFight);
+  ui.attuneButton?.addEventListener("click", () => {
+    send({ type: "attune", path: ui.attuneButton.dataset.path || "abyss" });
+  });
   ui.inventoryList?.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-item]");
     if (!button) return;
@@ -2859,9 +2914,17 @@
   connect();
   requestAnimationFrame(frame);
 
-  // Debug affordance: open with #autojoin to enter the world automatically
-  // (used by headless screenshot checks).
+  // Debug affordance: open with #autojoin (optionally #autojoin=heroId) to
+  // enter the world automatically (used by headless screenshot checks).
   if (location.hash.includes("autojoin")) {
+    const requested = location.hash.split("=")[1];
+    if (requested && ARCHETYPES[requested]) {
+      state.selectedArchetype = requested;
+      renderHeroDetail(requested);
+      ui.archetypes.forEach((item) => {
+        item.classList.toggle("is-selected", item.dataset.archetype === requested);
+      });
+    }
     window.setTimeout(() => ui.joinForm.requestSubmit(), 1200);
   }
 })();

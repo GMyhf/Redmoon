@@ -53,6 +53,7 @@ WebSocket 使用 UTF-8 JSON 对象，单条消息上限为 16 KiB。每条命令
 | `use` | `item` | 饮用背包中的药剂恢复生命 |
 | `autoEquip` | 无 | 每个部位自动穿上背包中强度评分最高且满足等级的装备 |
 | `setAuto` | `enabled` | 开关自动战斗：站立且无指令时自动反击普攻射程内最近的敌人 |
+| `attune` | `path` | 玄晓专属：立誓转向 `radiant`/`abyss`，此后每次施法名誉向该侧偏移 2 点 |
 | `discard` | `item` | 丢弃背包中的物品 |
 
 服务器消息封装：
