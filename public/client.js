@@ -292,14 +292,53 @@
   };
 
   // Themed regions of the alien world, resolved purely from world position.
-  const BIOMES = {
-    town: { base: ["#2e2427", "#322829", "#362c2c"], stroke: "rgba(226, 168, 122, 0.06)" },
-    grass: { base: ["#1c2a19", "#20301e", "#243622", "#293d26"], stroke: null },
-    mountain: { base: ["#24272c", "#282c32", "#2d3138", "#32373f"], stroke: null },
-    scrapyard: { base: ["#2a201a", "#2f241d", "#352920", "#3b2e23"], stroke: null },
-    spaceport: { base: ["#1f232d", "#232834", "#272d3b", "#2b3242"], stroke: null },
-    wastes: { base: ["#221d20", "#262023", "#2a2326", "#2f262a"], stroke: null },
+  // Each biome is a colour ramp; the ground blends smoothly between the
+  // two ends so terrain reads as rolling fields, not a checkerboard.
+  const BIOME_RAMPS = {
+    town: ["#3d312c", "#4c3d35"],
+    grass: ["#24401f", "#3f6132"],
+    mountain: ["#2e3540", "#4d5868"],
+    scrapyard: ["#3a2b1f", "#5c4433"],
+    spaceport: ["#232a3c", "#3c4763"],
+    wastes: ["#33222b", "#502f3e"],
+    lake: ["#1c3a50", "#2e5f7d"],
   };
+
+  const hexToRgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const BIOME_RGB = Object.fromEntries(
+    Object.entries(BIOME_RAMPS).map(([key, [from, to]]) => [key, [hexToRgb(from), hexToRgb(to)]]),
+  );
+  const shadeCache = new Map();
+  function biomeShade(key, value) {
+    const step = Math.round(clamp(value, 0, 1) * 23);
+    const cacheKey = key + step;
+    let shade = shadeCache.get(cacheKey);
+    if (!shade) {
+      const [from, to] = BIOME_RGB[key] || BIOME_RGB.wastes;
+      const t = step / 23;
+      shade = `rgb(${Math.round(from[0] + (to[0] - from[0]) * t)},${Math.round(from[1] + (to[1] - from[1]) * t)},${Math.round(from[2] + (to[2] - from[2]) * t)})`;
+      shadeCache.set(cacheKey, shade);
+    }
+    return shade;
+  }
+
+  // Bilinearly interpolated value noise over a coarse lattice: smooth
+  // large-scale variation instead of per-tile speckle.
+  function smoothNoise(x, y) {
+    const cx = x / 5;
+    const cy = y / 5;
+    const x0 = Math.floor(cx);
+    const y0 = Math.floor(cy);
+    const fx = cx - x0;
+    const fy = cy - y0;
+    const sx = fx * fx * (3 - 2 * fx);
+    const sy = fy * fy * (3 - 2 * fy);
+    const n00 = tileHash(x0, y0);
+    const n10 = tileHash(x0 + 1, y0);
+    const n01 = tileHash(x0, y0 + 1);
+    const n11 = tileHash(x0 + 1, y0 + 1);
+    return (n00 * (1 - sx) + n10 * sx) * (1 - sy) + (n01 * (1 - sx) + n11 * sx) * sy;
+  }
 
   function biomeAt(worldX, worldY) {
     const zone = state.map.safeZone;
@@ -307,6 +346,12 @@
       const dx = worldX - zone.x;
       const dy = worldY - zone.y;
       if (dx * dx + dy * dy <= zone.radius * zone.radius) return "town";
+    }
+    // A shallow lake glitters in the western grassland.
+    {
+      const lx = (worldX - state.map.width * 0.2) / 340;
+      const ly = (worldY - state.map.height * 0.62) / 230;
+      if (lx * lx + ly * ly <= 1) return "lake";
     }
     // Boss quadrant: the crystal wastes in the far north-east.
     if (worldX > state.map.width * 0.68 && worldY < state.map.height * 0.36) return "wastes";
@@ -1171,12 +1216,12 @@
     const point = worldToScreen(local.x, local.y);
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
-    const light = ctx.createRadialGradient(point.x, point.y - 10, 20, point.x, point.y - 10, 300);
-    light.addColorStop(0, "rgba(255, 214, 170, 0.13)");
-    light.addColorStop(0.6, "rgba(255, 190, 150, 0.05)");
+    const light = ctx.createRadialGradient(point.x, point.y - 10, 20, point.x, point.y - 10, 340);
+    light.addColorStop(0, "rgba(255, 214, 170, 0.16)");
+    light.addColorStop(0.6, "rgba(255, 190, 150, 0.06)");
     light.addColorStop(1, "rgba(255, 190, 150, 0)");
     ctx.fillStyle = light;
-    ctx.fillRect(point.x - 300, point.y - 310, 600, 600);
+    ctx.fillRect(point.x - 340, point.y - 350, 680, 680);
     ctx.restore();
   }
 
@@ -1187,6 +1232,7 @@
     scrapyard: "#e8a35c",
     spaceport: "#7ad2ff",
     wastes: "#e0596d",
+    lake: "#8fd8ff",
   };
 
   // Drifting motes (spores, embers, dust) tinted by the biome they float in.
@@ -1240,6 +1286,7 @@
     scrapyard: "rgba(230, 140, 70, 0.045)",
     spaceport: "rgba(100, 160, 240, 0.05)",
     wastes: "rgba(220, 70, 90, 0.06)",
+    lake: "rgba(90, 170, 230, 0.06)",
   };
 
   // Per-biome colour cast plus a soft vignette for depth.
@@ -1258,13 +1305,116 @@
       Math.max(state.viewWidth, state.viewHeight) * 0.72,
     );
     vignette.addColorStop(0, "rgba(6, 4, 7, 0)");
-    vignette.addColorStop(1, "rgba(6, 4, 7, 0.42)");
+    vignette.addColorStop(1, "rgba(6, 4, 7, 0.28)");
     ctx.fillStyle = vignette;
     ctx.fillRect(0, 0, state.viewWidth, state.viewHeight);
   }
 
-  // A single derelict colony ship rests in the southern spaceport fields.
   function drawLandmarks(time) {
+    drawTownStructures(time);
+    drawColonyShip(time);
+  }
+
+  // The relay town: a beacon tower, lamp posts, and huts on the plaza.
+  function drawTownStructures(time) {
+    const zone = state.map.safeZone;
+    if (!zone) return;
+    const onScreen = (point, pad) =>
+      point.x > -pad && point.x < state.viewWidth + pad && point.y > -pad && point.y < state.viewHeight + pad;
+
+    // Lamp posts ring the plaza.
+    for (let index = 0; index < 6; index += 1) {
+      const angle = (index / 6) * Math.PI * 2 + Math.PI / 12;
+      const point = worldToScreen(zone.x + Math.cos(angle) * 120, zone.y + Math.sin(angle) * 120);
+      if (!onScreen(point, 90)) continue;
+      const glow = 0.75 + Math.sin(time * 0.004 + index) * 0.2;
+      ctx.save();
+      const pool = ctx.createRadialGradient(point.x, point.y, 4, point.x, point.y, 46);
+      pool.addColorStop(0, `rgba(255, 205, 130, ${0.1 * glow})`);
+      pool.addColorStop(1, "rgba(255, 205, 130, 0)");
+      ctx.fillStyle = pool;
+      ctx.fillRect(point.x - 46, point.y - 24, 92, 48);
+      propShadow(point.x, point.y, 6);
+      ctx.fillStyle = "#2c2621";
+      ctx.fillRect(point.x - 1.5, point.y - 34, 3, 34);
+      ctx.fillRect(point.x - 6, point.y - 34, 12, 2.5);
+      ctx.fillStyle = "#ffcd82";
+      ctx.shadowColor = "#ffcd82";
+      ctx.shadowBlur = 10 * glow;
+      ctx.beginPath();
+      ctx.arc(point.x, point.y - 38, 3.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // Three original huts between the lamps and the gates.
+    for (const [angle, tint] of [[2.1, "#54423a"], [3.6, "#4c3e36"], [5.2, "#584438"]]) {
+      const point = worldToScreen(zone.x + Math.cos(angle) * 158, zone.y + Math.sin(angle) * 158);
+      if (!onScreen(point, 120)) continue;
+      ctx.save();
+      propShadow(point.x, point.y + 6, 26);
+      ctx.fillStyle = tint;
+      ctx.fillRect(point.x - 20, point.y - 22, 40, 28);
+      ctx.fillStyle = "#6b4a36";
+      ctx.beginPath();
+      ctx.moveTo(point.x - 25, point.y - 20);
+      ctx.lineTo(point.x, point.y - 40);
+      ctx.lineTo(point.x + 25, point.y - 20);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = "#7e5a42";
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+      ctx.fillStyle = "#241d18";
+      ctx.fillRect(point.x - 5, point.y - 10, 10, 16);
+      ctx.fillStyle = `rgba(255, 205, 130, ${0.6 + Math.sin(time * 0.003 + angle) * 0.25})`;
+      ctx.fillRect(point.x + 9, point.y - 16, 7, 6);
+      ctx.restore();
+    }
+
+    // The relay beacon tower at the exact centre of town.
+    const center = worldToScreen(zone.x, zone.y);
+    if (onScreen(center, 160)) {
+      const pulse = 0.7 + Math.sin(time * 0.0035) * 0.3;
+      ctx.save();
+      propShadow(center.x, center.y + 4, 30);
+      ctx.fillStyle = "#3a3236";
+      ctx.beginPath();
+      ctx.moveTo(center.x - 22, center.y + 2);
+      ctx.lineTo(center.x - 7, center.y - 78);
+      ctx.lineTo(center.x + 7, center.y - 78);
+      ctx.lineTo(center.x + 22, center.y + 2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = "#584a50";
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(center.x - 15, center.y - 26);
+      ctx.lineTo(center.x + 15, center.y - 26);
+      ctx.moveTo(center.x - 11, center.y - 52);
+      ctx.lineTo(center.x + 11, center.y - 52);
+      ctx.stroke();
+      ctx.fillStyle = "#2c2529";
+      ctx.fillRect(center.x - 10, center.y - 84, 20, 7);
+      // Crimson beacon and its upward beam.
+      const beam = ctx.createLinearGradient(center.x, center.y - 150, center.x, center.y - 84);
+      beam.addColorStop(0, "rgba(224, 89, 109, 0)");
+      beam.addColorStop(1, `rgba(224, 89, 109, ${0.24 * pulse})`);
+      ctx.fillStyle = beam;
+      ctx.fillRect(center.x - 7, center.y - 150, 14, 66);
+      ctx.fillStyle = "#ff5f70";
+      ctx.shadowColor = "#ff5f70";
+      ctx.shadowBlur = 16 * pulse;
+      ctx.beginPath();
+      ctx.arc(center.x, center.y - 90, 5.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // A single derelict colony ship rests in the southern spaceport fields.
+  function drawColonyShip(time) {
     const shipX = state.map.width * 0.5;
     const shipY = state.map.height * 0.88;
     const point = worldToScreen(shipX, shipY);
@@ -1510,19 +1660,22 @@
         const worldX = (x + 0.5) * WORLD_CELL;
         const worldY = (y + 0.5) * WORLD_CELL;
         const biomeKey = biomeAt(worldX, worldY);
-        const biome = BIOMES[biomeKey];
-        const shades = biome.base;
-        // Coarse patches blended with fine noise: broad colour drifts
-        // instead of a per-tile checkerboard, and no grid strokes.
-        const patch = tileHash(x >> 2, (y >> 2) + 7);
-        const mix = clamp(noise * 0.45 + patch * 0.55, 0, 0.999);
-        const fill = shades[Math.floor(mix * shades.length)];
-        const stroke = biomeKey === "town" ? biome.stroke : null;
-        drawDiamond(point.x, point.y, TILE_W + 1, TILE_H + 1, fill, stroke);
-
-        if (biomeKey === "town" && (x === 2 || x === tileMapWidth - 3) && y % 5 < 2) {
-          drawRelayLine(point, time, x + y);
+        let fill;
+        if (biomeKey === "town") {
+          // Concentric paving bands around the relay plaza.
+          const zone = state.map.safeZone;
+          const distance = zone ? Math.hypot(worldX - zone.x, worldY - zone.y) / zone.radius : 1;
+          fill = distance < 0.14
+            ? "#5a463c"
+            : Math.floor(distance * 6) % 2 === 0
+              ? "#48392f"
+              : "#3f322a";
+        } else {
+          const value = clamp(smoothNoise(x, y) * 0.78 + noise * 0.22, 0, 1);
+          fill = biomeShade(biomeKey, value);
         }
+        drawDiamond(point.x, point.y, TILE_W + 1, TILE_H + 1, fill, null);
+
         drawGroundAccent(biomeKey, point, noise, time);
         drawBiomeDecoration(biomeKey, point, noise, time);
       }
@@ -1532,63 +1685,122 @@
 
   // Small mid-frequency accents that give each biome ground its texture.
   function drawGroundAccent(biomeKey, point, noise, time) {
-    if (noise < 0.78 || noise > 0.86) return;
+    if (noise < 0.62 || noise > 0.86) return;
     ctx.save();
     if (biomeKey === "grass") {
-      ctx.fillStyle = noise > 0.82 ? "#d8a0c0" : "#e0d488";
-      ctx.fillRect(point.x - 1, point.y - 2, 2, 2);
-      ctx.fillRect(point.x + 5, point.y + 3, 2, 2);
+      if (noise > 0.8) {
+        ctx.fillStyle = noise > 0.83 ? "#e0a8c8" : "#ecd98a";
+        ctx.fillRect(point.x - 1, point.y - 2, 3, 3);
+        ctx.fillStyle = "#3a5c2e";
+        ctx.fillRect(point.x, point.y + 1, 1.5, 4);
+      } else {
+        ctx.strokeStyle = "rgba(110, 160, 90, 0.55)";
+        ctx.lineWidth = 1.3;
+        const sway = Math.sin(time * 0.0018 + noise * 30) * 1.5;
+        for (const offset of [-5, 0, 5]) {
+          ctx.beginPath();
+          ctx.moveTo(point.x + offset, point.y + 3);
+          ctx.quadraticCurveTo(point.x + offset + sway, point.y - 3, point.x + offset + sway * 1.5, point.y - 7);
+          ctx.stroke();
+        }
+      }
     } else if (biomeKey === "mountain") {
-      ctx.globalAlpha = 0.5 + Math.sin(time * 0.003 + noise * 40) * 0.3;
-      ctx.fillStyle = "#9fd6e2";
-      ctx.fillRect(point.x - 1, point.y, 2, 2);
+      if (noise > 0.78) {
+        ctx.globalAlpha = 0.5 + Math.sin(time * 0.003 + noise * 40) * 0.3;
+        ctx.fillStyle = "#9fd6e2";
+        ctx.fillRect(point.x - 1, point.y, 2.5, 2.5);
+      } else {
+        ctx.fillStyle = "rgba(90, 100, 115, 0.6)";
+        ctx.fillRect(point.x - 3, point.y - 1, 6, 3);
+        ctx.fillRect(point.x + 6, point.y + 3, 4, 2);
+      }
     } else if (biomeKey === "scrapyard") {
-      ctx.globalAlpha = 0.3;
-      ctx.fillStyle = "#120d0a";
-      ctx.beginPath();
-      ctx.ellipse(point.x, point.y + 2, 11, 4, 0, 0, Math.PI * 2);
-      ctx.fill();
+      if (noise > 0.76) {
+        ctx.globalAlpha = 0.3;
+        ctx.fillStyle = "#150e09";
+        ctx.beginPath();
+        ctx.ellipse(point.x, point.y + 2, 12, 4.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.fillStyle = "rgba(150, 100, 60, 0.5)";
+        ctx.fillRect(point.x - 4, point.y, 7, 2);
+        ctx.fillRect(point.x + 5, point.y - 3, 3, 3);
+      }
     } else if (biomeKey === "spaceport") {
-      ctx.globalAlpha = 0.4;
-      ctx.strokeStyle = "#4a5674";
+      ctx.globalAlpha = 0.45;
+      ctx.strokeStyle = "#55628a";
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(point.x - 10, point.y);
-      ctx.lineTo(point.x + 10, point.y);
+      ctx.moveTo(point.x - 12, point.y);
+      ctx.lineTo(point.x + 12, point.y);
+      if (noise > 0.75) {
+        ctx.moveTo(point.x, point.y - 6);
+        ctx.lineTo(point.x, point.y + 6);
+      }
       ctx.stroke();
     } else if (biomeKey === "wastes") {
       ctx.globalAlpha = 0.6 + Math.sin(time * 0.004 + noise * 50) * 0.3;
-      ctx.fillStyle = "#e0596d";
-      ctx.fillRect(point.x - 1, point.y - 1, 2.5, 2.5);
+      ctx.fillStyle = noise > 0.76 ? "#e0596d" : "#8a4a58";
+      ctx.fillRect(point.x - 1, point.y - 1, 3, 3);
+    } else if (biomeKey === "lake") {
+      // Moving glints on the water.
+      const shimmer = Math.sin(time * 0.0035 + noise * 60 + point.x * 0.02);
+      ctx.globalAlpha = 0.25 + shimmer * 0.2;
+      ctx.strokeStyle = "#bfe6ff";
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(point.x - 9, point.y + shimmer * 2);
+      ctx.quadraticCurveTo(point.x, point.y - 2 + shimmer, point.x + 9, point.y + shimmer * 2);
+      ctx.stroke();
     }
     ctx.restore();
   }
 
+  function propShadow(x, y, rx) {
+    ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+    ctx.beginPath();
+    ctx.ellipse(x, y + 2, rx, rx * 0.42, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   function drawBiomeDecoration(biomeKey, point, noise, time) {
-    if (biomeKey === "town") return;
+    if (biomeKey === "town" || biomeKey === "lake") return;
     if (biomeKey === "grass") {
-      if (noise > 0.965) drawTree(point.x, point.y);
-      else if (noise > 0.86) drawGrassTuft(point.x, point.y, noise, time);
+      if (noise > 0.945) {
+        propShadow(point.x, point.y + 1, 13);
+        drawTree(point.x, point.y);
+      } else if (noise > 0.865) drawGrassTuft(point.x, point.y, noise, time);
       return;
     }
     if (biomeKey === "mountain") {
-      if (noise > 0.955) drawPeak(point.x, point.y, noise);
-      else if (noise > 0.9) drawRock(point.x, point.y, noise);
+      if (noise > 0.945) {
+        propShadow(point.x - 2, point.y + 3, 17);
+        drawPeak(point.x, point.y, noise);
+      } else if (noise > 0.875) {
+        propShadow(point.x, point.y + 2, 9);
+        drawRock(point.x, point.y, noise);
+      }
       return;
     }
     if (biomeKey === "scrapyard") {
-      if (noise > 0.955) drawWreckedCar(point.x, point.y, noise);
-      else if (noise > 0.91) drawDebris(point.x, point.y, noise);
+      if (noise > 0.945) {
+        propShadow(point.x, point.y + 3, 17);
+        drawWreckedCar(point.x, point.y, noise);
+      } else if (noise > 0.88) drawDebris(point.x, point.y, noise);
       return;
     }
     if (biomeKey === "spaceport") {
-      if (noise > 0.96) drawHullPlate(point.x, point.y, noise, time);
-      else if (noise > 0.93) drawDebris(point.x, point.y, noise);
+      if (noise > 0.95) {
+        propShadow(point.x, point.y + 3, 15);
+        drawHullPlate(point.x, point.y, noise, time);
+      } else if (noise > 0.9) drawDebris(point.x, point.y, noise);
       return;
     }
     // Crystal wastes around the boss lair.
-    if (noise > 0.94) drawCrystal(point.x, point.y - 4, noise, time);
-    else if (noise > 0.9) drawDebris(point.x, point.y, noise);
+    if (noise > 0.92) {
+      propShadow(point.x, point.y + 1, 8);
+      drawCrystal(point.x, point.y - 4, noise, time);
+    } else if (noise > 0.88) drawDebris(point.x, point.y, noise);
   }
 
   function drawGrassTuft(x, y, seed, time) {
@@ -1718,19 +1930,6 @@
       if (i === 0) ctx.moveTo(point.x, point.y);
       else ctx.lineTo(point.x, point.y);
     }
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  function drawRelayLine(point, time, seed) {
-    ctx.save();
-    ctx.globalAlpha = 0.45 + Math.sin(time * 0.003 + seed) * 0.18;
-    ctx.strokeStyle = "#bf394a";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(point.x - 22, point.y);
-    ctx.lineTo(point.x, point.y + 10);
-    ctx.lineTo(point.x + 22, point.y);
     ctx.stroke();
     ctx.restore();
   }
@@ -1958,22 +2157,22 @@
     ctx.translate(point.x, point.y);
     ctx.fillStyle = "rgba(0, 0, 0, 0.43)";
     ctx.beginPath();
-    ctx.ellipse(0, 3, 17, 8, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 3, 22, 10, 0, 0, Math.PI * 2);
     ctx.fill();
     if (isSelf) {
       ctx.strokeStyle = "rgba(84, 211, 194, 0.75)";
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.ellipse(0, 2, 22, 10, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 2, 27, 12.5, 0, 0, Math.PI * 2);
       ctx.stroke();
     }
 
     ctx.translate(0, bob - 12);
-    ctx.scale(flip ? -1.25 : 1.25, 1.25);
+    ctx.scale(flip ? -1.6 : 1.6, 1.6);
     drawHumanoid(key, player, legSwing, time);
     ctx.restore();
 
-    drawEntityLabel(point.x, point.y - 72 + bob, String(first(player.name, "操作员")), player, isSelf ? archetype.accent : "#d7dddb");
+    drawEntityLabel(point.x, point.y - 86 + bob, String(first(player.name, "操作员")), player, isSelf ? archetype.accent : "#d7dddb");
   }
 
   function drawHumanoid(key, player, legSwing, time) {
@@ -2137,7 +2336,7 @@
     const pulse = 1 + Math.sin(time * 0.006 + finite(enemy.x)) * 0.04;
     const trueSpecies = String(first(enemy.type, "riftling")).toLowerCase();
     const species = RENDER_AS[trueSpecies] || trueSpecies;
-    const scale = enemy.boss ? 2.1 : enemy.elite ? 1.3 : 1;
+    const scale = enemy.boss ? 2.5 : enemy.elite ? 1.65 : 1.3;
     ctx.save();
     ctx.translate(point.x, point.y);
     ctx.fillStyle = "rgba(0, 0, 0, 0.48)";
@@ -2195,7 +2394,7 @@
     const label = `${prefix}${localizedName} Lv${Math.floor(finite(enemy.level, 1))}`;
     drawEntityLabel(
       point.x,
-      point.y - (enemy.boss ? 96 : enemy.elite ? 66 : 54),
+      point.y - (enemy.boss ? 112 : enemy.elite ? 82 : 64),
       label,
       enemy,
       enemy.boss ? "#ff5f70" : enemy.elite ? "#f0c15e" : "#f18a95",
