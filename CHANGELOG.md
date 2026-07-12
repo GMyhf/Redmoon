@@ -2,6 +2,11 @@
 
 本文件记录 CRIMSON RELAY 每轮迭代的玩法与架构改进。协议层面的字段变化见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
+## 2026-07-12 · Godot 最小客户端
+
+- 新增 `clients/godot`：Godot 4.3 原生客户端原型（单场景 + 一个 GDScript，UI 纯代码构建），走完整 v2 协议——`welcome` 版本校验、`join` 携带协议号与会话令牌（`user://session.cfg` 持久化）、快照渲染（玩家/怪物/掉落/投射物/传送门/安全区，位置插值、镜头跟随、血条与名牌）、20Hz 输入（WASD 移动、Shift 奔跑、左键点地、右键普攻、QERCF 技能）、在线名册与 `leave` 返回主画面。渲染为俯视 2D 示意，目标是验证协议链路而非复刻等距美术。
+- 内置无头验证模式：`CRIMSON_AUTOJOIN` 自动入场、`CRIMSON_SMOKE` 定时打印摘要后干净退出；已用 Godot 4.3 headless 对真实服务器实测两轮——入场收到 8 职业与城镇 24 怪快照、位置随自动战斗更新、第二次运行凭本地令牌成功重进同名角色。
+
 ## 2026-07-12 · 协议 schema 化与一致性测试（Godot 前置）
 
 - 新增 `src/server/protocol.js`：机器可读的协议契约（`PROTOCOL`），覆盖全部 24 条客户端命令、6 类服务器消息（含快照的完整嵌套字段规格：本人/他人玩家条目、怪物、掉落、投射物、世界元数据）、38 个事件名与 39 个错误码，附带一个零依赖的规格校验器；随 `PROTOCOL_VERSION` 版本化，作为 Godot 等原生客户端的开发依据。
