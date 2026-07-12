@@ -2965,8 +2965,11 @@
 
     ctx.translate(0, bob - 12);
     ctx.scale(flip ? -1 : 1, 1);
-    ctx.scale(1.6, 1.6);
-    drawHumanoid(key, player, legSwing, time);
+    const portraitDrawn = drawHeroPortrait(key, player, time);
+    if (!portraitDrawn) {
+      ctx.scale(1.6, 1.6);
+      drawHumanoid(key, player, legSwing, time);
+    }
     ctx.restore();
 
     if (!isSelf) {
@@ -2992,30 +2995,7 @@
     const cx = 0;
     const cy = -29 * stage;
     ctx.save();
-    // Follow a loose full-body silhouette rather than a portrait circle or
-    // rectangular card. This keeps the dimensional render while discarding
-    // most of its studio backdrop at the sprite boundary.
-    ctx.globalAlpha = 0.94;
-    ctx.beginPath();
-    ctx.moveTo(-5 * stage, -72 * stage);
-    ctx.lineTo(12 * stage, -67 * stage);
-    ctx.lineTo(25 * stage, -48 * stage);
-    ctx.lineTo(26 * stage, -18 * stage);
-    ctx.lineTo(32 * stage, 8 * stage);
-    ctx.lineTo(24 * stage, 30 * stage);
-    ctx.lineTo(31 * stage, 55 * stage);
-    ctx.lineTo(23 * stage, 67 * stage);
-    ctx.lineTo(8 * stage, 48 * stage);
-    ctx.lineTo(0, 72 * stage);
-    ctx.lineTo(-13 * stage, 68 * stage);
-    ctx.lineTo(-18 * stage, 45 * stage);
-    ctx.lineTo(-28 * stage, 65 * stage);
-    ctx.lineTo(-34 * stage, 55 * stage);
-    ctx.lineTo(-23 * stage, 25 * stage);
-    ctx.lineTo(-30 * stage, 2 * stage);
-    ctx.lineTo(-24 * stage, -30 * stage);
-    ctx.closePath();
-    ctx.clip();
+    ctx.globalAlpha = 1;
     ctx.drawImage(image, cx - portraitWidth * 0.5, cy - portraitHeight * 0.5, portraitWidth, portraitHeight);
     ctx.restore();
 
@@ -3028,12 +3008,11 @@
     }
     if (level >= 10) {
       ctx.save();
-      ctx.globalAlpha = 0.25 + Math.sin(time * 0.004) * 0.08;
-      ctx.strokeStyle = level >= 20 ? "#ffd479" : weaponColor;
-      ctx.lineWidth = 2;
+      ctx.globalAlpha = 0.2 + Math.sin(time * 0.004) * 0.06;
+      ctx.fillStyle = level >= 20 ? "#ffd479" : weaponColor;
       ctx.beginPath();
-      ctx.ellipse(0, 24 * stage, 25 * stage, 6 * stage, 0, 0, Math.PI * 2);
-      ctx.stroke();
+      ctx.ellipse(0, 29 * stage, 22 * stage, 4 * stage, 0, 0, Math.PI * 2);
+      ctx.fill();
       ctx.restore();
     }
     return true;
