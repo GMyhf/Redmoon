@@ -1182,6 +1182,7 @@ import {
       NOT_JOINED: "操作员尚未接入",
       NAME_IN_USE: "该呼号已在线，请换一个呼号",
       INVALID_TOKEN: "该呼号已在其他设备注册，本机凭证不符",
+      NAME_TAKEN: "该呼号已绑定另一职业的角色，请换呼号或选择原职业",
       RATE_LIMITED: "指令过于频繁，请稍候",
       PROTOCOL_MISMATCH: "客户端版本过旧，请强制刷新页面（Ctrl+Shift+R）",
       NO_STAT_POINTS: "没有可用属性点",

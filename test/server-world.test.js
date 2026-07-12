@@ -1333,3 +1333,29 @@ test("a full bag still upgrades worn gear straight from the ground", () => {
     "the find stays on the ground",
   );
 });
+
+test("a name is one character forever: another archetype cannot overwrite it", () => {
+  const store = {};
+  const world = new World({
+    rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, accountStore: store,
+  });
+  const original = world.addPlayer("conn-1", { name: "Alpha", archetype: "vanguard" });
+  original.gold = 888;
+  original.level = 42;
+  const token = original.token;
+  world.removePlayer("conn-1");
+
+  // Even the rightful token holder cannot restart the name as another hero.
+  throwsCode(
+    () => world.addPlayer("conn-2", { name: "Alpha", archetype: "strider", token }),
+    "NAME_TAKEN",
+  );
+  assert.equal(store.alpha.archetype, "vanguard", "the record is untouched");
+  assert.equal(store.alpha.gold, 888);
+  assert.equal(store.alpha.level, 42);
+
+  // The original hero still comes back intact.
+  const back = world.addPlayer("conn-3", { name: "Alpha", archetype: "vanguard", token });
+  assert.equal(back.level, 42);
+  assert.equal(back.gold, 888);
+});

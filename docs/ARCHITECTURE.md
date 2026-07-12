@@ -42,7 +42,7 @@ WebSocket 使用 UTF-8 JSON 对象，单条消息上限为 16 KiB。每条命令
 
 | `type` | 主要字段 | 用途 |
 | --- | --- | --- |
-| `join` | `name`, `archetype`, `token?`, `protocol?` | 创建会话角色。首次使用某个名字会为该账号铸造会话令牌并通过 `session` 消息下发；此后同名进入必须携带该令牌，否则返回 `INVALID_TOKEN`。同名角色在线时返回 `NAME_IN_USE`。令牌之前的旧存档仍可直接进入并就地补发令牌。声明了 `protocol` 的客户端必须与服务器版本一致，否则返回 `PROTOCOL_MISMATCH`；未声明版本的旧客户端和脚本工具仍被接受 |
+| `join` | `name`, `archetype`, `token?`, `protocol?` | 创建会话角色。首次使用某个名字会为该账号铸造会话令牌并通过 `session` 消息下发；此后同名进入必须携带该令牌，否则返回 `INVALID_TOKEN`。同名角色在线时返回 `NAME_IN_USE`。令牌之前的旧存档仍可直接进入并就地补发令牌。一个名字永久绑定一个角色：即使持有令牌，用不同职业进入同名账号也会返回 `NAME_TAKEN`，旧角色不会被覆盖。声明了 `protocol` 的客户端必须与服务器版本一致，否则返回 `PROTOCOL_MISMATCH`；未声明版本的旧客户端和脚本工具仍被接受 |
 | `input` | `seq`, `move`, `aim`, `sprint`, `moveTo?`, `target?`, `primary`, `q`, `e`, `r`, `c`, `f` | 提交有序移动、Shift 奔跑和五个技能意图（`f` 为大招）。`moveTo`（点坐标）下达点击移动指令，`target`（敌人 id）下达锁定自动攻击指令；两者缺省表示保持现有指令，显式 `null` 表示取消，键盘移动会取消所有指令 |
 | `allocate` | `stat` | 消耗属性点 |
 | `upgrade` | `skill` | 消耗技能点 |

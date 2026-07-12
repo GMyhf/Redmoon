@@ -208,6 +208,15 @@ export class World {
     if (record?.token && record.token !== offeredToken) {
       throw new WorldError("INVALID_TOKEN", "This name is registered to another session token.");
     }
+    // One name is one character, forever: joining an existing account with
+    // a different archetype used to silently restart it at level 1 and
+    // overwrite the record on the next save.
+    if (record && record.archetype !== archetype) {
+      throw new WorldError(
+        "NAME_TAKEN",
+        "This name already belongs to a different hero; pick another name or the original archetype.",
+      );
+    }
 
     const spawn = this._playerSpawn();
     const stats = { ...BASE_STATS[archetype] };
