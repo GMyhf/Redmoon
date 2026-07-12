@@ -74,6 +74,15 @@ const SPECIES_COLORS := {
 	"voidmaw": Color(0.42, 0.3, 0.52),
 }
 
+# Attack-style tell colours under each mob (mirrors the browser's rings).
+const ATTACK_COLORS := {
+	"claw": Color(0.9, 0.35, 0.4), "bite": Color(0.95, 0.55, 0.3),
+	"ember": Color(1.0, 0.5, 0.2), "spike": Color(0.6, 0.8, 0.4),
+	"charge": Color(0.75, 0.6, 0.4), "frost": Color(0.5, 0.8, 1.0),
+	"slam": Color(0.7, 0.7, 0.72), "lightning": Color(0.75, 0.6, 1.0),
+	"void": Color(0.7, 0.4, 0.95),
+}
+
 const SKILL_SLOTS := [["primary", "M1"], ["q", "Q"], ["e", "E"], ["r", "R"], ["c", "C"], ["f", "F"]]
 
 var socket := WebSocketPeer.new()
@@ -107,6 +116,8 @@ var shops: Array = []
 var shade_cache := {}
 var motes: Array = []
 var effects: Array = []               # floating combat text {pos, text, color, age, life}
+var sparks: Array = []                # impact particles {pos, vel, age, life, color}
+var glow_layer: Node2D
 var sounds := {}                      # name -> AudioStreamPlayer (procedurally synthesized)
 var light_texture: GradientTexture2D
 var bag_signature := ""
@@ -135,6 +146,10 @@ func _ready() -> void:
 	gradient.colors = PackedColorArray([Color(1, 1, 1, 1), Color(1, 1, 1, 0)])
 	gradient.offsets = PackedFloat32Array([0.0, 1.0])
 	light_texture.gradient = gradient
+	glow_layer = Node2D.new()
+	glow_layer.set_script(load("res://scripts/glow.gd"))
+	glow_layer.main = self
+	add_child(glow_layer)
 	add_child(camera)
 	camera.position = iso(world_size / 2)
 	camera.make_current()
@@ -161,6 +176,10 @@ func _process(delta: float) -> void:
 			get_tree().quit()
 			return
 	_poll_socket(delta)
+	if not joined and ui.has("lobby_bg") and ui.lobby_bg.texture == null:
+		var art = textures.get("/assets/scenes/crimson-relay-eclipse.webp")
+		if art != null:
+			ui.lobby_bg.texture = art
 	if joined:
 		_interpolate(delta)
 		_send_input(delta)
@@ -429,6 +448,7 @@ func _apply_snapshot(snapshot: Dictionary) -> void:
 	_sync_store(projectiles, snapshot.get("projectiles", []))
 	if not joined and players.has(self_id):
 		joined = true
+		ui.lobby_bg.visible = false
 		ui.join_panel.visible = false
 		ui.hud.visible = true
 		ui.skill_bar.visible = true
@@ -462,6 +482,12 @@ func _sync_store(store: Dictionary, entries: Array, kind := "") -> void:
 					entity.flash = 0.13
 					var color := Color(1.0, 0.83, 0.47) if kind == "enemy" else (Color(1.0, 0.42, 0.45) if is_self else Color(0.91, 0.6, 0.64))
 					_push_effect(target, str(int(-delta)), color)
+					for _spark in 4:
+						sparks.append({
+							"pos": target, "age": 0.0, "life": randf_range(0.3, 0.5),
+							"vel": Vector2(randf_range(-90, 90), randf_range(-140, -40)),
+							"color": color,
+						})
 					if is_self:
 						_sfx("hurt")
 				elif delta >= 5.0 and is_self:
@@ -516,6 +542,11 @@ func _interpolate(delta: float) -> void:
 	for effect in effects:
 		effect.age += delta
 	effects = effects.filter(func(effect) -> bool: return effect.age < effect.life)
+	for spark in sparks:
+		spark.age += delta
+		spark.pos += spark.vel * delta
+		spark.vel.y += 260.0 * delta
+	sparks = sparks.filter(func(spark) -> bool: return spark.age < spark.life)
 
 func _send_input(delta: float) -> void:
 	input_timer -= delta
@@ -670,7 +701,6 @@ func _draw() -> void:
 			"player": _draw_player(item.entity)
 	for projectile in projectiles.values():
 		_draw_projectile(projectile)
-	_draw_motes()
 	_draw_effects()
 
 # Deterministic per-tile hash and coarse value noise, ported from the
@@ -802,8 +832,7 @@ func _draw_beacon(base: Vector2, pulse: float) -> void:
 	draw_line(base + Vector2(-16, 0), base + Vector2(6, -height), Color(0.35, 0.3, 0.28), 2.0)
 	draw_line(base + Vector2(16, 0), base + Vector2(-6, -height), Color(0.35, 0.3, 0.28), 2.0)
 	draw_rect(Rect2(base + Vector2(-10, -height - 6), Vector2(20, 6)), Color(0.3, 0.26, 0.25), true)
-	draw_line(base + Vector2(0, -height - 8), base + Vector2(0, -height - 70), Color(0.9, 0.25, 0.3, 0.10 + pulse * 0.12), 10.0)
-	draw_circle(base + Vector2(0, -height - 10), 6.0 + pulse * 2.5, Color(0.92, 0.22, 0.3, 0.55 + pulse * 0.45))
+	draw_circle(base + Vector2(0, -height - 10), 5.0, Color(0.6, 0.16, 0.2))
 
 func _update_motes(delta: float) -> void:
 	var anchor := from_iso(camera.position)
@@ -820,14 +849,6 @@ func _update_motes(delta: float) -> void:
 		mote.pos += mote.vel * delta
 		mote.z += 6.0 * delta
 	motes = motes.filter(func(mote) -> bool: return mote.age < mote.life)
-
-func _draw_motes() -> void:
-	var ramp: Array = BIOME_RAMPS.get(map_theme, BIOME_RAMPS["wastes"])
-	var color := Color(ramp[1]).lightened(0.45)
-	for mote in motes:
-		var fade: float = clampf(mote.age / 1.2, 0.0, 1.0) * clampf((mote.life - mote.age) / 1.6, 0.0, 1.0)
-		var p: Vector2 = iso(mote.pos) - Vector2(0, mote.z)
-		draw_circle(p, 2.0, Color(color, 0.35 * fade))
 
 # Threshold-scattered ground props per theme, mirroring the browser's
 # drawBiomeDecoration: the same per-tile hash decides what grows where.
@@ -852,12 +873,47 @@ func _draw_decorations() -> void:
 	for ty in range(tiles.position.y, tiles.position.y + tiles.size.y + 1):
 		for tx in range(tiles.position.x, tiles.position.x + tiles.size.x + 1):
 			var noise := _tile_hash(tx, ty)
-			if noise < 0.86:
+			if noise < 0.62:
 				continue
 			var p := iso(Vector2((tx + 0.5) * WORLD_CELL, (ty + 0.5) * WORLD_CELL))
-			_draw_prop(p, noise)
+			if noise >= 0.86:
+				_draw_prop(p, noise)
+			elif noise < 0.8:
+				_draw_accent(p, noise)
 	if map_theme == "town" and safe_zone.has("radius"):
 		_draw_town_fixtures()
+
+# Mid-frequency ground details on ~1/5 of tiles: the layer between flat
+# shading and rare props that makes ground read as lived-in.
+func _draw_accent(p: Vector2, noise: float) -> void:
+	var ticks := Time.get_ticks_msec() / 1000.0
+	match map_theme:
+		"residential", "grass":
+			var sway := sin(ticks * 1.8 + noise * 30.0) * 1.5
+			for offset in [-5.0, 0.0, 5.0]:
+				draw_line(p + Vector2(offset, 3), p + Vector2(offset + sway, -5), Color(0.43, 0.63, 0.35, 0.55), 1.2)
+		"mountain":
+			if noise > 0.76:
+				draw_circle(p, 1.6, Color(0.62, 0.84, 0.89, 0.35 + 0.3 * sin(ticks * 3.0 + noise * 40.0)))
+			else:
+				draw_rect(Rect2(p - Vector2(3, 1), Vector2(6, 3)), Color(0.35, 0.39, 0.45, 0.6), true)
+		"snow":
+			draw_circle(p, 1.4, Color(0.95, 0.98, 1.0, 0.4 + 0.3 * sin(ticks * 2.4 + noise * 50.0)))
+		"scrapyard":
+			if noise > 0.74:
+				_draw_ellipse(p + Vector2(0, 2), 11, 4, Color(0.08, 0.05, 0.03, 0.35))
+			else:
+				draw_rect(Rect2(p - Vector2(4, 1), Vector2(7, 2)), Color(0.55, 0.37, 0.22, 0.5), true)
+		"desert":
+			draw_arc(p, 7, PI * 0.2, PI * 0.8, 8, Color(0.72, 0.6, 0.4, 0.4), 1.0)
+		"castle":
+			draw_rect(Rect2(p - Vector2(3, 1), Vector2(5, 3)), Color(0.42, 0.4, 0.44, 0.5), true)
+		"spaceport":
+			draw_line(p + Vector2(-9, 0), p + Vector2(9, 0), Color(0.28, 0.33, 0.42, 0.6), 1.0)
+		"skycity":
+			draw_circle(p, 1.3, Color(0.55, 0.75, 1.0, 0.35 + 0.3 * sin(ticks * 2.0 + noise * 60.0)))
+		_:
+			draw_circle(p, 1.4, Color(0.75, 0.34, 0.4, 0.4))
 
 func _draw_prop(p: Vector2, noise: float) -> void:
 	var rare := noise > 0.975
@@ -943,7 +999,6 @@ func _draw_town_fixtures() -> void:
 	for index in 6:
 		var angle := -PI / 2 + 0.42 + index * TAU / 6.0
 		var base := iso(centre + Vector2(cos(angle), sin(angle)) * radius * 0.82)
-		draw_colored_polygon(_iso_ring(from_iso(base), 26, 16), Color(1.0, 0.8, 0.5, 0.06 + pulse * 0.03))
 		draw_rect(Rect2(base - Vector2(1.5, 34), Vector2(3, 34)), Color(0.2, 0.18, 0.17), true)
 		draw_circle(base - Vector2(0, 36), 4.0, Color(1.0, 0.82, 0.5, 0.8 + pulse * 0.2))
 	for index in 3:
@@ -995,7 +1050,17 @@ func _draw_enemy(enemy: Dictionary) -> void:
 	if bool(data.get("elite", false)):
 		body = body.lightened(0.18)
 	_draw_shadow(p, radius)
+	# Attack-style tell ring, and a little life: fliers hover, walkers breathe.
+	var style := str(data.get("attackStyle", ""))
+	if ATTACK_COLORS.has(style):
+		draw_polyline(_iso_ring(enemy.pos, radius + 3, 20), Color(ATTACK_COLORS[style], 0.45), 1.5)
+	var ticks := Time.get_ticks_msec() / 1000.0
+	var wobble := sin(ticks * 3.2 + p.x * 0.02)
 	var bc := p - Vector2(0, radius * 0.7)
+	if species in ["ashwing", "stormeye", "voidmaw"]:
+		bc.y += wobble * 3.5
+	else:
+		radius *= 1.0 + wobble * 0.035
 	match species:
 		"duskfang":
 			_draw_ellipse(bc + Vector2(0, radius * 0.2), radius * 1.25, radius * 0.7, body)
@@ -1062,21 +1127,21 @@ func _draw_player(player: Dictionary) -> void:
 	var p := iso(player.pos)
 	var radius := float(player.data.get("radius", 18))
 	var is_self := str(player.data.get("id", "")) == self_id
-	if is_self and light_texture:
-		# Warm light pool anchoring the hero.
-		draw_texture_rect(light_texture, Rect2(p - Vector2(190, 120), Vector2(380, 240)),
-			false, Color(1.0, 0.84, 0.62, 0.16))
 	_draw_shadow(p, radius)
 	var level := int(player.data.get("level", 1))
 	var stage := 1.18 if level >= 20 else (1.08 if level >= 10 else 1.0)
 	var sprite_size := HERO_SIZE * stage
 	var texture := _hero_texture(str(player.data.get("archetype", "vanguard")))
+	# Walk bob while moving, gentle float while idle.
+	var ticks := Time.get_ticks_msec() / 1000.0
+	var moving: bool = player.pos.distance_to(player.target) > 2.0
+	var bob := sin(ticks * 11.0) * 2.6 if moving else sin(ticks * 1.8) * 1.2
 	if texture:
 		var facing: Dictionary = player.data.get("facing", {})
 		var facing_left := float(facing.get("x", 1)) < 0.0
 		if facing_left:
 			draw_set_transform(Vector2(2.0 * p.x, 0), 0.0, Vector2(-1, 1))
-		draw_texture_rect(texture, Rect2(p - Vector2(sprite_size.x * 0.5, sprite_size.y), sprite_size), false)
+		draw_texture_rect(texture, Rect2(p - Vector2(sprite_size.x * 0.5, sprite_size.y + bob), sprite_size), false)
 		if facing_left:
 			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	else:
@@ -1100,7 +1165,6 @@ func _draw_projectile(projectile: Dictionary) -> void:
 	if from_point.distance_to(p) > 1.0:
 		draw_line(from_point, p, Color(color, 0.4), 3.0)
 	var radius := float(projectile.data.get("radius", 6))
-	draw_circle(p, radius * 1.7, Color(color, 0.18))
 	draw_circle(p, radius * 0.7, color)
 	draw_circle(p, radius * 0.3, Color(1, 1, 1, 0.9))
 
@@ -1110,7 +1174,101 @@ func _draw_health_bar(at: Vector2, data: Dictionary) -> void:
 	draw_rect(Rect2(at - Vector2(20, 2), Vector2(40, 4)), Color(0, 0, 0, 0.6), true)
 	draw_rect(Rect2(at - Vector2(20, 2), Vector2(40 * ratio, 4)), Color(0.35, 0.8, 0.5), true)
 
+# ---- Additive glow pass (called by glow.gd, draws with BLEND_MODE_ADD) --
+
+func _draw_glow(canvas: CanvasItem) -> void:
+	if not joined:
+		return
+	var pulse := 0.5 + 0.5 * sin(Time.get_ticks_msec() / 320.0)
+	# Warm light pool under the hero.
+	var me = players.get(self_id)
+	if me and light_texture:
+		var centre := iso(me.pos)
+		canvas.draw_texture_rect(light_texture, Rect2(centre - Vector2(210, 132), Vector2(420, 264)),
+			false, Color(0.55, 0.4, 0.26, 0.55))
+	# Portal beams and rings.
+	for portal in portals:
+		if not (portal is Dictionary):
+			continue
+		var base := iso(Vector2(float(portal.get("x", 0)), float(portal.get("y", 0))))
+		canvas.draw_line(base, base - Vector2(0, 66), Color(0.15, 0.5, 0.55, 0.35 + pulse * 0.3), 7.0)
+		canvas.draw_circle(base, 15, Color(0.1, 0.35, 0.4, 0.5))
+	# Beacon signal and town lamp glows.
+	if map_theme == "town" and safe_zone.has("radius"):
+		var centre := Vector2(float(safe_zone.x), float(safe_zone.y))
+		var beacon := iso(centre)
+		canvas.draw_line(beacon - Vector2(0, 118), beacon - Vector2(0, 200), Color(0.5, 0.1, 0.12, 0.2 + pulse * 0.2), 12.0)
+		canvas.draw_circle(beacon - Vector2(0, 120), 9.0 + pulse * 4.0, Color(0.6, 0.12, 0.15, 0.55))
+		var radius := float(safe_zone.radius)
+		for index in 6:
+			var angle := -PI / 2 + 0.42 + index * TAU / 6.0
+			var lamp := iso(centre + Vector2(cos(angle), sin(angle)) * radius * 0.82)
+			canvas.draw_circle(lamp - Vector2(0, 36), 10.0 + pulse * 2.0, Color(0.5, 0.36, 0.18, 0.4))
+			if light_texture:
+				canvas.draw_texture_rect(light_texture, Rect2(lamp - Vector2(52, 30), Vector2(104, 60)),
+					false, Color(0.4, 0.28, 0.13, 0.5))
+	# Projectile halos.
+	for projectile in projectiles.values():
+		var p := iso(projectile.pos) - Vector2(0, 14)
+		var color := Color.from_string(str(projectile.data.get("color", "#ffffff")), Color.WHITE)
+		canvas.draw_circle(p, float(projectile.data.get("radius", 6)) * 2.2, Color(color, 0.28))
+	# Special drop beams.
+	for drop in drops.values():
+		if drop.data.get("dropClass") != null:
+			var p := iso(drop.pos)
+			var beam := Color(1.0, 0.45, 0.2, 0.3) if str(drop.data.get("dropClass")) == "uniq" else Color(1.0, 0.3, 0.55, 0.3)
+			canvas.draw_line(p, p - Vector2(0, 80), beam, 5.0)
+	# Ambient motes and impact sparks.
+	var ramp: Array = BIOME_RAMPS.get(map_theme, BIOME_RAMPS["wastes"])
+	var mote_color := Color(ramp[1]).lightened(0.5)
+	for mote in motes:
+		var fade: float = clampf(mote.age / 1.2, 0.0, 1.0) * clampf((mote.life - mote.age) / 1.6, 0.0, 1.0)
+		canvas.draw_circle(iso(mote.pos) - Vector2(0, mote.z), 2.2, Color(mote_color, 0.5 * fade))
+	for spark in sparks:
+		var fade: float = 1.0 - spark.age / spark.life
+		canvas.draw_circle(iso(spark.pos) - Vector2(0, 20), 2.5 * fade + 0.8, Color(spark.color, 0.85 * fade))
+
 # ---- UI (built in code so the scene file stays trivial) ----------------
+
+func _build_theme() -> Theme:
+	var theme := Theme.new()
+	var panel_style := StyleBoxFlat.new()
+	panel_style.bg_color = Color(0.04, 0.05, 0.07, 0.93)
+	panel_style.border_color = Color(0.86, 0.79, 0.66, 0.24)
+	panel_style.set_border_width_all(1)
+	panel_style.set_corner_radius_all(4)
+	panel_style.set_content_margin_all(16)
+	theme.set_stylebox("panel", "PanelContainer", panel_style)
+
+	var button_normal := StyleBoxFlat.new()
+	button_normal.bg_color = Color(0.09, 0.1, 0.13, 0.92)
+	button_normal.border_color = Color(0.86, 0.79, 0.66, 0.2)
+	button_normal.set_border_width_all(1)
+	button_normal.set_corner_radius_all(3)
+	button_normal.content_margin_left = 10
+	button_normal.content_margin_right = 10
+	button_normal.content_margin_top = 6
+	button_normal.content_margin_bottom = 6
+	var button_hover := button_normal.duplicate()
+	button_hover.bg_color = Color(0.24, 0.09, 0.11, 0.95)
+	button_hover.border_color = Color(0.89, 0.29, 0.36, 0.7)
+	var button_pressed := button_normal.duplicate()
+	button_pressed.bg_color = Color(0.35, 0.11, 0.14, 0.95)
+	var button_disabled := button_normal.duplicate()
+	button_disabled.bg_color = Color(0.07, 0.08, 0.1, 0.7)
+	theme.set_stylebox("normal", "Button", button_normal)
+	theme.set_stylebox("hover", "Button", button_hover)
+	theme.set_stylebox("pressed", "Button", button_pressed)
+	theme.set_stylebox("disabled", "Button", button_disabled)
+	theme.set_color("font_color", "Button", Color(0.93, 0.95, 0.94))
+	theme.set_color("font_disabled_color", "Button", Color(0.93, 0.95, 0.94, 0.35))
+	theme.set_color("font_color", "Label", Color(0.9, 0.92, 0.9))
+
+	var input_style := button_normal.duplicate()
+	input_style.bg_color = Color(0.06, 0.07, 0.09, 0.95)
+	theme.set_stylebox("normal", "LineEdit", input_style)
+	theme.set_color("font_color", "LineEdit", Color(0.93, 0.95, 0.94))
+	return theme
 
 func _build_ui() -> void:
 	var layer := CanvasLayer.new()
@@ -1118,7 +1276,17 @@ func _build_ui() -> void:
 	var root := Control.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.theme = _build_theme()
 	layer.add_child(root)
+
+	# Title art streamed from the server as the lobby backdrop.
+	var lobby_bg := TextureRect.new()
+	lobby_bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	lobby_bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	lobby_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	lobby_bg.modulate = Color(0.62, 0.6, 0.62)
+	root.add_child(lobby_bg)
+	_server_texture("/assets/scenes/crimson-relay-eclipse.webp")
 
 	var panel := PanelContainer.new()
 	panel.set_anchors_preset(Control.PRESET_CENTER)
@@ -1129,8 +1297,15 @@ func _build_ui() -> void:
 	panel.add_child(box)
 
 	var title := Label.new()
-	title.text = "CRIMSON RELAY — Godot 客户端"
+	title.text = "CRIMSON RELAY"
+	title.add_theme_font_size_override("font_size", 26)
+	title.add_theme_color_override("font_color", Color(0.89, 0.35, 0.4))
 	box.add_child(title)
+	var subtitle := Label.new()
+	subtitle.text = "中继接入 // Godot 客户端"
+	subtitle.add_theme_font_size_override("font_size", 11)
+	subtitle.add_theme_color_override("font_color", Color(0.6, 0.63, 0.62))
+	box.add_child(subtitle)
 
 	var name_input := LineEdit.new()
 	name_input.placeholder_text = "操作员呼号（至少 2 字符）"
@@ -1246,6 +1421,7 @@ func _build_ui() -> void:
 	root.add_child(minimap)
 
 	ui = {
+		"lobby_bg": lobby_bg,
 		"join_panel": panel,
 		"name_input": name_input,
 		"archetype_select": archetype_select,
@@ -1364,6 +1540,7 @@ func _show_lobby(message: String) -> void:
 	bag_signature = ""
 	for store in [players, enemies, drops, projectiles]:
 		store.clear()
+	ui.lobby_bg.visible = true
 	ui.join_panel.visible = true
 	ui.hud.visible = false
 	ui.leave_button.visible = false
