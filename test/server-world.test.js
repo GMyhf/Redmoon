@@ -991,6 +991,20 @@ test("snapshots share per-map arrays and only send full detail to the owner", ()
   assert.equal(fresh.players.find((entry) => entry.id === "alpha-1").inventory.length, 1);
 });
 
+test("join rejects a mismatched declared protocol but accepts legacy joins", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
+  assert.throws(
+    () => world.addPlayer("old-client", { name: "Stale", archetype: "vanguard", protocol: 1 }),
+    (error) => error instanceof WorldError && error.code === "PROTOCOL_MISMATCH",
+  );
+  const current = world.addPlayer("new-client", { name: "Fresh", archetype: "vanguard", protocol: 2 });
+  assert.equal(current.name, "Fresh");
+  // Joins that do not declare a protocol (scripted tools, older clients)
+  // still work.
+  const legacy = world.addPlayer("silent-client", { name: "Quiet", archetype: "vanguard" });
+  assert.equal(legacy.name, "Quiet");
+});
+
 test("snapshots carry the authoritative move speed for client prediction", () => {
   const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
   const player = world.addPlayer("player-1", { name: "Pacer", archetype: "strider" });

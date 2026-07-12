@@ -73,6 +73,11 @@
     abilities: [...document.querySelectorAll(".ability")],
   };
 
+  // Protocol version this client speaks; sent with join and compared with
+  // the server's welcome. Keep in sync with PROTOCOL_VERSION in
+  // src/server/definitions.js.
+  const CLIENT_PROTOCOL = 2;
+
   // Seven original named heroes (names, lore, and designs are this project's own).
   const ARCHETYPES = {
     vanguard: {
@@ -752,7 +757,7 @@
   function sendJoin() {
     if (!state.profile) return;
     const token = readAccountToken(state.profile.name);
-    if (!send({ type: "join", ...state.profile, ...(token ? { token } : {}) })) return;
+    if (!send({ type: "join", protocol: CLIENT_PROTOCOL, ...state.profile, ...(token ? { token } : {}) })) return;
     state.pendingJoin = false;
     applyProfileToHud();
   }
@@ -771,6 +776,11 @@
   function handleMessage(message) {
     const type = String(message.type || "").toLowerCase();
     if (type === "welcome") {
+      const serverProtocol = finite(message.protocol, CLIENT_PROTOCOL);
+      if (serverProtocol !== CLIENT_PROTOCOL) {
+        ui.joinError.textContent = "客户端与服务器协议版本不一致，请强制刷新页面（Ctrl+Shift+R）";
+        ui.joinError.hidden = false;
+      }
       state.id = String(first(message.id, message.playerId, message.clientId, state.id, ""));
       applyMap(first(message.map, message.world));
       const rebirthLevel = finite(message.rebirthLevel, NaN);
@@ -1500,6 +1510,7 @@
       NAME_IN_USE: "该呼号已在线，请换一个呼号",
       INVALID_TOKEN: "该呼号已在其他设备注册，本机凭证不符",
       RATE_LIMITED: "指令过于频繁，请稍候",
+      PROTOCOL_MISMATCH: "客户端版本过旧，请强制刷新页面（Ctrl+Shift+R）",
       NO_STAT_POINTS: "没有可用属性点",
       NO_SKILL_POINTS: "没有可用技能点",
       RESPAWN_NOT_READY: "信号尚未恢复",
@@ -4223,19 +4234,69 @@
   });
 
   // HUD panels can be rearranged for different screen sizes and collapsed
-  // without changing the underlying game layout.
+  // without changing the underlying game layout. Positions and collapsed
+  // state persist in localStorage and are clamped back on-screen whenever
+  // the viewport shrinks.
+  const HUD_LAYOUT_KEY = "crimson-relay-hud-layout";
+
+  function loadHudLayout() {
+    try {
+      const stored = JSON.parse(localStorage.getItem(HUD_LAYOUT_KEY));
+      return stored && typeof stored === "object" ? stored : {};
+    } catch (_error) {
+      return {};
+    }
+  }
+
+  const hudLayout = loadHudLayout();
+
+  function saveHudLayout() {
+    try {
+      localStorage.setItem(HUD_LAYOUT_KEY, JSON.stringify(hudLayout));
+    } catch (_error) {
+      // Storage unavailable: layout just resets next reload.
+    }
+  }
+
+  function panelKey(panel) {
+    return panel.id || panel.classList[0];
+  }
+
+  function clampPanel(panel) {
+    if (!panel.style.left && !panel.style.top) return; // still CSS-anchored
+    const maxX = Math.max(0, window.innerWidth - panel.offsetWidth);
+    const maxY = Math.max(0, window.innerHeight - 36);
+    panel.style.left = `${clamp(parseFloat(panel.style.left) || 0, 0, maxX)}px`;
+    panel.style.top = `${clamp(parseFloat(panel.style.top) || 0, 0, maxY)}px`;
+  }
+
   let draggedPanel = null;
   let dragOffsetX = 0;
   let dragOffsetY = 0;
   document.querySelectorAll(".hud > aside").forEach((panel) => {
     const handle = panel.querySelector("[data-drag-handle]");
     const toggle = panel.querySelector("[data-panel-toggle]");
+    const stored = hudLayout[panelKey(panel)];
+    if (stored && Number.isFinite(stored.left) && Number.isFinite(stored.top)) {
+      panel.style.left = `${stored.left}px`;
+      panel.style.top = `${stored.top}px`;
+      panel.style.right = "auto";
+      panel.style.bottom = "auto";
+      clampPanel(panel);
+    }
     if (toggle) {
+      if (stored?.collapsed) {
+        panel.classList.add("is-collapsed");
+        toggle.textContent = "+";
+        toggle.title = "展开窗口";
+      }
       toggle.addEventListener("click", (event) => {
         event.stopPropagation();
         const collapsed = panel.classList.toggle("is-collapsed");
         toggle.textContent = collapsed ? "+" : "−";
         toggle.title = collapsed ? "展开窗口" : "折叠窗口";
+        hudLayout[panelKey(panel)] = { ...hudLayout[panelKey(panel)], collapsed };
+        saveHudLayout();
       });
     }
     if (!handle) return;
@@ -4262,9 +4323,19 @@
     draggedPanel.style.top = `${clamp(event.clientY - dragOffsetY, 0, maxY)}px`;
   });
   window.addEventListener("pointerup", () => {
-    if (draggedPanel) draggedPanel.style.zIndex = "";
+    if (!draggedPanel) return;
+    draggedPanel.style.zIndex = "";
+    hudLayout[panelKey(draggedPanel)] = {
+      ...hudLayout[panelKey(draggedPanel)],
+      left: parseFloat(draggedPanel.style.left) || 0,
+      top: parseFloat(draggedPanel.style.top) || 0,
+    };
+    saveHudLayout();
     draggedPanel = null;
   });
+  window.addEventListener("resize", () => {
+    document.querySelectorAll(".hud > aside").forEach(clampPanel);
+  }, { passive: true });
 
   window.addEventListener("keydown", (event) => {
     if (event.target instanceof HTMLInputElement) return;

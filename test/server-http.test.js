@@ -66,7 +66,7 @@ test("WebSocket emits welcome, accepts join, and reports protocol errors", async
     ["bulwark", "channeler", "eclipse", "longshot", "moonblade", "pyre", "strider", "vanguard"],
   );
 
-  socket.send(JSON.stringify({ type: "join", name: "Tester", archetype: "vanguard" }));
+  socket.send(JSON.stringify({ type: "join", protocol: 2, name: "Tester", archetype: "vanguard" }));
   const session = await messages.next("session");
   assert.equal(session.name, "Tester");
   assert.ok(typeof session.token === "string" && session.token.length > 0);

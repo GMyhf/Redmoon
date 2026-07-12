@@ -17,6 +17,7 @@ import {
   LEVEL_CAP,
   PARTY_LIMIT,
   PARTY_XP_RANGE,
+  PROTOCOL_VERSION,
   PARTY_XP_SHARE,
   QUEST_CHAIN,
   SHOPS,
@@ -181,6 +182,15 @@ export class World {
     const playerId = validateId(id);
     if (this.players.has(playerId)) {
       throw new WorldError("ALREADY_JOINED", "This connection already joined the world.");
+    }
+
+    // Clients that declare a protocol version must match; joins without one
+    // (older clients, scripted tools) are still accepted.
+    if (options.protocol !== undefined && options.protocol !== PROTOCOL_VERSION) {
+      throw new WorldError(
+        "PROTOCOL_MISMATCH",
+        `This server speaks protocol ${PROTOCOL_VERSION}; refresh the client.`,
+      );
     }
 
     const archetype = options.archetype ?? "vanguard";
