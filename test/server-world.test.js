@@ -935,6 +935,62 @@ test("projectiles stay on the map where they were fired", () => {
   assert.equal(bystander.hp, bystander.maxHp, "no cross-map collision");
 });
 
+test("snapshots share per-map arrays and only send full detail to the owner", () => {
+  const world = new World({
+    rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, autoLevel: false,
+  });
+  const alpha = world.addPlayer("alpha-1", { name: "Alpha", archetype: "vanguard" });
+  world.addPlayer("beta-1", { name: "Beta", archetype: "strider" });
+  world.handleCommand("alpha-1", { type: "friendAdd", name: "Beta" });
+  world.spawnMob({ id: "shared-mob", x: alpha.x + 400, y: alpha.y });
+  alpha.inventory.push({
+    id: "item-secret", slot: "weapon", rarity: "common", tier: 1, level: 1,
+    name: "pulse-blade", bonuses: { power: 3 },
+  });
+
+  // With a broadcast cache, both recipients reuse the same map build.
+  const cache = new Map();
+  const forAlpha = world.getSnapshot("alpha-1", cache);
+  const forBeta = world.getSnapshot("beta-1", cache);
+  assert.equal(forAlpha.enemies, forBeta.enemies, "enemy array built once per map");
+  assert.equal(forAlpha.drops, forBeta.drops);
+  assert.equal(forAlpha.world, forBeta.world);
+
+  // Redundant duplicate fields are gone from the payload.
+  assert.equal(forAlpha.mobs, undefined, "mobs duplicate removed");
+  assert.equal(forAlpha.portals, undefined, "top-level portals duplicate removed");
+  assert.ok(forAlpha.world.portals.length > 0, "portals still ship inside world");
+
+  // Alpha's own entry is full; Beta's view of Alpha is slim.
+  const selfEntry = forAlpha.players.find((entry) => entry.id === "alpha-1");
+  assert.equal(selfEntry.inventory.length, 1);
+  assert.deepEqual(selfEntry.friends, [{ name: "Beta", online: true }]);
+  assert.ok(selfEntry.skills, "self entry keeps skill details");
+  const alphaSeenByBeta = forBeta.players.find((entry) => entry.id === "alpha-1");
+  assert.equal(alphaSeenByBeta.inventory, undefined, "no inventory for other players");
+  assert.equal(alphaSeenByBeta.gold, undefined, "no wallet for other players");
+  assert.equal(alphaSeenByBeta.friends, undefined, "no friend list for other players");
+  assert.equal(alphaSeenByBeta.skills, undefined, "no skill details for other players");
+  assert.equal(alphaSeenByBeta.hp, selfEntry.hp, "render scalars still present");
+  assert.ok(alphaSeenByBeta.equipment, "equipment shape data still present");
+
+  // Equipped items are trimmed to render fields for other players.
+  alpha.inventory.push({
+    id: "item-blade", slot: "weapon", rarity: "resonant", tier: 3, level: 1,
+    name: "pulse-blade", bonuses: { power: 5 }, damageBonus: 0.12,
+  });
+  world.equipItem("alpha-1", "item-blade");
+  const refreshed = world.getSnapshot("beta-1", new Map());
+  const weapon = refreshed.players.find((entry) => entry.id === "alpha-1").equipment.weapon;
+  assert.equal(weapon.rarity, "resonant", "rarity glow data kept");
+  assert.equal(weapon.name, "pulse-blade", "weapon shape data kept");
+  assert.equal(weapon.bonuses, undefined, "stat details stripped for others");
+
+  // Without a cache each call still builds a fresh, correct snapshot.
+  const fresh = world.getSnapshot("alpha-1");
+  assert.equal(fresh.players.find((entry) => entry.id === "alpha-1").inventory.length, 1);
+});
+
 test("accounts are claimed by a session token on first join", () => {
   const store = {};
   const world = new World({

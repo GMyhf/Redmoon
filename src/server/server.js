@@ -179,9 +179,12 @@ export class GameServer {
         const snapshotEvery = Math.max(1, Math.round(this.tickRate / this.snapshotRate));
         if (this._snapshotCounter >= snapshotEvery) {
           this._snapshotCounter = 0;
+          // One shared per-map build for the whole broadcast; only the
+          // recipient's own full entry is serialized per socket.
+          const sharedCache = new Map();
           for (const socket of this.wss.clients) {
             if (socket.readyState !== WebSocket.OPEN || !this.world.players.has(socket.playerId)) continue;
-            send(socket, this.world.getSnapshot(socket.playerId));
+            send(socket, this.world.getSnapshot(socket.playerId, sharedCache));
           }
         }
       } catch (error) {

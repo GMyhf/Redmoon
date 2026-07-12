@@ -941,9 +941,39 @@ export class World {
     return this.getSnapshot();
   }
 
-  getSnapshot(selfId = null) {
+  // The heavy per-map arrays are identical for every recipient on a map, so
+  // the gateway passes one Map per broadcast and each map is built once; only
+  // the recipient's own full player entry differs per socket.
+  getSnapshot(selfId = null, sharedCache = null) {
     const self = selfId ? this.players.get(selfId) : null;
     const mapId = self?.mapId ?? null;
+    const cacheKey = mapId ?? "*";
+    let shared = sharedCache?.get(cacheKey);
+    if (!shared) {
+      shared = this._buildMapSnapshot(mapId);
+      sharedCache?.set(cacheKey, shared);
+    }
+    const players = self
+      ? shared.players.map((entry) => (
+        entry.id === selfId ? this._serializePlayer(self, shared.onlineNames) : entry
+      ))
+      : shared.players;
+    return {
+      type: "snapshot",
+      tick: this.tick,
+      serverTime: round(this.time),
+      selfId,
+      world: shared.world,
+      safeZone: shared.safeZone,
+      players,
+      enemies: shared.enemies,
+      projectiles: shared.projectiles,
+      drops: shared.drops,
+      mapId,
+    };
+  }
+
+  _buildMapSnapshot(mapId) {
     const mapTheme = this.zones.find((entry) => entry.id === mapId)?.theme
       ?? ({
         town: "town",
@@ -1003,11 +1033,8 @@ export class World {
       color: projectile.color,
     }));
 
+    const onlineNames = this._onlineNames();
     return {
-      type: "snapshot",
-      tick: this.tick,
-      serverTime: round(this.time),
-      selfId,
       world: {
         name: MAP_NAMES[mapId] ?? this.name,
         width: this.width,
@@ -1023,14 +1050,18 @@ export class World {
           : [],
       },
       safeZone: mapId === "town" && this.safeZone ? { ...this.safeZone } : null,
-      portals: this.portals.filter((portal) => !mapId || portal.mapId === mapId).map((portal) => ({ ...portal })),
-      players: [...this.players.values()].filter(visible).map((player) => this._serializePlayer(player)),
+      players: [...this.players.values()].filter(visible).map((player) => this._serializePlayerPublic(player)),
       enemies,
-      mobs: enemies,
       projectiles,
       drops,
-      mapId,
+      onlineNames,
     };
+  }
+
+  _onlineNames() {
+    const names = new Set();
+    for (const player of this.players.values()) names.add(player.name);
+    return names;
   }
 
   drainEvents() {
@@ -1919,28 +1950,15 @@ export class World {
     player.mp = Math.min(player.mp, player.maxMp);
   }
 
-  _serializePlayer(player) {
-    const archetype = ARCHETYPES[player.archetype];
-    const skills = Object.fromEntries(SKILL_SLOTS.map((slot) => {
-      const definition = skillDefinition(player.archetype, slot);
-      return [slot, {
-        id: definition.id,
-        name: definition.name,
-        level: player.skillLevels[slot],
-        maxLevel: definition.maxLevel,
-        cooldown: definition.cooldown,
-        remaining: round(Math.max(0, player.nextSkillAt[slot] - this.time)),
-        unlockLevel: definition.unlockLevel ?? 1,
-        unlocked: player.level >= (definition.unlockLevel ?? 1),
-      }];
-    }));
+  // Scalar fields every client needs to render any player on screen.
+  _serializePlayerBase(player) {
     return {
       id: player.id,
       name: player.name,
       archetype: player.archetype,
       mapId: player.mapId,
       running: player.running === true,
-      color: archetype.color,
+      color: ARCHETYPES[player.archetype].color,
       x: round(player.x),
       y: round(player.y),
       radius: player.radius,
@@ -1961,23 +1979,58 @@ export class World {
         : null,
       alive: player.alive,
       respawnIn: round(Math.max(0, player.respawnAvailableAt - this.time)),
-      moveTarget: player.moveTarget ? { x: round(player.moveTarget.x), y: round(player.moveTarget.y) } : null,
       targetId: player.attackTarget,
+      rebirths: player.rebirths,
+      level: player.level,
+    };
+  }
+
+  // What other players see: base scalars plus equipment trimmed to the
+  // fields the renderer reads (shape by name, glow by rarity/dropClass) —
+  // no inventory, wallet, friends, quest, or skill details.
+  _serializePlayerPublic(player) {
+    return {
+      ...this._serializePlayerBase(player),
+      equipment: Object.fromEntries(
+        EQUIP_KEYS.map((key) => [
+          key,
+          player.equipment[key] ? publicItem(player.equipment[key]) : null,
+        ]),
+      ),
+    };
+  }
+
+  _serializePlayer(player, onlineNames = null) {
+    const online = onlineNames ?? this._onlineNames();
+    const skills = Object.fromEntries(SKILL_SLOTS.map((slot) => {
+      const definition = skillDefinition(player.archetype, slot);
+      return [slot, {
+        id: definition.id,
+        name: definition.name,
+        level: player.skillLevels[slot],
+        maxLevel: definition.maxLevel,
+        cooldown: definition.cooldown,
+        remaining: round(Math.max(0, player.nextSkillAt[slot] - this.time)),
+        unlockLevel: definition.unlockLevel ?? 1,
+        unlocked: player.level >= (definition.unlockLevel ?? 1),
+      }];
+    }));
+    return {
+      ...this._serializePlayerBase(player),
+      moveTarget: player.moveTarget ? { x: round(player.moveTarget.x), y: round(player.moveTarget.y) } : null,
       autoFight: player.autoFight,
       autoLevel: player.autoLevel,
       gold: player.gold,
       dew: player.dew,
       friends: player.friends.map((name) => ({
         name,
-        online: [...this.players.values()].some((other) => other.name === name),
+        online: online.has(name),
       })),
       party: player.partyId
         ? (this.parties.get(player.partyId)?.members ?? [])
           .map((memberId) => this.players.get(memberId)?.name)
           .filter(Boolean)
         : [],
-      rebirths: player.rebirths,
-      level: player.level,
       xp: round(player.xp),
       xpToNext: player.xpToNext,
       quest: (() => {
@@ -2530,6 +2583,20 @@ function itemPower(item) {
   score += (item.defenseBonus ?? 0) * 600;
   if (item.attackFormula) score += 300;
   return score;
+}
+
+// The slim item record other players receive: enough to draw the weapon
+// shape, rarity glow, and special-drop halo, nothing about the stats.
+function publicItem(item) {
+  return {
+    id: item.id,
+    slot: item.slot,
+    rarity: item.rarity,
+    tier: item.tier,
+    level: item.level ?? 1,
+    name: item.name,
+    ...(item.dropClass !== undefined ? { dropClass: item.dropClass } : {}),
+  };
 }
 
 function serializeItem(item) {
