@@ -367,8 +367,13 @@ async function serveFile(filePath, method, response) {
   }
   if (!metadata.isFile()) return false;
 
+  // Code (HTML/JS/CSS) iterates fast and must never be stale — a cached
+  // client.js against a newer server shows subtle wrong behaviour. Images
+  // keep a short cache and use ?v= busting.
+  const extension = path.extname(filePath).toLowerCase();
+  const isCode = extension === ".html" || extension === ".js" || extension === ".css";
   response.writeHead(200, {
-    "Cache-Control": path.basename(filePath) === "index.html" ? "no-cache" : "public, max-age=300",
+    "Cache-Control": isCode ? "no-cache" : "public, max-age=300",
     "Content-Length": metadata.size,
     "Content-Type": CONTENT_TYPES[path.extname(filePath).toLowerCase()] ?? "application/octet-stream",
     "X-Content-Type-Options": "nosniff",

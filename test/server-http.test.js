@@ -30,6 +30,20 @@ test("HTTP serves the client and health status", async (t) => {
   assert.match(index.headers.get("content-type"), /^text\/html/);
   assert.match(await index.text(), /<!doctype html>/i);
 
+  // Code is never cached (a stale client.js against a newer server shows
+  // subtly wrong behaviour); images keep a short cache with ?v= busting.
+  for (const [asset, expected] of [
+    ["/client.js", "no-cache"],
+    ["/data.js", "no-cache"],
+    ["/styles.css", "no-cache"],
+    ["/assets/heroes/vanguard.webp", "public, max-age=300"],
+  ]) {
+    const response = await fetch(`http://127.0.0.1:${port}${asset}`);
+    assert.equal(response.status, 200, `${asset} served`);
+    assert.equal(response.headers.get("cache-control"), expected, `${asset} cache policy`);
+    await response.arrayBuffer();
+  }
+
   for (const asset of [
     "/assets/heroes/vanguard.webp",
     "/assets/heroes/vanguard-3d.webp",
