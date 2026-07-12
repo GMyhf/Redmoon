@@ -65,6 +65,10 @@ test("WebSocket emits welcome, accepts join, and reports protocol errors", async
     Object.keys(welcome.archetypes).sort(),
     ["bulwark", "channeler", "eclipse", "longshot", "moonblade", "pyre", "strider", "vanguard"],
   );
+  // The roster UI reads these numbers from the server, not a local copy.
+  assert.deepEqual(welcome.archetypes.vanguard.stats, { power: 6, agility: 3, spirit: 2, vitality: 7 });
+  assert.equal(welcome.archetypes.vanguard.skills.r.unlockLevel, 5);
+  assert.equal(welcome.archetypes.vanguard.skills.c.unlockLevel, 10);
 
   socket.send(JSON.stringify({ type: "join", protocol: 2, name: "Tester", archetype: "vanguard" }));
   const session = await messages.next("session");
@@ -78,6 +82,49 @@ test("WebSocket emits welcome, accepts join, and reports protocol errors", async
   socket.send("not-json");
   const error = await messages.next("error");
   assert.equal(error.code, "INVALID_JSON");
+});
+
+test("the gateway rejects out-of-order, unknown, binary, and oversized traffic", async (t) => {
+  const server = createGameServer({
+    host: "127.0.0.1",
+    port: 0,
+    persistPath: "",
+    world: new World({ rng: () => 0.5, mobTargetCount: 0, spawnMobs: false }),
+  });
+  await server.listen();
+  t.after(() => server.close());
+  const socket = new WebSocket(`ws://127.0.0.1:${server.address().port}/ws`);
+  t.after(() => socket.terminate());
+  const messages = messageQueue(socket);
+  await messages.next("welcome");
+
+  // Commands before join are refused.
+  socket.send(JSON.stringify({ type: "input", seq: 1, move: { x: 1, y: 0 } }));
+  assert.equal((await messages.next("error")).code, "NOT_JOINED");
+
+  socket.send(JSON.stringify({ type: "join", protocol: 2, name: "Probe", archetype: "vanguard" }));
+  await messages.next("snapshot");
+
+  // Unknown commands and double joins are refused.
+  socket.send(JSON.stringify({ type: "dance" }));
+  assert.equal((await messages.next("error")).code, "UNKNOWN_MESSAGE");
+  socket.send(JSON.stringify({ type: "join", protocol: 2, name: "Probe2", archetype: "vanguard" }));
+  assert.equal((await messages.next("error")).code, "ALREADY_JOINED");
+
+  // Binary frames are refused.
+  socket.send(Buffer.from([1, 2, 3]), { binary: true });
+  assert.equal((await messages.next("error")).code, "INVALID_MESSAGE");
+
+  // A frame beyond the 16 KiB cap terminates the connection (ws maxPayload).
+  const closed = new Promise((resolve) => socket.once("close", resolve));
+  socket.send(`{"type":"input","padding":"${"x".repeat(17 * 1024)}"}`);
+  await closed;
+  assert.ok(socket.readyState >= WebSocket.CLOSING, "oversized frame closes the socket");
+  // The server-side close handler may land a beat after the client sees it.
+  for (let waited = 0; waited < 50 && server.world.players.size > 0; waited += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(server.world.players.size, 0, "the closed player is removed from the world");
 });
 
 test("a flooding connection is rate limited without stalling the world", async (t) => {

@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 
+import { rollItem, rollPotion, rollRelic, rollSpecialDrop } from "./loot.js";
 import {
   ALLOC_WEIGHTS,
   ARCHETYPES,
+  BASE_STATS,
   BOSSES,
   DEW_DROP_CHANCE,
   DROP_MAGNET_RADIUS,
@@ -12,7 +14,6 @@ import {
   EQUIP_KEYS,
   GOLD_PER_MOB_LEVEL,
   INVENTORY_LIMIT,
-  ITEM_BASES,
   ITEM_SLOTS,
   LEVEL_CAP,
   PARTY_LIMIT,
@@ -21,11 +22,9 @@ import {
   PARTY_XP_SHARE,
   QUEST_CHAIN,
   SHOPS,
+  SKILL_BEHAVIORS,
   MOB_TYPES,
   PORTAL_DESTINATIONS,
-  RARITIES,
-  RELIC_JEWELRY,
-  RELIC_WEAPONS,
   REPUTATION_LIMIT,
   RING_KEYS,
   SOUL_BARRIER,
@@ -61,7 +60,6 @@ const ACCOUNT_FIELDS = Object.freeze([
   "attunement", "gold", "dew", "friends", "inventory", "equipment", "quest",
 ]);
 const MAX_MOB_LEVEL = 18;
-const MAX_ITEM_LEVEL = 20;
 const ELITE_CHANCE = 0.1;
 const BOSS_RESPAWN_DELAY = 90;
 const PORTAL_RADIUS = 30;
@@ -91,17 +89,6 @@ const MAP_NAMES = Object.freeze({
   castle: "坠落城堡",
   starship: "失落星港",
   skycity: "悬空天城",
-});
-
-const BASE_STATS = Object.freeze({
-  vanguard: Object.freeze({ power: 6, agility: 3, spirit: 2, vitality: 7 }),
-  channeler: Object.freeze({ power: 2, agility: 4, spirit: 7, vitality: 4 }),
-  strider: Object.freeze({ power: 4, agility: 7, spirit: 3, vitality: 4 }),
-  bulwark: Object.freeze({ power: 7, agility: 2, spirit: 2, vitality: 8 }),
-  longshot: Object.freeze({ power: 4, agility: 8, spirit: 3, vitality: 3 }),
-  pyre: Object.freeze({ power: 2, agility: 3, spirit: 8, vitality: 5 }),
-  moonblade: Object.freeze({ power: 5, agility: 7, spirit: 3, vitality: 3 }),
-  eclipse: Object.freeze({ power: 3, agility: 4, spirit: 7, vitality: 4 }),
 });
 
 export class WorldError extends Error {
@@ -609,6 +596,9 @@ export class World {
     const player = this._requirePlayer(id);
     if (!EQUIP_KEYS.includes(key)) {
       throw new WorldError("INVALID_SLOT", `slot must be one of: ${EQUIP_KEYS.join(", ")}`);
+    }
+    if (!player.alive) {
+      throw new WorldError("PLAYER_DEAD", "Equipment cannot be changed while defeated.");
     }
     const item = player.equipment[key];
     if (!item) {
@@ -1407,152 +1397,12 @@ export class World {
     const cooldownReduction = 1 - Math.min(0.4, (level - 1) * 0.05);
     player.nextSkillAt[slot] = this.time + skill.cooldown * cooldownReduction;
 
-    if (slot === "r") {
-      for (const angle of [-0.26, -0.13, 0, 0.13, 0.26]) {
-        this._spawnProjectile(player, rotate(direction, angle), {
-          damage: 18 + level * 7 + (this._statTotal(player, "power") + this._statTotal(player, "spirit")) * 0.9,
-          speed: 690, range: 470, radius: 8, color: archetype.color,
-        });
-      }
-    } else if (slot === "c") {
-      this._movePlayer(player, direction, 90 + level * 8);
-      this._radialBurst(player, 8, {
-        damage: 12 + level * 5 + this._statTotal(player, "agility") * 1.2,
-        speed: 500, range: 170 + level * 9, radius: 8, color: archetype.color,
-      });
-    } else if (player.archetype === "eclipse") {
+    if (player.archetype === "eclipse" && slot !== "r" && slot !== "c") {
       this._useEclipseSkill(player, slot, direction, level);
-    } else if (slot === "f") {
-      this._useUltimate(player, direction, level, archetype);
-    } else if (player.archetype === "vanguard" && slot === "q") {
-      this._movePlayer(player, direction, 94 + level * 10);
-      this._spawnProjectile(player, direction, {
-        damage: 25 + level * 8 + this._statTotal(player, "power") * 2.1,
-        speed: 560,
-        range: 250 + level * 15,
-        radius: 15,
-        color: archetype.color,
-      });
-    } else if (player.archetype === "vanguard") {
-      this._radialBurst(player, 8 + level, {
-        damage: 12 + level * 5 + this._statTotal(player, "power") * 1.25,
-        speed: 440,
-        range: 180 + level * 16,
-        radius: 10,
-        color: archetype.color,
-      });
-    } else if (player.archetype === "channeler" && slot === "q") {
-      this._spawnProjectile(player, direction, {
-        damage: 27 + level * 9 + this._statTotal(player, "spirit") * 2.25,
-        speed: 750,
-        range: 760,
-        radius: 11,
-        pierce: 2 + Math.floor(level / 2),
-        color: archetype.color,
-      });
-    } else if (player.archetype === "channeler") {
-      this._radialBurst(player, 8 + level * 2, {
-        damage: 13 + level * 5 + this._statTotal(player, "spirit") * 1.35,
-        speed: 520,
-        range: 360 + level * 20,
-        radius: 7,
-        color: archetype.color,
-      });
-    } else if (player.archetype === "strider" && slot === "q") {
-      for (const angle of [-0.16, 0, 0.16]) {
-        this._spawnProjectile(player, rotate(direction, angle), {
-          damage: 17 + level * 6 + this._statTotal(player, "agility") * 1.45,
-          speed: 820,
-          range: 680,
-          radius: 6,
-          color: archetype.color,
-        });
-      }
-    } else if (player.archetype === "strider") {
-      this._movePlayer(player, direction, 130 + level * 15);
-      for (const angle of [-0.1, 0.1]) {
-        this._spawnProjectile(player, rotate(direction, angle), {
-          damage: 19 + level * 7 + this._statTotal(player, "agility") * 1.6,
-          speed: 780,
-          range: 500,
-          radius: 7,
-          color: archetype.color,
-        });
-      }
-    } else if (player.archetype === "bulwark" && slot === "q") {
-      this._radialBurst(player, 10, {
-        damage: 16 + level * 6 + this._statTotal(player, "power") * 1.6,
-        speed: 420,
-        range: 150 + level * 12,
-        radius: 11,
-        color: archetype.color,
-      });
-    } else if (player.archetype === "bulwark") {
-      this._movePlayer(player, direction, 110 + level * 12);
-      this._spawnProjectile(player, direction, {
-        damage: 30 + level * 9 + this._statTotal(player, "power") * 2.2,
-        speed: 520,
-        range: 220 + level * 14,
-        radius: 16,
-        color: archetype.color,
-      });
-    } else if (player.archetype === "longshot" && slot === "q") {
-      this._spawnProjectile(player, direction, {
-        damage: 30 + level * 10 + this._statTotal(player, "agility") * 1.8,
-        speed: 1100,
-        range: 900,
-        radius: 7,
-        pierce: 4 + Math.floor(level / 2),
-        color: archetype.color,
-      });
-    } else if (player.archetype === "longshot") {
-      this._movePlayer(player, { x: -direction.x, y: -direction.y }, 120 + level * 10);
-      for (const angle of [-0.18, 0, 0.18]) {
-        this._spawnProjectile(player, rotate(direction, angle), {
-          damage: 14 + level * 5 + this._statTotal(player, "agility") * 1.3,
-          speed: 800,
-          range: 480,
-          radius: 6,
-          color: archetype.color,
-        });
-      }
-    } else if (player.archetype === "pyre" && slot === "q") {
-      this._radialBurst(player, 12 + level, {
-        damage: 15 + level * 6 + this._statTotal(player, "spirit") * 1.5,
-        speed: 480,
-        range: 240 + level * 18,
-        radius: 9,
-        color: archetype.color,
-      });
-    } else if (player.archetype === "pyre") {
-      for (const angle of [-0.3, -0.15, 0, 0.15, 0.3]) {
-        this._spawnProjectile(player, rotate(direction, angle), {
-          damage: 16 + level * 6 + this._statTotal(player, "spirit") * 1.7,
-          speed: 600,
-          range: 420,
-          radius: 8,
-          color: archetype.color,
-        });
-      }
-    } else if (player.archetype === "moonblade" && slot === "q") {
-      this._radialBurst(player, 10, {
-        damage: 13 + level * 5 + this._statTotal(player, "agility") * 1.5,
-        speed: 520,
-        range: 120 + level * 10,
-        radius: 9,
-        color: archetype.color,
-      });
     } else {
-      this._movePlayer(player, direction, 150 + level * 15);
-      for (const angle of [-0.08, 0.08]) {
-        this._spawnProjectile(player, rotate(direction, angle), {
-          damage: 20 + level * 7 + this._statTotal(player, "agility") * 1.7,
-          speed: 820,
-          range: 320,
-          radius: 7,
-          color: archetype.color,
-        });
-      }
+      const behavior = SKILL_BEHAVIORS[`${player.archetype}:${slot}`]
+        ?? SKILL_BEHAVIORS[`shared:${slot}`];
+      this._castBehavior(player, behavior, direction, level, archetype.color);
     }
 
     this._emit("skillUsed", {
@@ -1648,94 +1498,34 @@ export class World {
 
   // Ultimates: one signature finisher per hero, built from the same
   // authoritative projectile primitives as the rest of the kit.
-  _useUltimate(player, direction, level, archetype) {
-    const color = archetype.color;
-    switch (player.archetype) {
-      case "vanguard":
-        this._radialBurst(player, 16, {
-          damage: 34 + level * 12 + this._statTotal(player, "power") * 2.4,
-          speed: 460,
-          range: 260 + level * 24,
-          radius: 14,
-          color,
-        });
-        break;
-      case "channeler":
-        this._spawnProjectile(player, direction, {
-          damage: 55 + level * 18 + this._statTotal(player, "spirit") * 3,
-          speed: 380,
-          range: 900,
-          radius: 26,
-          pierce: 40,
-          color,
-        });
-        break;
-      case "strider":
-        this._movePlayer(player, direction, 200 + level * 20);
-        this._radialBurst(player, 12, {
-          damage: 24 + level * 9 + this._statTotal(player, "agility") * 2,
-          speed: 720,
-          range: 380,
-          radius: 8,
-          color,
-        });
-        break;
-      case "bulwark":
-        this._radialBurst(player, 20, {
-          damage: 30 + level * 11 + this._statTotal(player, "power") * 2.6,
-          speed: 400,
-          range: 230 + level * 20,
-          radius: 13,
-          color,
-        });
-        break;
-      case "longshot":
-        for (const angle of [-0.12, -0.06, 0, 0.06, 0.12]) {
-          this._spawnProjectile(player, rotate(direction, angle), {
-            damage: 36 + level * 12 + this._statTotal(player, "agility") * 2.2,
-            speed: 1100,
-            range: 1100,
-            radius: 7,
-            pierce: 8,
-            color,
-          });
+  // Interprets a SKILL_BEHAVIORS step list (see definitions.js for the
+  // schema). Steps execute in order, so a dash moves the caster before its
+  // projectiles spawn from the new position.
+  _castBehavior(player, steps, direction, level, color) {
+    const scale = ([base, perLevel]) => base + perLevel * level;
+    for (const step of steps) {
+      if (step.act === "dash") {
+        const heading = step.back ? { x: -direction.x, y: -direction.y } : direction;
+        this._movePlayer(player, heading, scale(step.distance));
+        continue;
+      }
+      const [damageBase, damagePerLevel, stats, statMultiplier] = step.damage;
+      const options = {
+        damage: damageBase + damagePerLevel * level
+          + stats.reduce((sum, stat) => sum + this._statTotal(player, stat), 0) * statMultiplier,
+        speed: step.speed,
+        range: scale(step.range),
+        radius: step.radius,
+        color,
+        ...(step.pierce ? { pierce: step.pierce[0] + Math.floor(level / 2) * step.pierce[1] } : {}),
+      };
+      if (step.act === "burst") {
+        this._radialBurst(player, scale(step.count), options);
+      } else {
+        for (const angle of step.angles) {
+          this._spawnProjectile(player, rotate(direction, angle), options);
         }
-        break;
-      case "pyre":
-        this._radialBurst(player, 14, {
-          damage: 26 + level * 10 + this._statTotal(player, "spirit") * 2,
-          speed: 420,
-          range: 320 + level * 26,
-          radius: 11,
-          color,
-        });
-        this._radialBurst(player, 10, {
-          damage: 20 + level * 8 + this._statTotal(player, "spirit") * 1.4,
-          speed: 620,
-          range: 200 + level * 16,
-          radius: 9,
-          color,
-        });
-        break;
-      default: // moonblade
-        this._movePlayer(player, direction, 180 + level * 18);
-        this._radialBurst(player, 12, {
-          damage: 22 + level * 9 + this._statTotal(player, "agility") * 2.1,
-          speed: 640,
-          range: 240,
-          radius: 9,
-          color,
-        });
-        for (const angle of [-0.1, 0.1]) {
-          this._spawnProjectile(player, rotate(direction, angle), {
-            damage: 28 + level * 10 + this._statTotal(player, "agility") * 1.8,
-            speed: 860,
-            range: 420,
-            radius: 8,
-            color,
-          });
-        }
-        break;
+      }
     }
   }
 
@@ -2314,131 +2104,26 @@ export class World {
     return null;
   }
 
+  // Thin adapters over src/server/loot.js: the world contributes only its
+  // rng stream and the item id sequence.
+  _nextItemId() {
+    return `item-${++this._itemSequence}`;
+  }
+
   _rollSpecialDrop(kind, level) {
-    const pool = SPECIAL_DROPS[kind];
-    const template = pool.templates[Math.floor(clamp(this.rng(), 0, 0.999999) * pool.templates.length)];
-    const itemLevel = Math.min(MAX_ITEM_LEVEL, Math.max(pool.minLevel, level + 1));
-    const bonuses = zeroStats();
-    bonuses[template.stat] = kind === "sunset" ? 30 + itemLevel * 3 : 16 + itemLevel * 2;
-    return {
-      id: `item-${++this._itemSequence}`,
-      slot: template.slot,
-      rarity: pool.rarity,
-      dropClass: kind,
-      tier: pool.tier,
-      level: itemLevel,
-      name: template.name,
-      bonuses,
-      ...(template.damage ? { damageBonus: template.damage } : {}),
-      ...(template.hp ? { hpBonus: template.hp + itemLevel * 4 } : {}),
-      ...(template.speed ? { speedBonus: template.speed } : {}),
-      ...(template.defense ? { defenseBonus: template.defense } : {}),
-    };
+    return rollSpecialDrop(this.rng, () => this._nextItemId(), kind, level);
   }
 
   _rollPotion(level) {
-    return {
-      id: `item-${++this._itemSequence}`,
-      slot: "potion",
-      rarity: "common",
-      tier: 1,
-      level: 1,
-      name: "Mending Vial",
-      bonuses: zeroStats(),
-      heal: 30 + level * 8,
-    };
+    return rollPotion(() => this._nextItemId(), level);
   }
 
   _rollItem(level, minTier = 1) {
-    const slot = ITEM_SLOTS[Math.floor(clamp(this.rng(), 0, 0.999999) * ITEM_SLOTS.length)];
-    const pool = RARITIES.filter((entry) => entry.tier >= minTier);
-    const weights = pool.map((rarity) => rarity.baseWeight + rarity.levelWeight * (level - 1));
-    const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
-    let roll = clamp(this.rng(), 0, 0.999999) * totalWeight;
-    let rarity = pool[0];
-    for (let index = 0; index < pool.length; index += 1) {
-      roll -= weights[index];
-      if (roll < 0) {
-        rarity = pool[index];
-        break;
-      }
-    }
-
-    const bases = ITEM_BASES[slot];
-    const name = bases[Math.floor(clamp(this.rng(), 0, 0.999999) * bases.length)];
-    const itemLevel = Math.min(MAX_ITEM_LEVEL, Math.max(1, level + rarity.tier - 1));
-    const bonuses = zeroStats();
-    // Stat budget grows with item level, so late gear meaningfully raises
-    // 力量/敏捷/精神/体魄 alongside its slot bonus.
-    let budget = rarity.tier * 2 + itemLevel;
-    while (budget > 0) {
-      bonuses[STAT_KEYS[Math.floor(clamp(this.rng(), 0, 0.999999) * STAT_KEYS.length)]] += 1;
-      budget -= 1;
-    }
-
-    const item = {
-      id: `item-${++this._itemSequence}`,
-      slot,
-      rarity: rarity.id,
-      tier: rarity.tier,
-      level: itemLevel,
-      name,
-      bonuses,
-    };
-    if (slot === "weapon") item.damageBonus = round(rarity.tier * 0.05 + itemLevel * 0.004);
-    if (slot === "necklace") item.damageBonus = round(rarity.tier * 0.025 + itemLevel * 0.002);
-    if (slot === "ring") {
-      item.damageBonus = round(rarity.tier * 0.015 + itemLevel * 0.0015);
-      item.hpBonus = Math.round(rarity.tier * 3 + itemLevel * 1.5);
-    }
-    if (slot === "shield") {
-      item.defenseBonus = round(rarity.tier * 0.02 + itemLevel * 0.002);
-      item.hpBonus = Math.round(rarity.tier * 5 + itemLevel * 2);
-    }
-    if (slot === "chest") item.hpBonus = Math.round(rarity.tier * 10 + itemLevel * 4);
-    if (slot === "helm") item.hpBonus = Math.round(rarity.tier * 6 + itemLevel * 2.5);
-    if (slot === "belt") item.hpBonus = Math.round(rarity.tier * 4 + itemLevel * 2);
-    if (slot === "gloves") item.damageBonus = round(rarity.tier * 0.02 + itemLevel * 0.002);
-    if (slot === "pants") item.hpBonus = Math.round(rarity.tier * 5 + itemLevel * 3);
-    if (slot === "boots") item.speedBonus = Math.round(rarity.tier * 5 + itemLevel);
-    return item;
+    return rollItem(this.rng, () => this._nextItemId(), level, minTier);
   }
 
-  // Relic drops: legendary weapons whose strike scales with the wearer's
-  // level and attributes, and jewellery with massive stat bundles.
   _rollRelic(bossLevel) {
-    const wantJewelry = this.rng() < 0.3;
-    if (wantJewelry) {
-      const template = RELIC_JEWELRY[Math.floor(clamp(this.rng(), 0, 0.999999) * RELIC_JEWELRY.length)];
-      return {
-        id: `item-${++this._itemSequence}`,
-        slot: template.slot,
-        rarity: "relic",
-        tier: 5,
-        level: Math.max(10, bossLevel),
-        name: template.name,
-        bonuses: { ...zeroStats(), ...(template.bonuses ?? {}) },
-        defenseBonus: template.defense,
-        ...(template.attack ? { attackFormula: { ...template.attack } } : {}),
-      };
-    }
-    const template = RELIC_WEAPONS[Math.floor(clamp(this.rng(), 0, 0.999999) * RELIC_WEAPONS.length)];
-    return {
-      id: `item-${++this._itemSequence}`,
-      slot: "weapon",
-      rarity: "relic",
-      tier: 5,
-      level: Math.max(10, bossLevel),
-      name: template.name,
-      bonuses: zeroStats(),
-      defenseBonus: template.defense,
-      attackFormula: {
-        stat: template.stat,
-        divisor: template.divisor,
-        ...(template.maxDivisor ? { maxDivisor: template.maxDivisor } : {}),
-        ...(template.multiplier ? { multiplier: template.multiplier } : {}),
-      },
-    };
+    return rollRelic(this.rng, () => this._nextItemId(), bossLevel);
   }
 
   _refreshGear(player) {

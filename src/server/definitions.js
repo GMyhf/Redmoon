@@ -261,11 +261,116 @@ export const STAT_KEYS = Object.freeze([
 
 export const SKILL_SLOTS = Object.freeze(["q", "e", "r", "c", "f"]);
 
+// Starting attribute spread per archetype. Shipped to clients through
+// publicArchetypes() so the roster UI never hardcodes these numbers.
+export const BASE_STATS = Object.freeze({
+  vanguard: Object.freeze({ power: 6, agility: 3, spirit: 2, vitality: 7 }),
+  channeler: Object.freeze({ power: 2, agility: 4, spirit: 7, vitality: 4 }),
+  strider: Object.freeze({ power: 4, agility: 7, spirit: 3, vitality: 4 }),
+  bulwark: Object.freeze({ power: 7, agility: 2, spirit: 2, vitality: 8 }),
+  longshot: Object.freeze({ power: 4, agility: 8, spirit: 3, vitality: 3 }),
+  pyre: Object.freeze({ power: 2, agility: 3, spirit: 8, vitality: 5 }),
+  moonblade: Object.freeze({ power: 5, agility: 7, spirit: 3, vitality: 3 }),
+  eclipse: Object.freeze({ power: 3, agility: 4, spirit: 7, vitality: 4 }),
+});
+
 const EXTRA_SKILL_NAMES = Object.freeze({
   vanguard: ["裂阵重斩", "赤钢回旋"], channeler: ["星核坠落", "潮汐跃迁"],
   strider: ["追风连星", "残影回刃"], bulwark: ["震岳壁击", "守望铁环"],
   longshot: ["猎隼标记", "折光箭雨"], pyre: ["灼地火柱", "焰影穿行"],
   eclipse: ["暮光裁决", "双魂轮转"], moonblade: ["银月交叉", "镜花回舞"],
+});
+
+// Declarative skill behaviors, interpreted by World._castBehavior. Every
+// non-eclipse skill is a sequence of four primitives:
+//   dash  — move the caster: distance [base, perLevel]; back: reverse aim
+//   fan   — one projectile per angle (radians relative to aim)
+//   burst — a full radial ring: count [base, perLevel]
+// Projectile steps share: damage [base, perLevel, [stats...], statMultiplier]
+// (damage = base + perLevel×level + Σstat × multiplier), speed, range
+// [base, perLevel], radius, and optional pierce [base, perTwoLevels]
+// (pierce = base + ⌊level/2⌋ × perTwoLevels). Eclipse q/e/f branch on
+// reputation and stay hand-written in World._useEclipseSkill.
+export const SKILL_BEHAVIORS = Object.freeze({
+  "shared:r": [
+    { act: "fan", angles: [-0.26, -0.13, 0, 0.13, 0.26], damage: [18, 7, ["power", "spirit"], 0.9], speed: 690, range: [470, 0], radius: 8 },
+  ],
+  "shared:c": [
+    { act: "dash", distance: [90, 8] },
+    { act: "burst", count: [8, 0], damage: [12, 5, ["agility"], 1.2], speed: 500, range: [170, 9], radius: 8 },
+  ],
+  "vanguard:q": [
+    { act: "dash", distance: [94, 10] },
+    { act: "fan", angles: [0], damage: [25, 8, ["power"], 2.1], speed: 560, range: [250, 15], radius: 15 },
+  ],
+  "vanguard:e": [
+    { act: "burst", count: [8, 1], damage: [12, 5, ["power"], 1.25], speed: 440, range: [180, 16], radius: 10 },
+  ],
+  "vanguard:f": [
+    { act: "burst", count: [16, 0], damage: [34, 12, ["power"], 2.4], speed: 460, range: [260, 24], radius: 14 },
+  ],
+  "channeler:q": [
+    { act: "fan", angles: [0], damage: [27, 9, ["spirit"], 2.25], speed: 750, range: [760, 0], radius: 11, pierce: [2, 1] },
+  ],
+  "channeler:e": [
+    { act: "burst", count: [8, 2], damage: [13, 5, ["spirit"], 1.35], speed: 520, range: [360, 20], radius: 7 },
+  ],
+  "channeler:f": [
+    { act: "fan", angles: [0], damage: [55, 18, ["spirit"], 3], speed: 380, range: [900, 0], radius: 26, pierce: [40, 0] },
+  ],
+  "strider:q": [
+    { act: "fan", angles: [-0.16, 0, 0.16], damage: [17, 6, ["agility"], 1.45], speed: 820, range: [680, 0], radius: 6 },
+  ],
+  "strider:e": [
+    { act: "dash", distance: [130, 15] },
+    { act: "fan", angles: [-0.1, 0.1], damage: [19, 7, ["agility"], 1.6], speed: 780, range: [500, 0], radius: 7 },
+  ],
+  "strider:f": [
+    { act: "dash", distance: [200, 20] },
+    { act: "burst", count: [12, 0], damage: [24, 9, ["agility"], 2], speed: 720, range: [380, 0], radius: 8 },
+  ],
+  "bulwark:q": [
+    { act: "burst", count: [10, 0], damage: [16, 6, ["power"], 1.6], speed: 420, range: [150, 12], radius: 11 },
+  ],
+  "bulwark:e": [
+    { act: "dash", distance: [110, 12] },
+    { act: "fan", angles: [0], damage: [30, 9, ["power"], 2.2], speed: 520, range: [220, 14], radius: 16 },
+  ],
+  "bulwark:f": [
+    { act: "burst", count: [20, 0], damage: [30, 11, ["power"], 2.6], speed: 400, range: [230, 20], radius: 13 },
+  ],
+  "longshot:q": [
+    { act: "fan", angles: [0], damage: [30, 10, ["agility"], 1.8], speed: 1100, range: [900, 0], radius: 7, pierce: [4, 1] },
+  ],
+  "longshot:e": [
+    { act: "dash", distance: [120, 10], back: true },
+    { act: "fan", angles: [-0.18, 0, 0.18], damage: [14, 5, ["agility"], 1.3], speed: 800, range: [480, 0], radius: 6 },
+  ],
+  "longshot:f": [
+    { act: "fan", angles: [-0.12, -0.06, 0, 0.06, 0.12], damage: [36, 12, ["agility"], 2.2], speed: 1100, range: [1100, 0], radius: 7, pierce: [8, 0] },
+  ],
+  "pyre:q": [
+    { act: "burst", count: [12, 1], damage: [15, 6, ["spirit"], 1.5], speed: 480, range: [240, 18], radius: 9 },
+  ],
+  "pyre:e": [
+    { act: "fan", angles: [-0.3, -0.15, 0, 0.15, 0.3], damage: [16, 6, ["spirit"], 1.7], speed: 600, range: [420, 0], radius: 8 },
+  ],
+  "pyre:f": [
+    { act: "burst", count: [14, 0], damage: [26, 10, ["spirit"], 2], speed: 420, range: [320, 26], radius: 11 },
+    { act: "burst", count: [10, 0], damage: [20, 8, ["spirit"], 1.4], speed: 620, range: [200, 16], radius: 9 },
+  ],
+  "moonblade:q": [
+    { act: "burst", count: [10, 0], damage: [13, 5, ["agility"], 1.5], speed: 520, range: [120, 10], radius: 9 },
+  ],
+  "moonblade:e": [
+    { act: "dash", distance: [150, 15] },
+    { act: "fan", angles: [-0.08, 0.08], damage: [20, 7, ["agility"], 1.7], speed: 820, range: [320, 0], radius: 7 },
+  ],
+  "moonblade:f": [
+    { act: "dash", distance: [180, 18] },
+    { act: "burst", count: [12, 0], damage: [22, 9, ["agility"], 2.1], speed: 640, range: [240, 0], radius: 9 },
+    { act: "fan", angles: [-0.1, 0.1], damage: [28, 10, ["agility"], 1.8], speed: 860, range: [420, 0], radius: 8 },
+  ],
 });
 
 export function skillDefinition(archetype, slot) {
@@ -607,6 +712,7 @@ export function publicArchetypes() {
         name: archetype.name,
         description: archetype.description,
         color: archetype.color,
+        stats: { ...BASE_STATS[id] },
         primary: { name: archetype.primary.name },
         skills: Object.fromEntries(
           SKILL_SLOTS.map((slot) => [

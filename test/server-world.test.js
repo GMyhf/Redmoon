@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { INVENTORY_LIMIT } from "../src/server/definitions.js";
 import { World, WorldError } from "../src/server/world.js";
+
+function throwsCode(fn, code) {
+  assert.throws(fn, (error) => error instanceof WorldError && error.code === code, `expected ${code}`);
+}
+
+function junkItem(id) {
+  return { id, slot: "weapon", rarity: "common", tier: 1, level: 1, name: "pulse-blade", bonuses: { power: 1 } };
+}
 
 test("World is deterministic with an injected RNG and applies authoritative input", () => {
   const first = new World({ rng: () => 0.5, mobTargetCount: 2 });
@@ -1099,4 +1108,165 @@ test("the town safe zone blocks enemy damage and keeps mobs from advancing", () 
   assert.equal(player.alive, true);
   assert.equal(player.hp, player.maxHp);
   assert.equal(brute.x, bruteX);
+});
+
+test("shop purchases enforce currency, stock, and inventory guards without charging", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, autoLevel: false });
+  const player = world.addPlayer("buyer-1", { name: "Buyer", archetype: "vanguard" });
+  const grocer = world.shops.find((shop) => shop.id === "grocer");
+  player.x = grocer.x;
+  player.y = grocer.y;
+
+  throwsCode(() => world.buyGood("buyer-1", "nobody", "potion-s"), "INVALID_SHOP");
+  throwsCode(() => world.buyGood("buyer-1", "grocer", "moon-cake"), "INVALID_GOOD");
+
+  player.gold = 29;
+  throwsCode(() => world.buyGood("buyer-1", "grocer", "potion-s"), "NO_GOLD");
+  assert.equal(player.gold, 29, "failed purchase charges nothing");
+
+  const blackmarket = world.shops.find((shop) => shop.id === "blackmarket");
+  player.x = blackmarket.x;
+  player.y = blackmarket.y;
+  player.dew = 2;
+  throwsCode(() => world.buyGood("buyer-1", "blackmarket", "relic-box"), "NO_DEW");
+  assert.equal(player.dew, 2, "failed purchase keeps the dew");
+
+  player.x = grocer.x;
+  player.y = grocer.y;
+  player.gold = 500;
+  player.inventory = Array.from({ length: INVENTORY_LIMIT }, (_, index) => junkItem(`junk-${index}`));
+  throwsCode(() => world.buyGood("buyer-1", "grocer", "potion-s"), "INVENTORY_FULL");
+  assert.equal(player.gold, 500, "full-bag purchase charges nothing");
+
+  player.inventory = [];
+  world.buyGood("buyer-1", "grocer", "potion-s");
+  assert.equal(player.gold, 470);
+  assert.equal(player.inventory.length, 1);
+
+  throwsCode(() => world.sellItem("buyer-1", "not-owned"), "INVALID_ITEM");
+  const goldBefore = player.gold;
+  world.sellItem("buyer-1", player.inventory[0].id);
+  assert.ok(player.gold > goldBefore, "selling pays out");
+  assert.equal(player.inventory.length, 0);
+});
+
+test("party membership enforces invite, capacity, and cleanup rules", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, autoLevel: false });
+  const names = ["Ana", "Bo", "Cyd", "Dee", "Eve", "Fox"];
+  for (const [index, name] of names.entries()) {
+    world.addPlayer(`p-${index}`, { name, archetype: "vanguard" });
+  }
+
+  throwsCode(() => world.inviteParty("p-0", "p-0"), "INVALID_TARGET");
+  throwsCode(() => world.inviteParty("p-0", "ghost"), "INVALID_TARGET");
+  throwsCode(() => world.acceptParty("p-1", "p-0"), "NO_INVITE");
+
+  // Host fills the party to the cap of four.
+  for (const member of ["p-1", "p-2", "p-3"]) {
+    world.inviteParty("p-0", member);
+    world.acceptParty(member, "p-0");
+  }
+  const partyId = world.players.get("p-0").partyId;
+  assert.equal(world.parties.get(partyId).members.length, 4);
+  throwsCode(() => world.inviteParty("p-0", "p-4"), "PARTY_FULL");
+  throwsCode(() => world.inviteParty("p-4", "p-1"), "ALREADY_IN_PARTY");
+
+  // Leaving trims the roster; a disconnect cleans up the same way.
+  world.leaveParty("p-3");
+  assert.equal(world.parties.get(partyId).members.length, 3);
+  world.removePlayer("p-2");
+  assert.equal(world.parties.get(partyId).members.length, 2);
+
+  // When only one member would remain the party dissolves entirely.
+  world.leaveParty("p-1");
+  assert.equal(world.parties.has(partyId), false);
+  assert.equal(world.players.get("p-0").partyId, null);
+});
+
+test("the friend list refuses self-adds and enforces its capacity", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
+  const player = world.addPlayer("p-1", { name: "Loner", archetype: "vanguard" });
+
+  throwsCode(() => world.addFriend("p-1", "Loner"), "INVALID_TARGET");
+
+  for (let index = 0; index < 32; index += 1) world.addFriend("p-1", `Friend ${index}`);
+  assert.equal(player.friends.length, 32);
+  throwsCode(() => world.addFriend("p-1", "One Too Many"), "FRIENDS_FULL");
+
+  // Duplicates are ignored rather than rejected.
+  world.addFriend("p-1", "Friend 0");
+  assert.equal(player.friends.length, 32);
+
+  world.removeFriend("p-1", "Friend 0");
+  assert.equal(player.friends.length, 31);
+  assert.equal(player.friends.includes("Friend 0"), false);
+});
+
+test("stat and skill point spending is fully guarded", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, autoLevel: false });
+  const player = world.addPlayer("p-1", { name: "Scholar", archetype: "vanguard" });
+
+  // Burn the three starting stat points, then the well is dry.
+  for (let index = 0; index < 3; index += 1) world.allocateStat("p-1", "power");
+  throwsCode(() => world.allocateStat("p-1", "power"), "NO_STAT_POINTS");
+
+  throwsCode(() => world.upgradeSkill("p-1", "banana"), "INVALID_SKILL");
+
+  // One starting skill point, then dry.
+  world.upgradeSkill("p-1", "q");
+  throwsCode(() => world.upgradeSkill("p-1", "q"), "NO_SKILL_POINTS");
+
+  // A maxed skill refuses further points even when points are available.
+  const maxLevel = world.getSnapshot("p-1").players[0].skills.q.maxLevel;
+  player.skillLevels.q = maxLevel;
+  player.skillPoints = 5;
+  throwsCode(() => world.upgradeSkill("p-1", "q"), "SKILL_MAX_LEVEL");
+});
+
+test("defeat gates actions and in-place revival needs dew", () => {
+  const world = new World({
+    rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, safeZoneRadius: 0, autoLevel: false,
+  });
+  const player = world.addPlayer("p-1", { name: "Fallen", archetype: "vanguard" });
+  player.inventory.push(junkItem("blade-1"));
+
+  throwsCode(() => world.revivePlayer("p-1"), "ALREADY_ALIVE");
+  throwsCode(() => world.respawnPlayer("p-1"), "ALREADY_ALIVE");
+
+  world._damagePlayer(player, 1_000_000, "test");
+  assert.equal(player.alive, false);
+
+  throwsCode(() => world.equipItem("p-1", "blade-1"), "PLAYER_DEAD");
+  throwsCode(() => world.unequipItem("p-1", "weapon"), "PLAYER_DEAD");
+  throwsCode(() => world.allocateStat("p-1", "power"), "PLAYER_DEAD");
+  throwsCode(() => world.rebirthPlayer("p-1"), "PLAYER_DEAD");
+  throwsCode(() => world.usePotion("p-1", "blade-1"), "PLAYER_DEAD");
+
+  player.dew = 0;
+  throwsCode(() => world.revivePlayer("p-1"), "NO_DEW");
+  player.dew = 1;
+  world.revivePlayer("p-1");
+  assert.equal(player.alive, true);
+  assert.equal(player.hp, player.maxHp);
+  assert.equal(player.dew, 0);
+});
+
+test("unequip refuses a full bag and keeps the piece equipped", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
+  const player = world.addPlayer("p-1", { name: "Packrat", archetype: "vanguard" });
+
+  throwsCode(() => world.unequipItem("p-1", "hat"), "INVALID_SLOT");
+
+  player.inventory.push(junkItem("blade-1"));
+  world.equipItem("p-1", "blade-1");
+  assert.equal(player.equipment.weapon.id, "blade-1");
+
+  player.inventory = Array.from({ length: INVENTORY_LIMIT }, (_, index) => junkItem(`junk-${index}`));
+  throwsCode(() => world.unequipItem("p-1", "weapon"), "INVENTORY_FULL");
+  assert.equal(player.equipment.weapon.id, "blade-1", "the piece stays equipped, not destroyed");
+
+  player.inventory.pop();
+  world.unequipItem("p-1", "weapon");
+  assert.equal(player.equipment.weapon, null);
+  assert.ok(player.inventory.some((item) => item.id === "blade-1"), "the piece lands in the bag");
 });

@@ -816,11 +816,23 @@
     }
   }
 
+  // Numeric facts (base stats, skill cooldowns/unlock levels) are server
+  // truth and overwrite the local copies; the Chinese labels, lore, and
+  // descriptions stay client-side as the presentation layer.
   function mergeArchetypes(definitions) {
     for (const [key, definition] of Object.entries(definitions)) {
       if (!ARCHETYPES[key] || !definition || typeof definition !== "object") continue;
-      ARCHETYPES[key] = { ...ARCHETYPES[key], server: definition };
+      const merged = { ...ARCHETYPES[key], server: definition };
+      if (definition.stats && typeof definition.stats === "object") {
+        merged.stats = { ...merged.stats, ...definition.stats };
+      }
+      if (definition.skills && typeof definition.skills === "object") {
+        merged.serverSkills = definition.skills;
+      }
+      ARCHETYPES[key] = merged;
     }
+    // Refresh anything already rendered from the local table.
+    renderHeroDetail(state.selectedArchetype);
   }
 
   function applyMap(map) {
