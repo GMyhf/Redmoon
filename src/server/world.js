@@ -1079,9 +1079,13 @@ export class World {
     const point = overrides.x === undefined || overrides.y === undefined
       ? this._mobSpawn(overrides.mapId)
       : { x: Number(overrides.x), y: Number(overrides.y) };
-    // Districts define their own level bands; open terrain scales with
-    // distance from the town at the map centre.
-    const zone = this._zoneAt(point.x, point.y);
+    // The level band belongs to the map, not to the legacy district ellipse:
+    // an explicit mapId resolves its own zone ("town" has none and uses the
+    // distance curve); only zone-less spawns infer the district from the
+    // position for backwards compatibility.
+    const zone = overrides.mapId !== undefined
+      ? this.zones.find((entry) => entry.id === overrides.mapId) ?? null
+      : this._zoneAt(point.x, point.y);
     const roll = clamp(this.rng(), 0, 0.999999);
     const rolledLevel = zone
       ? zone.minLevel + Math.floor(roll * (zone.maxLevel - zone.minLevel + 1))
@@ -1909,16 +1913,26 @@ export class World {
 
   _mobSpawn(mapId = null) {
     const zone = this.zones.find((entry) => entry.id === mapId);
+    const margin = 70;
     if (zone) {
-      const angle = this.rng() * Math.PI * 2;
-      const radius = Math.sqrt(this.rng()) * 0.82;
-      return {
-        x: clamp(zone.x + Math.cos(angle) * zone.rx * radius, MOB_RADIUS, this.width - MOB_RADIUS),
-        y: clamp(zone.y + Math.sin(angle) * zone.ry * radius, MOB_RADIUS, this.height - MOB_RADIUS),
-      };
+      // A themed map owns the whole plane, so its population spreads across
+      // the entire map — not just the legacy district ellipse. Keep a clear
+      // pocket around the map's portals so arrivals are not instantly
+      // swarmed.
+      const portals = this.portals.filter((portal) => portal.mapId === mapId);
+      let candidate = { x: this.width / 2, y: this.height / 2 };
+      for (let attempt = 0; attempt < 24; attempt += 1) {
+        candidate = {
+          x: margin + this.rng() * Math.max(1, this.width - margin * 2),
+          y: margin + this.rng() * Math.max(1, this.height - margin * 2),
+        };
+        if (portals.every((portal) => Math.hypot(portal.x - candidate.x, portal.y - candidate.y) > 320)) {
+          break;
+        }
+      }
+      return candidate;
     }
     // Anywhere on the map except inside (or hugging) the town safe zone.
-    const margin = 70;
     const buffer = (this.safeZone?.radius ?? 0) + 120;
     for (let attempt = 0; attempt < 24; attempt += 1) {
       const x = margin + this.rng() * Math.max(1, this.width - margin * 2);
@@ -2195,8 +2209,11 @@ export class World {
           id: `portal-${destination.id}-return`,
           zone: "town",
           mapId: destination.id,
-          x: destination.x * this.width,
-          y: destination.y * this.height,
+          // Pulled 45% toward the map centre: the legacy anchor point is
+          // also where the map's boss camps, and arrivals must land well
+          // outside every boss's 460px aggro radius.
+          x: destination.x * this.width + (cx - destination.x * this.width) * 0.45,
+          y: destination.y * this.height + (cy - destination.y * this.height) * 0.45,
           targetId: `portal-${destination.id}`,
         },
       );
