@@ -691,9 +691,10 @@ test("full bags swap the weakest item for a stronger find; drops magnetise", () 
   assert.ok(player.inventory.some((item) => item.id === prize.id), "stronger find replaces the weakest");
   assert.ok(world.drainEvents().some((event) => event.event === "itemDiscarded"));
 
-  // A worthless find is left on the ground.
+  // A worthless, unwearable find is left on the ground. (A wearable one
+  // would be worn straight from the ground — that path has its own test.)
   const junk = {
-    id: "junk-item", slot: "ring", rarity: "common", tier: 1, level: 1,
+    id: "junk-item", slot: "ring", rarity: "common", tier: 1, level: 999,
     name: "Orbit Band",
     bonuses: { power: 0, agility: 0, spirit: 0, vitality: 0 },
   };
@@ -1272,4 +1273,63 @@ test("unequip refuses a full bag and keeps the piece equipped", () => {
   world.unequipItem("p-1", "weapon");
   assert.equal(player.equipment.weapon, null);
   assert.ok(player.inventory.some((item) => item.id === "blade-1"), "the piece lands in the bag");
+});
+
+test("automation toggles persist across relogin", () => {
+  const store = {};
+  const world = new World({
+    rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, accountStore: store,
+  });
+  const player = world.addPlayer("conn-1", { name: "Auto", archetype: "vanguard" });
+  assert.equal(player.autoEquip, true, "auto-equip defaults on");
+  world.handleCommand("conn-1", { type: "setAuto", enabled: false });
+  world.handleCommand("conn-1", { type: "setAutoLevel", enabled: false });
+  world.handleCommand("conn-1", { type: "setAutoEquip", enabled: false });
+  const token = player.token;
+  world.removePlayer("conn-1");
+
+  const back = world.addPlayer("conn-2", { name: "Auto", archetype: "vanguard", token });
+  assert.equal(back.autoFight, false, "auto-fight stays off after relogin");
+  assert.equal(back.autoLevel, false, "auto-level stays off after relogin");
+  assert.equal(back.autoEquip, false, "auto-equip stays off after relogin");
+  const entry = world.getSnapshot("conn-2").players[0];
+  assert.equal(entry.autoFight, false);
+  assert.equal(entry.autoEquip, false);
+});
+
+test("a full bag still upgrades worn gear straight from the ground", () => {
+  const world = new World({
+    rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, autoLevel: false,
+  });
+  const player = world.addPlayer("p-1", { name: "Looter", archetype: "vanguard" });
+  player.inventory.push(junkItem("weak-blade"));
+  world.equipItem("p-1", "weak-blade");
+  // The bag is stuffed with treasure too high-level to wear.
+  player.inventory = Array.from({ length: INVENTORY_LIMIT }, (_, index) => ({
+    ...junkItem(`hoard-${index}`), level: 900, bonuses: { power: 500 },
+  }));
+
+  const upgrade = {
+    id: "upgrade-blade", slot: "weapon", rarity: "epic", tier: 4, level: 1,
+    name: "Pulse Edge", bonuses: { power: 50 },
+  };
+  world._placeDrop(player.x, player.y, upgrade, player.mapId);
+  world.update(0.05);
+  assert.equal(player.equipment.weapon.id, "upgrade-blade", "the find is worn on the spot");
+  assert.equal(player.inventory.length, INVENTORY_LIMIT, "no bag slot was consumed");
+  assert.ok(
+    [...world.drops.values()].some((drop) => drop.item.id === "weak-blade"),
+    "the replaced piece waits on the ground",
+  );
+
+  // With auto-equip off the same kind of find stays on the ground.
+  world.setAutoEquipMode("p-1", false);
+  const second = { ...upgrade, id: "upgrade-2", bonuses: { power: 60 } };
+  world._placeDrop(player.x, player.y, second, player.mapId);
+  world.update(0.05);
+  assert.equal(player.equipment.weapon.id, "upgrade-blade", "toggle off leaves worn gear alone");
+  assert.ok(
+    [...world.drops.values()].some((drop) => drop.item.id === "upgrade-2"),
+    "the find stays on the ground",
+  );
 });

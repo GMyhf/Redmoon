@@ -58,6 +58,9 @@ const ACCOUNT_FIELDS = Object.freeze([
   "archetype", "level", "xp", "xpToNext", "stats", "statPoints",
   "skillLevels", "skillPoints", "rebirths", "reputation", "will",
   "attunement", "gold", "dew", "friends", "inventory", "equipment", "quest",
+  // Automation toggles survive relogin — a dev-server restart must not
+  // silently flip them back on.
+  "autoFight", "autoLevel", "autoEquip",
 ]);
 const MAX_MOB_LEVEL = 18;
 const ELITE_CHANCE = 0.1;
@@ -241,6 +244,7 @@ export class World {
       attackTarget: null,
       autoFight: true,
       autoLevel: this.autoLevelDefault,
+      autoEquip: true,
       portalLockUntil: 0,
       portalDwell: null,
       rebirths: 0,
@@ -390,6 +394,9 @@ export class World {
       case "setAutoLevel":
       case "setautolevel":
         return this.setAutoLevel(id, message.enabled);
+      case "setAutoEquip":
+      case "setautoequip":
+        return this.setAutoEquipMode(id, message.enabled);
       case "attune":
         return this.attune(id, message.path);
       case "discard":
@@ -584,6 +591,18 @@ export class World {
     return player;
   }
 
+  // The equip key this item would land in, but only when the player can
+  // wear it and it beats the currently worn piece; null otherwise.
+  _upgradeKeyFor(player, item) {
+    if (!ITEM_SLOTS.includes(item.slot)) return null;
+    if (player.level < (item.level ?? 1)) return null;
+    const key = item.slot === "ring" ? this._ringKeyFor(player) : item.slot;
+    if (!EQUIP_KEYS.includes(key)) return null;
+    const current = player.equipment[key];
+    if (current && itemPower(item) <= itemPower(current)) return null;
+    return key;
+  }
+
   _ringKeyFor(player) {
     const empty = RING_KEYS.find((key) => !player.equipment[key]);
     if (empty) return empty;
@@ -683,6 +702,18 @@ export class World {
     }
     player.autoFight = enabled;
     this._emit("autoFightChanged", { playerId: id, enabled });
+    return player;
+  }
+
+  setAutoEquipMode(id, enabled) {
+    const player = this._requirePlayer(id);
+    if (typeof enabled !== "boolean") {
+      throw new WorldError("INVALID_MESSAGE", "enabled must be a boolean.");
+    }
+    player.autoEquip = enabled;
+    // Switching on runs one immediate best-in-slot pass over the bag.
+    if (enabled && player.alive) this.autoEquip(id);
+    this._emit("autoEquipChanged", { playerId: id, enabled });
     return player;
   }
 
@@ -1841,6 +1872,7 @@ export class World {
       moveTarget: player.moveTarget ? { x: round(player.moveTarget.x), y: round(player.moveTarget.y) } : null,
       autoFight: player.autoFight,
       autoLevel: player.autoLevel,
+      autoEquip: player.autoEquip,
       gold: player.gold,
       dew: player.dew,
       friends: player.friends.map((name) => ({
@@ -2000,7 +2032,30 @@ export class World {
         if (distance > player.radius + DROP_PICKUP_RADIUS) continue;
 
         if (player.inventory.length >= INVENTORY_LIMIT) {
-          // Full bag: swap out the weakest piece if the find is stronger.
+          // Full bag, first option: wear the find on the spot when it beats
+          // the equipped piece — the replaced gear takes its place on the
+          // ground, so no bag slot is needed.
+          const wearKey = player.autoEquip ? this._upgradeKeyFor(player, drop.item) : null;
+          if (wearKey) {
+            const replaced = player.equipment[wearKey];
+            player.equipment[wearKey] = drop.item;
+            this._refreshGear(player);
+            this._refreshDerivedStats(player, true);
+            this._removeDrop(id);
+            if (replaced) this._placeDrop(player.x, player.y, replaced, player.mapId);
+            this._emit("lootPickedUp", {
+              playerId: player.id,
+              itemId: drop.item.id,
+              name: drop.item.name,
+              rarity: drop.item.rarity,
+              dropClass: drop.item.dropClass ?? null,
+              slot: drop.item.slot,
+              autoEquipped: true,
+              ...(replaced ? { replaced: replaced.name } : {}),
+            });
+            break;
+          }
+          // Otherwise: swap out the weakest bag piece if the find is stronger.
           let worstIndex = -1;
           let worstPower = Infinity;
           player.inventory.forEach((item, index) => {
@@ -2020,10 +2075,14 @@ export class World {
           });
         }
         player.inventory.push(drop.item);
+        // Auto-wear is a server-side toggle now: special drops always equip
+        // when allowed, regular finds equip when they beat the worn piece.
         let autoEquipped = false;
-        if (drop.item.dropClass && ITEM_SLOTS.includes(drop.item.slot) && player.level >= (drop.item.level ?? 1)) {
-          this.equipItem(player.id, drop.item.id);
-          autoEquipped = true;
+        if (player.autoEquip && ITEM_SLOTS.includes(drop.item.slot) && player.level >= (drop.item.level ?? 1)) {
+          if (drop.item.dropClass || this._upgradeKeyFor(player, drop.item)) {
+            this.equipItem(player.id, drop.item.id);
+            autoEquipped = true;
+          }
         }
         this._removeDrop(id);
         this._emit("lootPickedUp", {

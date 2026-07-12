@@ -655,6 +655,10 @@ import {
       ui.autoLevelToggle.textContent = player.autoLevel ? "自动加点 · 开" : "自动加点 · 关";
       ui.autoLevelToggle.classList.toggle("is-off", !player.autoLevel);
     }
+    if (ui.autoEquipButton && player.autoEquip !== undefined) {
+      ui.autoEquipButton.textContent = player.autoEquip ? "自动 · 开" : "自动 · 关";
+      ui.autoEquipButton.classList.toggle("is-off", !player.autoEquip);
+    }
     if (ui.goldAmount) {
       ui.goldAmount.textContent = `金币 ${Math.floor(finite(player.gold, 0))}`;
       ui.dewAmount.textContent = `复苏露 ${Math.floor(finite(player.dew, 0))}`;
@@ -1055,10 +1059,13 @@ import {
       return;
     }
     if (eventName === "lootpickedup") {
-      pushEvent(`拾取 ${itemLabel(event)}`);
-      // Auto-wear upgrades the moment they hit the bag.
-      if (String(event.playerId) === String(state.id) && event.slot !== "potion") {
-        send({ type: "autoEquip" });
+      // Auto-wear now happens server-side, governed by the 自动装备 toggle.
+      pushEvent(event.autoEquipped ? `拾取并装备 ${itemLabel(event)}` : `拾取 ${itemLabel(event)}`);
+      return;
+    }
+    if (eventName === "autoequipchanged") {
+      if (String(event.playerId) === String(state.id)) {
+        pushEvent(event.enabled ? "自动装备已开启" : "自动装备已关闭");
       }
       return;
     }
@@ -3873,7 +3880,11 @@ import {
     state.socialSignature = "";
   });
   ui.rebirthButton?.addEventListener("click", () => send({ type: "rebirth" }));
-  ui.autoEquipButton?.addEventListener("click", () => send({ type: "autoEquip" }));
+  ui.autoEquipButton?.addEventListener("click", () => {
+    const local = localPlayer();
+    if (!local) return;
+    send({ type: "setAutoEquip", enabled: local.autoEquip === false });
+  });
   function toggleAutoFight() {
     const local = localPlayer();
     if (!local) return;
