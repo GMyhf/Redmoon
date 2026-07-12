@@ -106,6 +106,8 @@ var ui := {}
 var shops: Array = []
 var shade_cache := {}
 var motes: Array = []
+var effects: Array = []               # floating combat text {pos, text, color, age, life}
+var sounds := {}                      # name -> AudioStreamPlayer (procedurally synthesized)
 var light_texture: GradientTexture2D
 var bag_signature := ""
 var smoke_timer := -1.0               # CRIMSON_SMOKE=<seconds>: headless verification run
@@ -137,6 +139,7 @@ func _ready() -> void:
 	camera.position = iso(world_size / 2)
 	camera.make_current()
 	_build_ui()
+	_build_sounds()
 	_connect_socket()
 	var smoke := OS.get_environment("CRIMSON_SMOKE")
 	if smoke != "":
@@ -420,8 +423,8 @@ func _apply_snapshot(snapshot: Dictionary) -> void:
 	_apply_world(snapshot.get("world", {}))
 	if snapshot.get("safeZone") is Dictionary:
 		safe_zone = snapshot["safeZone"]
-	_sync_store(players, snapshot.get("players", []))
-	_sync_store(enemies, snapshot.get("enemies", []))
+	_sync_store(players, snapshot.get("players", []), "player")
+	_sync_store(enemies, snapshot.get("enemies", []), "enemy")
 	_sync_store(drops, snapshot.get("drops", []))
 	_sync_store(projectiles, snapshot.get("projectiles", []))
 	if not joined and players.has(self_id):
@@ -440,7 +443,7 @@ func _apply_snapshot(snapshot: Dictionary) -> void:
 			str(me.data.get("name", "?")), players.size(), enemies.size(),
 		])
 
-func _sync_store(store: Dictionary, entries: Array) -> void:
+func _sync_store(store: Dictionary, entries: Array, kind := "") -> void:
 	var seen := {}
 	for raw in entries:
 		if not (raw is Dictionary):
@@ -449,13 +452,32 @@ func _sync_store(store: Dictionary, entries: Array) -> void:
 		seen[id] = true
 		var target := Vector2(float(raw.get("x", 0)), float(raw.get("y", 0)))
 		if store.has(id):
-			store[id].target = target
-			store[id].data = raw
+			var entity: Dictionary = store[id]
+			# Floating combat text from hp deltas between snapshots, plus a
+			# short hit flash — the browser client's feedback, ported.
+			if kind != "" and joined:
+				var delta := float(raw.get("hp", 0)) - float(entity.data.get("hp", 0))
+				var is_self := kind == "player" and id == self_id
+				if delta <= -1.0:
+					entity.flash = 0.13
+					var color := Color(1.0, 0.83, 0.47) if kind == "enemy" else (Color(1.0, 0.42, 0.45) if is_self else Color(0.91, 0.6, 0.64))
+					_push_effect(target, str(int(-delta)), color)
+					if is_self:
+						_sfx("hurt")
+				elif delta >= 5.0 and is_self:
+					_push_effect(target, "+%d" % int(delta), Color(0.4, 0.84, 0.6))
+			entity.target = target
+			entity.data = raw
 		else:
-			store[id] = {"pos": target, "target": target, "data": raw}
+			store[id] = {"pos": target, "target": target, "data": raw, "flash": 0.0}
 	for id in store.keys():
 		if not seen.has(id):
 			store.erase(id)
+
+func _push_effect(world_pos: Vector2, text: String, color: Color) -> void:
+	if effects.size() > 120:
+		effects.pop_front()
+	effects.append({"pos": world_pos, "text": text, "color": color, "age": 0.0, "life": 0.8})
 
 func _handle_event(event: Dictionary) -> void:
 	var name := str(event.get("event", ""))
@@ -465,8 +487,22 @@ func _handle_event(event: Dictionary) -> void:
 		"bossSlain":
 			_set_status("Boss 被击破：%s" % str(event.get("name", "")))
 		"lootPickedUp":
-			if str(event.get("playerId", "")) == self_id and bool(event.get("autoEquipped", false)):
-				_set_status("拾取并装备 %s" % str(event.get("name", "")))
+			if str(event.get("playerId", "")) == self_id:
+				_sfx("pickup")
+				if bool(event.get("autoEquipped", false)):
+					_set_status("拾取并装备 %s" % str(event.get("name", "")))
+		"enemyDefeated":
+			if str(event.get("playerId", "")) == self_id:
+				_sfx("kill")
+		"levelUp":
+			if str(event.get("playerId", "")) == self_id:
+				_sfx("levelup")
+		"playerDefeated":
+			if str(event.get("playerId", "")) == self_id:
+				_sfx("death")
+		"teleported":
+			if str(event.get("playerId", "")) == self_id:
+				_sfx("teleport")
 
 # ---- Input -------------------------------------------------------------
 
@@ -475,6 +511,11 @@ func _interpolate(delta: float) -> void:
 	for store in [players, enemies, projectiles, drops]:
 		for entity in store.values():
 			entity.pos = entity.pos.lerp(entity.target, factor)
+			if entity.get("flash", 0.0) > 0.0:
+				entity.flash = maxf(0.0, entity.flash - delta)
+	for effect in effects:
+		effect.age += delta
+	effects = effects.filter(func(effect) -> bool: return effect.age < effect.life)
 
 func _send_input(delta: float) -> void:
 	input_timer -= delta
@@ -531,6 +572,50 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_B: _toggle_bag()
 			KEY_ESCAPE: _leave()
 
+# ---- Synthesized audio (no assets, like the browser's WebAudio sfx) -----
+
+func _make_tone(freqs: Array, duration: float, shape := "sine", volume := 0.35) -> AudioStreamWAV:
+	var rate := 22050
+	var count := int(rate * duration)
+	var data := PackedByteArray()
+	data.resize(count * 2)
+	var segment := duration / freqs.size()
+	for i in count:
+		var t := float(i) / rate
+		var freq: float = freqs[mini(freqs.size() - 1, int(t / segment))]
+		var envelope := 1.0 - t / duration
+		var phase := fmod(t * freq, 1.0)
+		var sample := 0.0
+		match shape:
+			"square": sample = 1.0 if phase < 0.5 else -1.0
+			"saw": sample = phase * 2.0 - 1.0
+			_: sample = sin(TAU * t * freq)
+		data.encode_s16(i * 2, int(clampf(sample * envelope * volume, -1.0, 1.0) * 32767.0))
+	var stream := AudioStreamWAV.new()
+	stream.format = AudioStreamWAV.FORMAT_16_BITS
+	stream.mix_rate = rate
+	stream.data = data
+	return stream
+
+func _build_sounds() -> void:
+	var recipes := {
+		"hurt": _make_tone([130.0], 0.09, "saw", 0.3),
+		"kill": _make_tone([420.0, 640.0], 0.12, "square", 0.22),
+		"pickup": _make_tone([880.0], 0.07, "sine", 0.3),
+		"levelup": _make_tone([520.0, 660.0, 780.0], 0.3, "sine", 0.3),
+		"death": _make_tone([160.0, 110.0], 0.45, "saw", 0.3),
+		"teleport": _make_tone([300.0, 900.0], 0.2, "sine", 0.25),
+	}
+	for name in recipes:
+		var player := AudioStreamPlayer.new()
+		player.stream = recipes[name]
+		add_child(player)
+		sounds[name] = player
+
+func _sfx(name: String) -> void:
+	if sounds.has(name):
+		sounds[name].play()
+
 # ---- Art fetched from the game server -----------------------------------
 
 func _http_base() -> String:
@@ -566,6 +651,7 @@ func _ground_texture() -> Texture2D:
 
 func _draw() -> void:
 	_draw_ground()
+	_draw_decorations()
 	_draw_zone_markers()
 	# Painter's order: entities lower on the iso plane draw last.
 	var drawables := []
@@ -585,6 +671,7 @@ func _draw() -> void:
 	for projectile in projectiles.values():
 		_draw_projectile(projectile)
 	_draw_motes()
+	_draw_effects()
 
 # Deterministic per-tile hash and coarse value noise, ported from the
 # browser's tileHash/smoothNoise so the two clients share terrain character.
@@ -636,23 +723,11 @@ func _draw_ground() -> void:
 	draw_colored_polygon(corners, base)
 
 	# Noise-shaded diamond tiles over the visible area only.
-	var view_size := get_viewport_rect().size
-	var view_origin: Vector2 = camera.position - view_size / 2.0
-	var min_world := Vector2.INF
-	var max_world := -Vector2.INF
-	for corner in [view_origin, view_origin + Vector2(view_size.x, 0),
-			view_origin + view_size, view_origin + Vector2(0, view_size.y)]:
-		var world_point := from_iso(corner)
-		min_world = min_world.min(world_point)
-		max_world = max_world.max(world_point)
-	var tx0 := maxi(0, floori(min_world.x / WORLD_CELL) - 1)
-	var ty0 := maxi(0, floori(min_world.y / WORLD_CELL) - 1)
-	var tx1 := mini(int(world_size.x / WORLD_CELL) - 1, ceili(max_world.x / WORLD_CELL) + 1)
-	var ty1 := mini(int(world_size.y / WORLD_CELL) - 1, ceili(max_world.y / WORLD_CELL) + 1)
+	var tiles := _visible_tile_range()
 	var half_w := WORLD_CELL + 1.0
 	var half_h := WORLD_CELL * 0.5 + 0.5
-	for ty in range(ty0, ty1 + 1):
-		for tx in range(tx0, tx1 + 1):
+	for ty in range(tiles.position.y, tiles.position.y + tiles.size.y + 1):
+		for tx in range(tiles.position.x, tiles.position.x + tiles.size.x + 1):
 			var p := iso(Vector2((tx + 0.5) * WORLD_CELL, (ty + 0.5) * WORLD_CELL))
 			draw_colored_polygon(PackedVector2Array([
 				p + Vector2(0, -half_h), p + Vector2(half_w, 0),
@@ -754,6 +829,140 @@ func _draw_motes() -> void:
 		var p: Vector2 = iso(mote.pos) - Vector2(0, mote.z)
 		draw_circle(p, 2.0, Color(color, 0.35 * fade))
 
+# Threshold-scattered ground props per theme, mirroring the browser's
+# drawBiomeDecoration: the same per-tile hash decides what grows where.
+func _visible_tile_range() -> Rect2i:
+	var view_size := get_viewport_rect().size
+	var view_origin: Vector2 = camera.position - view_size / 2.0
+	var min_world := Vector2.INF
+	var max_world := -Vector2.INF
+	for corner in [view_origin, view_origin + Vector2(view_size.x, 0),
+			view_origin + view_size, view_origin + Vector2(0, view_size.y)]:
+		var world_point := from_iso(corner)
+		min_world = min_world.min(world_point)
+		max_world = max_world.max(world_point)
+	var tx0 := maxi(0, floori(min_world.x / WORLD_CELL) - 1)
+	var ty0 := maxi(0, floori(min_world.y / WORLD_CELL) - 1)
+	var tx1 := mini(int(world_size.x / WORLD_CELL) - 1, ceili(max_world.x / WORLD_CELL) + 1)
+	var ty1 := mini(int(world_size.y / WORLD_CELL) - 1, ceili(max_world.y / WORLD_CELL) + 1)
+	return Rect2i(tx0, ty0, tx1 - tx0, ty1 - ty0)
+
+func _draw_decorations() -> void:
+	var tiles := _visible_tile_range()
+	for ty in range(tiles.position.y, tiles.position.y + tiles.size.y + 1):
+		for tx in range(tiles.position.x, tiles.position.x + tiles.size.x + 1):
+			var noise := _tile_hash(tx, ty)
+			if noise < 0.86:
+				continue
+			var p := iso(Vector2((tx + 0.5) * WORLD_CELL, (ty + 0.5) * WORLD_CELL))
+			_draw_prop(p, noise)
+	if map_theme == "town" and safe_zone.has("radius"):
+		_draw_town_fixtures()
+
+func _draw_prop(p: Vector2, noise: float) -> void:
+	var rare := noise > 0.975
+	match map_theme:
+		"residential", "grass":
+			if rare:
+				# Tree: trunk plus two stacked crowns.
+				draw_rect(Rect2(p - Vector2(2, 26), Vector2(4, 26)), Color("4a3524"), true)
+				draw_circle(p - Vector2(0, 32), 13, Color("2f5228"))
+				draw_circle(p - Vector2(0, 42), 9, Color("3d6a33"))
+			else:
+				for offset in [-5.0, 0.0, 5.0]:
+					draw_line(p + Vector2(offset, 3), p + Vector2(offset + 2.0, -6), Color(0.42, 0.6, 0.35, 0.7), 1.3)
+		"mountain":
+			if rare:
+				draw_colored_polygon(PackedVector2Array([
+					p + Vector2(-16, 6), p + Vector2(16, 6), p + Vector2(3, -30),
+				]), Color("55606e"))
+				draw_colored_polygon(PackedVector2Array([
+					p + Vector2(-3, -16), p + Vector2(9, -16), p + Vector2(3, -30),
+				]), Color(0.92, 0.95, 1.0, 0.9))
+			else:
+				draw_rect(Rect2(p - Vector2(5, 3), Vector2(10, 6)), Color(0.42, 0.46, 0.52), true)
+		"snow":
+			if rare:
+				draw_colored_polygon(PackedVector2Array([
+					p + Vector2(0, -22), p + Vector2(7, -6), p + Vector2(0, 4), p + Vector2(-7, -6),
+				]), Color(0.75, 0.88, 1.0, 0.85))
+			else:
+				draw_circle(p, 2.0, Color(0.9, 0.96, 1.0, 0.8))
+		"scrapyard":
+			if rare:
+				# Wrecked car: rusty shell and two dark wheels.
+				draw_rect(Rect2(p - Vector2(16, 14), Vector2(32, 12)), Color("6a4128"), true)
+				draw_rect(Rect2(p - Vector2(10, 20), Vector2(18, 8)), Color("54331f"), true)
+				draw_circle(p + Vector2(-9, 0), 4, Color(0.1, 0.09, 0.08))
+				draw_circle(p + Vector2(9, 0), 4, Color(0.1, 0.09, 0.08))
+			else:
+				draw_rect(Rect2(p - Vector2(4, 2), Vector2(8, 3)), Color(0.5, 0.34, 0.2, 0.8), true)
+		"desert":
+			if rare:
+				for offset in [-6.0, 0.0, 6.0]:
+					draw_rect(Rect2(p + Vector2(offset - 1.5, -18 if offset == 0.0 else -11), Vector2(3, 18 if offset == 0.0 else 11)), Color("4f7040"), true)
+			else:
+				draw_arc(p, 9, PI * 0.15, PI * 0.85, 10, Color(0.75, 0.62, 0.4, 0.5), 1.2)
+		"castle":
+			if rare:
+				draw_rect(Rect2(p - Vector2(5, 30), Vector2(10, 30)), Color("6a6470"), true)
+				draw_colored_polygon(PackedVector2Array([
+					p + Vector2(-5, -30), p + Vector2(5, -30), p + Vector2(2, -36), p + Vector2(-4, -34),
+				]), Color("7a7482"))
+			else:
+				draw_rect(Rect2(p - Vector2(4, 2), Vector2(8, 4)), Color(0.4, 0.38, 0.42), true)
+		"spaceport":
+			if rare:
+				draw_rect(Rect2(p - Vector2(14, 8), Vector2(28, 14)), Color("3c4658"), true)
+				for light in 3:
+					var lit := 0.4 + 0.6 * float((Time.get_ticks_msec() / 400 + light) % 3 == 0)
+					draw_circle(p + Vector2(-8 + light * 8, -1), 1.6, Color(0.4, 0.85, 1.0, lit))
+			else:
+				draw_line(p + Vector2(-8, 0), p + Vector2(8, 0), Color(0.3, 0.36, 0.46), 1.5)
+		"skycity":
+			if rare:
+				draw_rect(Rect2(p - Vector2(2, 34), Vector2(4, 34)), Color("5a6c94"), true)
+				var glow := 0.5 + 0.5 * sin(Time.get_ticks_msec() / 300.0 + p.x)
+				draw_circle(p - Vector2(0, 36), 4.0, Color(0.6, 0.85, 1.0, 0.4 + glow * 0.5))
+			else:
+				draw_line(p + Vector2(-7, 0), p + Vector2(7, -3), Color(0.5, 0.7, 1.0, 0.45), 1.2)
+		_:
+			if rare:
+				draw_colored_polygon(PackedVector2Array([
+					p + Vector2(0, -16), p + Vector2(6, -4), p + Vector2(0, 2), p + Vector2(-6, -4),
+				]), Color(0.85, 0.3, 0.4, 0.8))
+			else:
+				draw_circle(p, 2.0, Color(0.8, 0.35, 0.4, 0.6))
+
+# Six warm lamps and three cottages ring the town plaza, echoing the
+# browser's townscape.
+func _draw_town_fixtures() -> void:
+	var centre := Vector2(float(safe_zone.x), float(safe_zone.y))
+	var radius := float(safe_zone.radius)
+	var pulse := 0.5 + 0.5 * sin(Time.get_ticks_msec() / 500.0)
+	for index in 6:
+		var angle := -PI / 2 + 0.42 + index * TAU / 6.0
+		var base := iso(centre + Vector2(cos(angle), sin(angle)) * radius * 0.82)
+		draw_colored_polygon(_iso_ring(from_iso(base), 26, 16), Color(1.0, 0.8, 0.5, 0.06 + pulse * 0.03))
+		draw_rect(Rect2(base - Vector2(1.5, 34), Vector2(3, 34)), Color(0.2, 0.18, 0.17), true)
+		draw_circle(base - Vector2(0, 36), 4.0, Color(1.0, 0.82, 0.5, 0.8 + pulse * 0.2))
+	for index in 3:
+		var angle := 0.9 + index * 1.75
+		var base := iso(centre + Vector2(cos(angle), sin(angle)) * radius * 0.6)
+		draw_rect(Rect2(base - Vector2(16, 26), Vector2(32, 26)), Color("4c3b2e"), true)
+		draw_colored_polygon(PackedVector2Array([
+			base + Vector2(-20, -26), base + Vector2(20, -26), base + Vector2(0, -42),
+		]), Color("64503c"))
+		draw_rect(Rect2(base + Vector2(-4, -16), Vector2(8, 16)), Color(0.16, 0.13, 0.11), true)
+		draw_rect(Rect2(base + Vector2(7, -20), Vector2(6, 7)), Color(1.0, 0.85, 0.55, 0.9), true)
+
+func _draw_effects() -> void:
+	for effect in effects:
+		var progress: float = effect.age / effect.life
+		var p: Vector2 = iso(effect.pos) - Vector2(0, 30 + progress * 34)
+		var color: Color = effect.color
+		_label(p, effect.text, 14, Color(color, 1.0 - progress))
+
 func _draw_shadow(at: Vector2, size: float) -> void:
 	draw_colored_polygon(_iso_ring(from_iso(at), size, 20), Color(0, 0, 0, 0.28))
 
@@ -836,6 +1045,8 @@ func _draw_enemy(enemy: Dictionary) -> void:
 			for spike in 5:
 				var angle := -PI * 0.15 - spike * PI * 0.18
 				draw_line(bc, bc + Vector2(cos(angle), sin(angle)) * radius * 1.3, body.darkened(0.2), 2.0)
+	if enemy.get("flash", 0.0) > 0.0:
+		draw_circle(bc, radius, Color(1, 1, 1, 0.45))
 	if bool(data.get("boss", false)):
 		draw_polyline(_iso_ring(enemy.pos, radius + 14, 32), Color(0.9, 0.2, 0.25, 0.6), 2.0)
 	elif bool(data.get("elite", false)):
@@ -871,6 +1082,8 @@ func _draw_player(player: Dictionary) -> void:
 	else:
 		var body := Color.from_string(str(player.data.get("color", "#54d3c2")), Color(0.3, 0.8, 0.75))
 		draw_circle(p - Vector2(0, radius), radius, body)
+	if player.get("flash", 0.0) > 0.0:
+		draw_circle(p - Vector2(0, sprite_size.y * 0.45), radius * 1.2, Color(1, 0.5, 0.5, 0.3))
 	if is_self:
 		draw_polyline(_iso_ring(player.pos, radius + 6, 28), Color(1, 1, 1, 0.7), 1.5)
 	_label(p - Vector2(0, sprite_size.y + 24), "%s L%d" % [str(player.data.get("name", "?")), level], 13)
