@@ -164,6 +164,7 @@ export class World {
       id: playerId,
       name: sanitizeName(options.name),
       archetype,
+      mapId: "town",
       x: spawn.x,
       y: spawn.y,
       radius: PLAYER_RADIUS,
@@ -359,6 +360,7 @@ export class World {
     player.inputSeq = seq;
     player.input = {
       move: normalizedVector(input.move),
+      sprint: input.sprint === true,
       aim: finitePoint(input.aim, player.input.aim),
       primary: input.primary === true,
       q: input.q === true,
@@ -891,7 +893,17 @@ export class World {
   }
 
   getSnapshot(selfId = null) {
-    const enemies = [...this.mobs.values()].map((mob) => ({
+    const self = selfId ? this.players.get(selfId) : null;
+    const mapId = self?.mapId ?? null;
+    const mapTheme = this.zones.find((entry) => entry.id === mapId)?.theme
+      ?? ({
+        town: "town",
+        backhill: "mountain",
+        scrapyard: "scrapyard",
+        starship: "spaceport",
+      }[mapId] ?? mapId);
+    const visible = (entity) => !mapId || entity.mapId === mapId;
+    const enemies = [...this.mobs.values()].filter(visible).map((mob) => ({
       id: mob.id,
       type: mob.type,
       name: mob.name,
@@ -914,7 +926,7 @@ export class World {
       alive: true,
     }));
 
-    const drops = [...this.drops.values()].map((drop) => ({
+    const drops = [...this.drops.values()].filter(visible).map((drop) => ({
       id: drop.id,
       x: round(drop.x),
       y: round(drop.y),
@@ -923,7 +935,10 @@ export class World {
       name: drop.item.name,
     }));
 
-    const projectiles = [...this.projectiles.values()].map((projectile) => ({
+    const projectiles = [...this.projectiles.values()].filter((projectile) => {
+      if (!mapId) return true;
+      return this.players.get(projectile.ownerId)?.mapId === mapId;
+    }).map((projectile) => ({
       id: projectile.id,
       ownerId: projectile.ownerId,
       team: projectile.team,
@@ -946,14 +961,17 @@ export class World {
         height: this.height,
         time: round(this.time),
         tick: this.tick,
+        mapId,
+        theme: mapTheme,
       },
-      safeZone: this.safeZone ? { ...this.safeZone } : null,
+      safeZone: mapId === "town" && this.safeZone ? { ...this.safeZone } : null,
       portals: this.portals.map((portal) => ({ ...portal })),
-      players: [...this.players.values()].map((player) => this._serializePlayer(player)),
+      players: [...this.players.values()].filter(visible).map((player) => this._serializePlayer(player)),
       enemies,
       mobs: enemies,
       projectiles,
       drops,
+      mapId,
     };
   }
 
@@ -986,6 +1004,7 @@ export class World {
     const id = overrides.id ?? `mob-${++this._mobSequence}`;
     const mob = {
       id: validateId(id),
+      mapId: overrides.mapId ?? zone?.id ?? "town",
       type: overrides.type ?? species.type,
       name: overrides.name ?? species.name,
       x: clamp(point.x, MOB_RADIUS, this.width - MOB_RADIUS),
@@ -1064,10 +1083,14 @@ export class World {
   _updatePlayers(dt) {
     for (const player of this.players.values()) {
       if (!player.alive) continue;
-      const speed = ARCHETYPES[player.archetype].baseSpeed
-        + this._statTotal(player, "agility") * 3.2
-        + player.gearMods.speed;
       const manualMove = player.input.move.x !== 0 || player.input.move.y !== 0;
+      const zone = this.zones.find((entry) => entry.id === player.mapId);
+      const terrainFactor = zone?.theme === "snow" ? 0.86 : zone?.theme === "desert" ? 0.92 : zone?.theme === "skycity" ? 1.06 : 1;
+      const runFactor = player.input.sprint && manualMove ? 1.42 : 1;
+      player.running = runFactor > 1;
+      const speed = (ARCHETYPES[player.archetype].baseSpeed
+        + this._statTotal(player, "agility") * 3.2
+        + player.gearMods.speed) * terrainFactor * runFactor;
 
       if (manualMove) {
         player.moveTarget = null;
@@ -1852,6 +1875,8 @@ export class World {
       id: player.id,
       name: player.name,
       archetype: player.archetype,
+      mapId: player.mapId,
+      running: player.running === true,
       color: archetype.color,
       x: round(player.x),
       y: round(player.y),
@@ -2044,11 +2069,11 @@ export class World {
 
   _maybeDropLoot(mob) {
     if (this.rng() < 0.22) {
-      this._placeDrop(mob.x, mob.y, this._rollPotion(mob.level));
+      this._placeDrop(mob.x, mob.y, this._rollPotion(mob.level), mob.mapId);
     }
     const chance = Math.min(0.85, (0.22 + (mob.level - 1) * 0.07) * (mob.elite ? 1.8 : 1));
     if (this.rng() >= chance) return;
-    this._placeDrop(mob.x, mob.y, this._rollItem(mob.level, mob.elite ? 2 : 1));
+    this._placeDrop(mob.x, mob.y, this._rollItem(mob.level, mob.elite ? 2 : 1), mob.mapId);
   }
 
   _dropBossHoard(mob) {
@@ -2059,19 +2084,21 @@ export class World {
         mob.x + (this.rng() - 0.5) * 90,
         mob.y + (this.rng() - 0.5) * 90,
         item,
+        mob.mapId,
       );
     }
     // Strong bosses may leave behind a relic.
     if (this.rng() < 0.15 + mob.level * 0.01) {
-      this._placeDrop(mob.x, mob.y - 30, this._rollRelic(mob.level));
+      this._placeDrop(mob.x, mob.y - 30, this._rollRelic(mob.level), mob.mapId);
     }
-    this._placeDrop(mob.x, mob.y + 30, this._rollPotion(mob.level));
+    this._placeDrop(mob.x, mob.y + 30, this._rollPotion(mob.level), mob.mapId);
   }
 
-  _placeDrop(x, y, item) {
+  _placeDrop(x, y, item, mapId = "town") {
     const id = `drop-${++this._dropSequence}`;
     this.drops.set(id, {
       id,
+      mapId,
       x: clamp(x, PLAYER_RADIUS, this.width - PLAYER_RADIUS),
       y: clamp(y, PLAYER_RADIUS, this.height - PLAYER_RADIUS),
       expiresAt: this.time + DROP_TTL,
@@ -2245,6 +2272,7 @@ export class World {
         {
           id: `portal-${destination.id}`,
           zone: destination.id,
+          mapId: "town",
           x: cx + Math.cos(angle) * ringRadius,
           y: cy + Math.sin(angle) * ringRadius,
           targetId: `portal-${destination.id}-return`,
@@ -2252,6 +2280,7 @@ export class World {
         {
           id: `portal-${destination.id}-return`,
           zone: "town",
+          mapId: destination.id,
           x: destination.x * this.width,
           y: destination.y * this.height,
           targetId: `portal-${destination.id}`,
@@ -2296,6 +2325,7 @@ export class World {
       );
       player.x = clamp(destination.x + exit.x * 70, PLAYER_RADIUS, this.width - PLAYER_RADIUS);
       player.y = clamp(destination.y + exit.y * 70, PLAYER_RADIUS, this.height - PLAYER_RADIUS);
+      player.mapId = covering.zone === "town" ? "town" : covering.zone;
       player.portalLockUntil = this.time + PORTAL_LOCK;
       player.portalDwell = null;
       player.moveTarget = null;
@@ -2387,6 +2417,7 @@ function emptyInput() {
   return {
     move: { x: 0, y: 0 },
     aim: { x: 1, y: 0 },
+    sprint: false,
     primary: false,
     q: false,
     e: false,

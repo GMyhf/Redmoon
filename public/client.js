@@ -586,7 +586,7 @@
     profile: null,
     id: null,
     tick: 0,
-    map: { width: 1600, height: 900, name: "灰港中继站" },
+    map: { width: 1600, height: 900, name: "灰港中继站", mapId: "town", theme: "town" },
     players: new Map(),
     enemies: new Map(),
     projectiles: new Map(),
@@ -785,6 +785,8 @@
     state.map.width = clamp(first(map.width, map.w, state.map.width), 8, 8192);
     state.map.height = clamp(first(map.height, map.h, state.map.height), 8, 8192);
     state.map.name = String(first(map.name, map.label, state.map.name));
+    state.map.mapId = String(first(map.mapId, state.map.mapId, "town"));
+    state.map.theme = String(first(map.theme, state.map.theme, state.map.mapId));
     if (map.safeZone !== undefined) {
       const zone = map.safeZone;
       state.map.safeZone = zone && Number.isFinite(zone.x) && Number.isFinite(zone.y) && Number.isFinite(zone.radius)
@@ -793,7 +795,8 @@
     }
     if (Array.isArray(map.portals)) {
       state.map.portals = map.portals.filter(
-        (portal) => portal && Number.isFinite(portal.x) && Number.isFinite(portal.y),
+        (portal) => portal && Number.isFinite(portal.x) && Number.isFinite(portal.y)
+          && (!map.mapId || !portal.mapId || portal.mapId === map.mapId),
       );
     }
     if (Array.isArray(map.zones)) {
@@ -1564,7 +1567,7 @@
 
   function drawThemeCanvas(time) {
     const local = localPlayer();
-    const theme = local ? biomeAt(local.x, local.y) : state.activeTheme;
+    const theme = state.map.theme || (local ? biomeAt(local.x, local.y) : state.activeTheme);
     if (theme !== state.activeTheme) {
       state.activeTheme = theme;
       state.themeChangedAt = time;
@@ -1694,7 +1697,7 @@
 
   // Per-biome colour cast plus a soft vignette for depth.
   function drawGrading() {
-    const tint = GRADING_TINTS[biomeAt(state.camera.x, state.camera.y)];
+    const tint = GRADING_TINTS[state.map.theme || state.activeTheme];
     if (tint) {
       ctx.fillStyle = tint;
       ctx.fillRect(0, 0, state.viewWidth, state.viewHeight);
@@ -1714,10 +1717,11 @@
   }
 
   function drawLandmarks(time) {
-    drawTownStructures(time);
-    drawColonyShip(time);
-    drawFallenKeep(time);
-    drawSkySpire(time);
+    const theme = state.map.theme || state.activeTheme;
+    if (theme === "town") drawTownStructures(time);
+    if (theme === "spaceport") drawColonyShip(time);
+    if (theme === "castle") drawFallenKeep(time);
+    if (theme === "skycity") drawSkySpire(time);
   }
 
   // A ruined keep watches over the western castle grounds (original design).
@@ -2036,6 +2040,7 @@
 
     // District outlines so the world reads as regions at a glance.
     for (const district of state.map.zones || []) {
+      if (state.map.mapId !== "town" && district.id !== state.map.mapId) continue;
       ctx.strokeStyle = "rgba(160, 190, 230, 0.3)";
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -2939,13 +2944,14 @@
     const archetype = ARCHETYPES[key] || ARCHETYPES.vanguard;
     const isSelf = String(player.id) === String(state.id) || player.id === "preview" || player.self;
     const bob = Math.sin(time * 0.004 + finite(player.x) * 2) * 1.2;
+    const running = player.running === true;
 
     // Walk cycle driven by how far the interpolated sprite actually moved.
     const moved = Math.hypot(player.x - (player.lastDrawX ?? player.x), player.y - (player.lastDrawY ?? player.y));
     player.lastDrawX = player.x;
     player.lastDrawY = player.y;
     player.walkPhase = (player.walkPhase || 0) + Math.min(moved, 7) * 0.24;
-    const legSwing = moved > 0.08 ? Math.sin(player.walkPhase) * 3 : 0;
+    const legSwing = moved > 0.08 ? Math.sin(player.walkPhase) * (running ? 5 : 3) : 0;
     const facing = player.facing && Number.isFinite(player.facing.x) ? player.facing : { x: 1, y: 0 };
     const flip = (facing.x - facing.y) < -0.001;
 
@@ -2955,12 +2961,18 @@
     ctx.beginPath();
     ctx.ellipse(0, 3, 22, 10, 0, 0, Math.PI * 2);
     ctx.fill();
-    if (isSelf) {
-      ctx.strokeStyle = "rgba(84, 211, 194, 0.75)";
+    if (running) {
+      ctx.save();
+      ctx.globalAlpha = 0.18;
+      ctx.strokeStyle = ARCHETYPES[key]?.accent || "#54d3c2";
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.ellipse(0, 2, 27, 12.5, 0, 0, Math.PI * 2);
+      ctx.moveTo(-30, 5);
+      ctx.lineTo(-12, 5);
+      ctx.moveTo(-27, 10);
+      ctx.lineTo(-9, 10);
       ctx.stroke();
+      ctx.restore();
     }
 
     ctx.translate(0, bob - 12);
@@ -3784,6 +3796,7 @@
       seq: ++state.inputSeq,
       move,
       aim: { x: state.pointer.worldX, y: state.pointer.worldY },
+      sprint: state.keys.has("ShiftLeft") || state.keys.has("ShiftRight"),
       // moveTo/target are only present when a new order was clicked;
       // JSON.stringify drops undefined fields and the server keeps prior orders.
       moveTo: state.orders.moveTo,
@@ -4011,7 +4024,7 @@
 
   window.addEventListener("keydown", (event) => {
     if (event.target instanceof HTMLInputElement) return;
-    if (["KeyW", "KeyA", "KeyS", "KeyD", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.code)) {
+    if (["KeyW", "KeyA", "KeyS", "KeyD", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "ShiftLeft", "ShiftRight"].includes(event.code)) {
       event.preventDefault();
       state.keys.add(event.code);
     }

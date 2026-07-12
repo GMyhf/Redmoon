@@ -43,7 +43,7 @@ WebSocket 使用 UTF-8 JSON 对象，单条消息上限为 16 KiB。每条命令
 | `type` | 主要字段 | 用途 |
 | --- | --- | --- |
 | `join` | `name`, `archetype` | 创建会话角色 |
-| `input` | `seq`, `move`, `aim`, `moveTo?`, `target?`, `primary`, `q`, `e`, `r`, `c`, `f` | 提交有序移动与五个技能意图（`f` 为大招）。`moveTo`（点坐标）下达点击移动指令，`target`（敌人 id）下达锁定自动攻击指令；两者缺省表示保持现有指令，显式 `null` 表示取消，键盘移动会取消所有指令 |
+| `input` | `seq`, `move`, `aim`, `sprint`, `moveTo?`, `target?`, `primary`, `q`, `e`, `r`, `c`, `f` | 提交有序移动、Shift 奔跑和五个技能意图（`f` 为大招）。`moveTo`（点坐标）下达点击移动指令，`target`（敌人 id）下达锁定自动攻击指令；两者缺省表示保持现有指令，显式 `null` 表示取消，键盘移动会取消所有指令 |
 | `allocate` | `stat` | 消耗属性点 |
 | `upgrade` | `skill` | 消耗技能点 |
 | `respawn` | 无 | 请求合法重生 |
@@ -66,12 +66,14 @@ WebSocket 使用 UTF-8 JSON 对象，单条消息上限为 16 KiB。每条命令
 | `type` | 主要字段 | 语义 |
 | --- | --- | --- |
 | `welcome` | `protocol`, `id`, `tickRate`, `snapshotRate`, `world`（含 `safeZone`、`portals`）, `rebirthLevel`, `archetypes` | 建立身份并下发初始配置。传送门成对出现：站上任一门约 0.6 秒后传送到配对门旁（步行穿过不触发），落点带 2.5 秒锁避免弹回 |
-| `snapshot` | `tick`, `serverTime`, `selfId`, `world`, `safeZone`, `players`, `enemies`, `projectiles`, `drops` | 可替换的当前世界状态；玩家条目含 `moveTarget`、`targetId`、`rebirths`、`equipment`、`inventory`、`gearStats` |
+| `snapshot` | `tick`, `serverTime`, `selfId`, `mapId`, `world`, `safeZone`, `players`, `enemies`, `projectiles`, `drops` | 当前地图状态；玩家条目含 `mapId`、`running`、`moveTarget`、`targetId`、`rebirths`、`equipment`、`inventory`、`gearStats`，实体只包含当前地图内容 |
 | `enemyAttack` | `enemyId`, `playerId`, `fromX/fromY`, `toX/toY`, `damage`, `boss` | 服务端确认近战命中时广播，客户端据此绘制挥击轨迹和命中冲击；伤害仍由世界模拟结算 |
 
 技能槽由服务端定义解锁等级：初始开放普攻、Q、E、F；R 在 5 级、C 在 10 级开放。未解锁技能不出现在操作栏，且无法施放、升级或被自动加点选中。怪物快照提供 `damage`、`defense`、`speed`、`attackStyle`、`combatState` 和攻击前摇剩余时间，用于目标属性展示和持续可见的蓄力反馈。
 
-客户端按当前区域选择独立的主题缓存 Canvas；进入新区时整张可视地面切换到单一主题并淡入，不再将相邻主题拼接在同一画面。世界坐标、实体与权威碰撞不变。商店位于城镇安全区边缘之外，购买仍由服务端距离校验。
+客户端按当前 `mapId` 选择独立的主题缓存 Canvas；进入新区时整张可视地面切换到单一主题并淡入，不再将相邻主题拼接在同一画面。服务器按 `mapId` 过滤快照实体，玩家进入传送门后切换到对应主题大地图。商店位于城镇安全区边缘之外，购买仍由服务端距离校验。
+
+输入消息支持 `sprint`。服务端在移动计算中应用奔跑倍率、装备移速和地图地形修正；客户端根据快照中的 `running` 状态播放更大的摆腿幅度和短拖尾。奔跑不改变攻击与技能冷却规则。
 
 角色选择详情、HUD 头像和战斗世界优先加载 `public/assets/heroes/<archetype>-3d.png` RGBA 立绘。立绘由 rembg `isnet-general-use`（ISNet）生成透明 alpha，Canvas 直接绘制全身精灵，不再使用圆形/多边形裁切或屏幕混合；装备品质、武器形状和等级脚底光效仍由 Canvas 代码实时叠加，资源加载失败时回退到代码角色。
 

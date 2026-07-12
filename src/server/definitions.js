@@ -172,9 +172,12 @@ export const DROP_MAGNET_SPEED = 320;
 export const ZONES = Object.freeze([
   Object.freeze({ id: "residential", theme: "residential", x: 0.4, y: 0.42, rx: 0.09, ry: 0.1, minLevel: 1, maxLevel: 3 }),
   Object.freeze({ id: "downtown", theme: "downtown", x: 0.615, y: 0.44, rx: 0.09, ry: 0.1, minLevel: 2, maxLevel: 4 }),
+  Object.freeze({ id: "backhill", theme: "mountain", x: 0.5, y: 0.14, rx: 0.14, ry: 0.12, minLevel: 4, maxLevel: 7 }),
+  Object.freeze({ id: "scrapyard", theme: "scrapyard", x: 0.87, y: 0.5, rx: 0.12, ry: 0.14, minLevel: 6, maxLevel: 9 }),
   Object.freeze({ id: "desert", theme: "desert", x: 0.26, y: 0.78, rx: 0.17, ry: 0.17, minLevel: 8, maxLevel: 11 }),
   Object.freeze({ id: "snowmountain", theme: "snow", x: 0.19, y: 0.19, rx: 0.16, ry: 0.16, minLevel: 10, maxLevel: 13 }),
   Object.freeze({ id: "castle", theme: "castle", x: 0.09, y: 0.52, rx: 0.085, ry: 0.11, minLevel: 12, maxLevel: 14 }),
+  Object.freeze({ id: "starship", theme: "spaceport", x: 0.445, y: 0.85, rx: 0.14, ry: 0.12, minLevel: 12, maxLevel: 16 }),
   Object.freeze({ id: "skycity", theme: "skycity", x: 0.875, y: 0.14, rx: 0.135, ry: 0.13, minLevel: 14, maxLevel: 18 }),
 ]);
 

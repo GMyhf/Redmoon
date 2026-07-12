@@ -35,6 +35,28 @@ test("World is deterministic with an injected RNG and applies authoritative inpu
   assert.equal(first.players.get("player-1").input.move.x, 1);
 });
 
+test("sprint input accelerates movement and map snapshots isolate entities", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, safeZoneRadius: 0 });
+  const player = world.addPlayer("runner", { archetype: "strider" });
+  const startX = player.x;
+  world.setInput(player.id, { seq: 1, move: { x: 1, y: 0 }, sprint: false });
+  world.update(0.1);
+  const walkingDistance = player.x - startX;
+  player.x = startX;
+  world.setInput(player.id, { seq: 2, move: { x: 1, y: 0 }, sprint: true });
+  world.update(0.1);
+  assert.ok(player.x - startX > walkingDistance * 1.3);
+
+  const townMob = world.spawnMob({ id: "town-mob", x: world.width / 2, y: world.height / 2 });
+  const desert = world.zones.find((zone) => zone.id === "desert");
+  const desertMob = world.spawnMob({ id: "desert-mob", x: desert.x, y: desert.y, mapId: "desert" });
+  player.mapId = "desert";
+  const snapshot = world.getSnapshot(player.id);
+  assert.equal(snapshot.mapId, "desert");
+  assert.deepEqual(snapshot.enemies.map((entry) => entry.id), [desertMob.id]);
+  assert.equal(world.mobs.has(townMob.id), true);
+});
+
 test("stat allocation and both archetype skills can be upgraded", () => {
   const world = new World({ rng: () => 0.5, spawnMobs: false, autoLevel: false });
   const player = world.addPlayer("player-1", { name: "  Relay   One  ", archetype: "channeler" });
