@@ -102,29 +102,11 @@ class Writer {
   }
 }
 
-export function encodeSnapshotBinary(snapshot) {
-  const writer = new Writer();
-  writer.u8(MAGIC);
-
-  const selfEntry = snapshot.players.find((entry) => entry.id === snapshot.selfId) ?? null;
-  const meta = JSON.stringify({
-    tick: snapshot.tick,
-    serverTime: snapshot.serverTime,
-    selfId: snapshot.selfId,
-    mapId: snapshot.mapId,
-    online: snapshot.online,
-    world: snapshot.world,
-    safeZone: snapshot.safeZone,
-    self: selfEntry,
-  });
-  const metaBytes = Buffer.from(meta, "utf8");
-  writer.u32(metaBytes.length);
-  writer._push(metaBytes);
-
-  const publicPlayers = snapshot.players.filter((entry) => entry.id !== snapshot.selfId);
-  writer.u16(publicPlayers.length);
-  for (const player of publicPlayers) {
-    writer.str(player.id);
+// Packs one player's public wire record. Full self entries carry a
+// superset of these fields with identical values, so cached bytes are
+// valid for every recipient.
+function packPlayer(writer, player) {
+  writer.str(player.id);
     writer.str(player.name);
     writer.str(player.archetype);
     writer.str(player.color);
@@ -147,20 +129,19 @@ export function encodeSnapshotBinary(snapshot) {
     writer.u16(player.radius);
     writer.u16(player.rebirths);
     writer.u16(player.level);
-    const equipped = Object.entries(player.equipment ?? {}).filter(([, item]) => item);
-    writer.u8(equipped.length);
-    for (const [key, item] of equipped) {
-      writer.str(key);
-      writer.str(item.name);
-      writer.str(item.rarity);
-      writer.str(item.dropClass ?? "");
-      writer.u16(item.level ?? 1);
-    }
+  const equipped = Object.entries(player.equipment ?? {}).filter(([, item]) => item);
+  writer.u8(equipped.length);
+  for (const [key, item] of equipped) {
+    writer.str(key);
+    writer.str(item.name);
+    writer.str(item.rarity);
+    writer.str(item.dropClass ?? "");
+    writer.u16(item.level ?? 1);
   }
+}
 
-  writer.u16(snapshot.enemies.length);
-  for (const enemy of snapshot.enemies) {
-    writer.str(enemy.id);
+function packEnemy(writer, enemy) {
+  writer.str(enemy.id);
     writer.str(enemy.type);
     writer.str(enemy.name);
     writer.str(enemy.attackStyle);
@@ -175,35 +156,75 @@ export function encodeSnapshotBinary(snapshot) {
     writer.f32(enemy.speed);
     writer.f32(enemy.attackRemaining);
     writer.f32(enemy.attackWindup);
-    writer.u16(enemy.radius);
-    writer.u16(enemy.level);
-    writer.u16(enemy.defense);
-  }
+  writer.u16(enemy.radius);
+  writer.u16(enemy.level);
+  writer.u16(enemy.defense);
+}
 
-  writer.u16(snapshot.projectiles.length);
+function buildSections(snapshot) {
+  const playerBytes = snapshot.players.map((player) => {
+    const writer = new Writer(768);
+    packPlayer(writer, player);
+    return { id: player.id, bytes: writer.toBuffer() };
+  });
+  const entities = new Writer(32 * 1024);
+  entities.u16(snapshot.enemies.length);
+  for (const enemy of snapshot.enemies) packEnemy(entities, enemy);
+  entities.u16(snapshot.projectiles.length);
   for (const projectile of snapshot.projectiles) {
-    writer.str(projectile.id);
-    writer.str(projectile.ownerId);
-    writer.str(projectile.team);
-    writer.str(projectile.color);
-    writer.f32(projectile.x);
-    writer.f32(projectile.y);
-    writer.f32(projectile.fromX);
-    writer.f32(projectile.fromY);
-    writer.u16(projectile.radius);
+    entities.str(projectile.id);
+    entities.str(projectile.ownerId);
+    entities.str(projectile.team);
+    entities.str(projectile.color);
+    entities.f32(projectile.x);
+    entities.f32(projectile.y);
+    entities.f32(projectile.fromX);
+    entities.f32(projectile.fromY);
+    entities.u16(projectile.radius);
   }
-
-  writer.u16(snapshot.drops.length);
+  entities.u16(snapshot.drops.length);
   for (const drop of snapshot.drops) {
-    writer.str(drop.id);
-    writer.str(drop.slot);
-    writer.str(drop.rarity);
-    writer.str(drop.dropClass ?? "");
-    writer.str(drop.name);
-    writer.f32(drop.x);
-    writer.f32(drop.y);
+    entities.str(drop.id);
+    entities.str(drop.slot);
+    entities.str(drop.rarity);
+    entities.str(drop.dropClass ?? "");
+    entities.str(drop.name);
+    entities.f32(drop.x);
+    entities.f32(drop.y);
+  }
+  return {
+    playerBytes,
+    entities: entities.toBuffer(),
+    metaHead: `"tick":${snapshot.tick},"serverTime":${snapshot.serverTime}`
+      + `,"mapId":${JSON.stringify(snapshot.mapId)},"online":${snapshot.online}`
+      + `,"world":${JSON.stringify(snapshot.world)},"safeZone":${JSON.stringify(snapshot.safeZone)}`,
+  };
+}
+
+// The per-map sections (packed entities, per-player public records, world
+// meta string) are built once per broadcast via sectionCache; per recipient
+// only the meta JSON (with their full self entry) is fresh.
+export function encodeSnapshotBinary(snapshot, sectionCache = null) {
+  const cacheKey = `bin:${snapshot.mapId ?? "*"}`;
+  let sections = sectionCache?.get(cacheKey);
+  if (!sections) {
+    sections = buildSections(snapshot);
+    sectionCache?.set(cacheKey, sections);
   }
 
+  const selfEntry = snapshot.players.find((entry) => entry.id === snapshot.selfId) ?? null;
+  const meta = `{${sections.metaHead},"selfId":${JSON.stringify(snapshot.selfId)}`
+    + `,"self":${selfEntry ? JSON.stringify(selfEntry) : "null"}}`;
+  const metaBytes = Buffer.from(meta, "utf8");
+
+  const writer = new Writer(metaBytes.length + sections.entities.length + 4096);
+  writer.u8(MAGIC);
+  writer.u32(metaBytes.length);
+  writer._push(metaBytes);
+  const others = sections.playerBytes.filter((entry) => entry.id !== snapshot.selfId);
+  writer.u16(others.length);
+  for (const entry of others) writer._push(entry.bytes);
+  writer._push(sections.entities);
   return writer.toBuffer();
 }
 

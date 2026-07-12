@@ -106,3 +106,32 @@ test("a client that negotiates binary1 receives binary snapshot frames", async (
   assert.equal(decoded.players[0].name, "BinPilot");
   assert.equal(decoded.enemies.length, 2);
 });
+
+test("the shared-serialization paths match the canonical snapshot exactly", () => {
+  const world = new World({
+    rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, autoLevel: false,
+  });
+  const a = world.addPlayer("a-1", { name: "Alpha", archetype: "vanguard" });
+  world.addPlayer("b-1", { name: "Beta", archetype: "eclipse" });
+  a.inventory.push({ id: "blade", slot: "weapon", rarity: "epic", tier: 4, level: 1, name: "Pulse Edge", bonuses: { power: 4 } });
+  world.equipItem("a-1", "blade");
+  world.spawnMob({ id: "mob-1", mapId: "town", x: a.x + 400, y: a.y, elite: true });
+  world._placeDrop(a.x + 500, a.y + 300, world._rollSpecialDrop("uniq", 10));
+  world._usePrimary(a, { x: 1, y: 0 });
+
+  // JSON path: parses to the canonical object for every recipient, with and
+  // without a warm cache.
+  const cache = new Map();
+  for (const id of ["a-1", "b-1"]) {
+    assert.deepEqual(JSON.parse(world.getSnapshotJson(id, cache)), world.getSnapshot(id));
+    assert.deepEqual(JSON.parse(world.getSnapshotJson(id)), world.getSnapshot(id));
+  }
+
+  // Binary path: cached sections decode identically to uncached encodes.
+  const binCache = new Map();
+  for (const id of ["a-1", "b-1"]) {
+    const cached = decodeSnapshotBinary(encodeSnapshotBinary(world.getSnapshot(id), binCache));
+    const fresh = decodeSnapshotBinary(encodeSnapshotBinary(world.getSnapshot(id)));
+    assert.deepEqual(cached, fresh);
+  }
+});

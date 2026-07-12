@@ -60,6 +60,17 @@
       </section>
 
       <section id="hud" class="hud" aria-label="操作员状态" hidden>
+        <section id="chat-panel" class="chat-panel" aria-label="聊天">
+          <div id="chat-feed" class="chat-feed" aria-live="polite"></div>
+          <form id="chat-form" class="chat-form" autocomplete="off">
+            <select id="chat-channel" aria-label="频道">
+              <option value="global">全服</option>
+              <option value="map">本图</option>
+              <option value="party">组队</option>
+            </select>
+            <input id="chat-input" maxlength="200" placeholder="Enter 聊天…" />
+          </form>
+        </section>
         <aside class="operator-panel" aria-label="操作员">
           <div class="operator-heading" data-drag-handle>
             <div id="operator-sigil" class="operator-sigil">V</div>

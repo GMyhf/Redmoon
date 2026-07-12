@@ -250,3 +250,62 @@ function messageQueue(socket) {
     },
   };
 }
+
+
+test("map chat never leaks outside its scope; global reaches everyone", async (t) => {
+  const server = createGameServer({
+    host: "127.0.0.1",
+    port: 0,
+    persistPath: "",
+    tickRate: 20,
+    snapshotRate: 20,
+    world: new World({ rng: () => 0.5, mobTargetCount: 0, spawnMobs: false }),
+  });
+  await server.listen();
+  t.after(() => server.close());
+  const port = server.address().port;
+
+  const open = (name) => {
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    t.after(() => socket.terminate());
+    const queue = messageQueue(socket);
+    socket.on("open", () => socket.send(JSON.stringify({ type: "join", protocol: 2, name, archetype: "vanguard" })));
+    return { socket, queue };
+  };
+  const alice = open("Alice");
+  const bob = open("Bob");
+  await alice.queue.next("snapshot");
+  await bob.queue.next("snapshot");
+
+  // Bob moves to another map; Alice's map chat must not reach him.
+  const bobPlayer = [...server.world.players.values()].find((player) => player.name === "Bob");
+  bobPlayer.mapId = "skycity";
+  const nextChat = async (queue, timeout = 2000) => {
+    for (;;) {
+      const event = await queue.next("event", timeout);
+      if (event.event === "chatMessage") return event;
+    }
+  };
+  const assertNoChat = async (queue, windowMs) => {
+    try {
+      for (;;) {
+        const event = await queue.next("event", windowMs);
+        assert.notEqual(event.event, "chatMessage", "chat leaked outside its scope");
+      }
+    } catch (error) {
+      assert.match(String(error), /Timed out/);
+    }
+  };
+
+  alice.socket.send(JSON.stringify({ type: "chat", channel: "map", text: "town only" }));
+  const aliceEcho = await nextChat(alice.queue);
+  assert.equal(aliceEcho.text, "town only");
+  assert.equal(aliceEcho.scope, undefined, "scope never reaches the wire");
+  await assertNoChat(bob.queue, 700);
+
+  // Global chat reaches everyone after the cadence window.
+  await new Promise((resolve) => setTimeout(resolve, 700));
+  alice.socket.send(JSON.stringify({ type: "chat", channel: "global", text: "hello all" }));
+  const bobGlobal = await nextChat(bob.queue);
+  assert.equal(bobGlobal.text, "hello all");
+});

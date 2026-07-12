@@ -87,8 +87,10 @@ test("emitted events carry documented names and conformant payloads", () => {
     );
     const payloadSpec = PROTOCOL.events[event.event];
     if (!payloadSpec) continue;
+    // `scope` is gateway-internal delivery routing, stripped before the wire.
+    const { scope: _scope, ...wireEvent } = event;
     const spec = { event: "string", tick: "number", serverTime: "number", ...payloadSpec };
-    assertConformant(validate(event, spec, `event:${event.event}`));
+    assertConformant(validate(wireEvent, spec, `event:${event.event}`));
   }
 });
 

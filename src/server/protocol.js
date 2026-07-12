@@ -46,6 +46,8 @@ const SHOP_GOOD = {
   gold: "number?",
   dew: "number?",
   heal: "number?",
+  goldPerLevel: "number?",
+  healPerLevel: "number?",
 };
 
 const SHOP = {
@@ -298,6 +300,7 @@ export const PROTOCOL = Object.freeze({
     friendAdd: { name: "string" },
     friendRemove: { name: "string" },
     attune: { path: "string" },
+    chat: { channel: "string", text: "string" },
     leave: {},
   },
   commandAliases: { start: "join", upgradeskill: "upgrade" },
@@ -352,6 +355,7 @@ export const PROTOCOL = Object.freeze({
     autoFightChanged: { playerId: "string", enabled: "boolean" },
     autoLevelChanged: { playerId: "string", enabled: "boolean" },
     barrierSurged: null,
+    chatMessage: { playerId: "string", name: "string", channel: "string", text: "string" },
     bossSlain: { enemyId: "string", type: "string", name: "string", playerId: "string", x: "number", y: "number" },
     bossSpawned: { enemyId: "string", type: "string", name: "string", level: "number", x: "number", y: "number" },
     enemyAttack: null,
@@ -395,13 +399,14 @@ export const PROTOCOL = Object.freeze({
   eventEnvelope: { type: "string", event: "string", tick: "number", serverTime: "number" },
 
   errorCodes: [
-    "ALREADY_ALIVE", "ALREADY_IN_PARTY", "ALREADY_JOINED", "DUPLICATE_ENTITY",
+    "ALREADY_ALIVE", "ALREADY_IN_PARTY", "ALREADY_JOINED", "CHAT_TOO_FAST",
+    "DUPLICATE_ENTITY", "INVALID_CHANNEL",
     "FRIENDS_FULL", "INTERNAL_ERROR", "INVALID_ARCHETYPE", "INVALID_GOOD",
     "INVALID_ID", "INVALID_ITEM", "INVALID_JSON", "INVALID_MESSAGE",
     "INVALID_SHOP", "INVALID_SKILL", "INVALID_SLOT", "INVALID_STAT",
     "INVALID_TARGET", "INVALID_TOKEN", "INVENTORY_FULL", "ITEM_LEVEL_TOO_HIGH",
     "MESSAGE_TOO_LARGE", "NAME_IN_USE", "NAME_TAKEN", "NO_DEW", "NO_GOLD",
-    "NO_INVITE", "NO_SKILL_POINTS", "NO_STAT_POINTS", "NOT_JOINED",
+    "NO_INVITE", "NO_PARTY", "NO_SKILL_POINTS", "NO_STAT_POINTS", "NOT_JOINED",
     "PARTY_FULL", "PLAYER_DEAD", "PROTOCOL_MISMATCH", "RATE_LIMITED",
     "REBIRTH_LEVEL_TOO_LOW", "RESPAWN_PENDING", "SKILL_LOCKED",
     "SKILL_MAX_LEVEL", "TOO_FAR", "UNKNOWN_MESSAGE",

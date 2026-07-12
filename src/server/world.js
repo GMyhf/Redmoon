@@ -358,6 +358,8 @@ export class World {
     switch (type) {
       case "input":
         return this.setInput(id, message);
+      case "chat":
+        return this.sendChat(id, message.channel, message.text);
       case "leave":
         // Back to the character screen: the account is saved and the seat
         // freed so the same connection can join again.
@@ -790,17 +792,20 @@ export class World {
     }
     const good = shop.goods.find((entry) => entry.key === goodKey);
     if (!good) throw new WorldError("INVALID_GOOD", "That item is not for sale here.");
-    if ((good.gold ?? 0) > player.gold) throw new WorldError("NO_GOLD", "Not enough gold.");
+    // Level-scaled goods: price and potency grow with the buyer.
+    const goldPrice = Math.floor((good.gold ?? 0) + (good.goldPerLevel ?? 0) * (player.level - 1));
+    if (goldPrice > player.gold) throw new WorldError("NO_GOLD", "Not enough gold.");
     if ((good.dew ?? 0) > player.dew) throw new WorldError("NO_DEW", "Not enough revival dew.");
     if (player.inventory.length >= INVENTORY_LIMIT) {
       throw new WorldError("INVENTORY_FULL", "The inventory is full.");
     }
 
-    player.gold -= good.gold ?? 0;
+    player.gold -= goldPrice;
     player.dew -= good.dew ?? 0;
     let item;
     if (good.heal) {
-      item = { ...this._rollPotion(1), heal: good.heal, name: "Mending Vial" };
+      const heal = Math.floor(good.heal + (good.healPerLevel ?? 0) * (player.level - 1));
+      item = { ...this._rollPotion(1), heal, name: "Mending Vial" };
     } else if (good.key === "forge-gear") {
       item = this._rollItem(clamp(player.level, 1, LEVEL_CAP), 2);
     } else {
@@ -900,6 +905,43 @@ export class World {
     return player;
   }
 
+  // Chat channels: global reaches everyone (lobby included), map stays on
+  // the sender's map, party reaches party members only.
+  sendChat(id, channel, text) {
+    const player = this._requirePlayer(id);
+    if (!["global", "map", "party"].includes(channel)) {
+      throw new WorldError("INVALID_CHANNEL", "channel must be global, map, or party.");
+    }
+    if (typeof text !== "string") {
+      throw new WorldError("INVALID_MESSAGE", "text must be a string.");
+    }
+    const cleaned = text.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 200);
+    if (cleaned.length === 0) {
+      throw new WorldError("INVALID_MESSAGE", "text must not be empty.");
+    }
+    // Resolve the scope before consuming the cadence window, so a rejected
+    // party message does not eat the cooldown of the next valid one.
+    let scope = null;
+    if (channel === "map") {
+      scope = { mapId: player.mapId };
+    } else if (channel === "party") {
+      const party = player.partyId ? this.parties.get(player.partyId) : null;
+      if (!party) throw new WorldError("NO_PARTY", "Join a party before using party chat.");
+      scope = { players: [...party.members] };
+    }
+    if (this.time < (player.nextChatAt ?? 0)) {
+      throw new WorldError("CHAT_TOO_FAST", "Slow down between messages.");
+    }
+    player.nextChatAt = this.time + 0.6;
+    this._emit("chatMessage", {
+      playerId: id,
+      name: player.name,
+      channel,
+      text: cleaned,
+    }, scope);
+    return player;
+  }
+
   addFriend(id, name) {
     const player = this._requirePlayer(id);
     const friendName = sanitizeName(name);
@@ -995,12 +1037,7 @@ export class World {
   getSnapshot(selfId = null, sharedCache = null) {
     const self = selfId ? this.players.get(selfId) : null;
     const mapId = self?.mapId ?? null;
-    const cacheKey = mapId ?? "*";
-    let shared = sharedCache?.get(cacheKey);
-    if (!shared) {
-      shared = this._buildMapSnapshot(mapId);
-      sharedCache?.set(cacheKey, shared);
-    }
+    const shared = this._sharedMapSnapshot(mapId, sharedCache);
     const players = self
       ? shared.players.map((entry) => (
         entry.id === selfId ? this._serializePlayer(self, shared.onlineNames) : entry
@@ -1021,6 +1058,55 @@ export class World {
       // Server-wide head count: the players array only covers this map.
       online: this.players.size,
     };
+  }
+
+  _sharedMapSnapshot(mapId, sharedCache) {
+    const cacheKey = mapId ?? "*";
+    let shared = sharedCache?.get(cacheKey);
+    if (!shared) {
+      shared = this._buildMapSnapshot(mapId);
+      sharedCache?.set(cacheKey, shared);
+    }
+    return shared;
+  }
+
+  // Wire-optimized JSON path: the heavy shared parts (world meta, entity
+  // arrays, other players' slim entries) are stringified once per map per
+  // broadcast; each recipient stringifies only its own full entry and the
+  // pieces are glued. Parses to exactly what getSnapshot() returns — the
+  // equivalence is locked by a test. At 50 players on one map this is the
+  // difference between saturating a core and idling (see docs/PERFORMANCE.md).
+  getSnapshotJson(selfId = null, sharedCache = null) {
+    const self = selfId ? this.players.get(selfId) : null;
+    const mapId = self?.mapId ?? null;
+    const cacheKey = `json:${mapId ?? "*"}`;
+    let strings = sharedCache?.get(cacheKey);
+    if (!strings) {
+      const shared = this._sharedMapSnapshot(mapId, sharedCache);
+      strings = {
+        head: `"tick":${this.tick},"serverTime":${round(this.time)}`
+          + `,"world":${JSON.stringify(shared.world)},"safeZone":${JSON.stringify(shared.safeZone)}`,
+        tail: `"enemies":${JSON.stringify(shared.enemies)}`
+          + `,"projectiles":${JSON.stringify(shared.projectiles)}`
+          + `,"drops":${JSON.stringify(shared.drops)}`
+          + `,"mapId":${JSON.stringify(mapId)},"online":${this.players.size}`,
+        slimIds: shared.players.map((entry) => entry.id),
+        slimJson: shared.players.map((entry) => JSON.stringify(entry)),
+        onlineNames: shared.onlineNames,
+      };
+      sharedCache?.set(cacheKey, strings);
+    }
+    // The recipient's full entry replaces their slim record in place, so the
+    // array order matches getSnapshot() exactly.
+    const parts = strings.slimJson.slice();
+    if (self) {
+      const position = strings.slimIds.indexOf(selfId);
+      const selfJson = JSON.stringify(this._serializePlayer(self, strings.onlineNames));
+      if (position >= 0) parts[position] = selfJson;
+      else parts.push(selfJson);
+    }
+    return `{"type":"snapshot",${strings.head},"selfId":${JSON.stringify(selfId)}`
+      + `,"players":[${parts.join(",")}],${strings.tail}}`;
   }
 
   _buildMapSnapshot(mapId) {
@@ -1351,7 +1437,7 @@ export class World {
             toX: round(attackTarget.x), toY: round(attackTarget.y),
             damage: round(mob.damage), boss: mob.boss,
             attackStyle: mob.attackStyle, enemyType: mob.type, phase: "impact",
-          });
+          }, { mapId: mob.mapId });
           this._damagePlayer(attackTarget, mob.damage, mob.id);
         }
         continue;
@@ -1382,7 +1468,7 @@ export class World {
           damage: round(mob.damage), boss: mob.boss,
           attackStyle: mob.attackStyle, enemyType: mob.type,
           phase: "windup", duration: mob.attackWindup,
-        });
+        }, { mapId: mob.mapId });
       }
     }
   }
@@ -1477,7 +1563,7 @@ export class World {
       skill: slot,
       skillId: skill.id,
       level,
-    });
+    }, { mapId: player.mapId });
   }
 
   // Eclipse: every skill resolves on the radiant branch while reputation
@@ -1710,7 +1796,7 @@ export class World {
       xp: mob.xp,
       x: round(mob.x),
       y: round(mob.y),
-    });
+    }, { mapId: mob.mapId });
   }
 
   _damagePlayer(player, damage, sourceId) {
@@ -2175,7 +2261,7 @@ export class World {
       slot: item.slot,
       x: round(x),
       y: round(y),
-    });
+    }, { mapId });
     return id;
   }
 
@@ -2373,13 +2459,22 @@ export class World {
     return player;
   }
 
-  _emit(event, payload = {}) {
-    this.events.push({ event, tick: this.tick, serverTime: round(this.time), ...payload });
+  _emit(event, payload = {}, scope = null) {
+    const entry = { event, tick: this.tick, serverTime: round(this.time), ...payload };
+    // Delivery scope is gateway-internal routing (never sent on the wire):
+    // { mapId } limits to players on that map, { players } to explicit ids.
+    if (scope) entry.scope = scope;
+    this.events.push(entry);
   }
 }
 
+// Superlinear XP curve: with mob XP growing linearly in level, a linear
+// requirement made late levels *faster* than mid-game. The extra
+// (1 + level/60) factor keeps kills-per-level rising monotonically from
+// ~6 at the start to ~35 near the cap (see the pacing table in CHANGELOG).
 export function xpRequiredForLevel(level) {
-  return 75 + Math.max(0, level - 1) * 55;
+  const base = 75 + Math.max(0, level - 1) * 55;
+  return Math.round(base * (1 + Math.max(0, level - 1) / 60));
 }
 
 function zeroStats() {

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { INVENTORY_LIMIT } from "../src/server/definitions.js";
-import { World, WorldError } from "../src/server/world.js";
+import { World, WorldError, xpRequiredForLevel } from "../src/server/world.js";
 
 function throwsCode(fn, code) {
   assert.throws(fn, (error) => error instanceof WorldError && error.code === code, `expected ${code}`);
@@ -833,7 +833,7 @@ test("the quest chain advances step by step with rewards", () => {
     world._advanceQuest(player, { type: "riftling", boss: false, elite: false });
   }
   assert.equal(player.quest.chainIndex, 1, "chain advances to step two");
-  assert.equal(player.gold, 60, "step reward paid");
+  assert.equal(player.gold, 150, "step reward paid");
   assert.equal(player.quest.progress, 0);
 
   // Duskfangs do not count toward a riftling step and vice versa.
@@ -1358,4 +1358,63 @@ test("a name is one character forever: another archetype cannot overwrite it", (
   const back = world.addPlayer("conn-3", { name: "Alpha", archetype: "vanguard", token });
   assert.equal(back.level, 42);
   assert.equal(back.gold, 888);
+});
+
+
+test("chat validates channel, text, cadence, and party membership", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
+  world.addPlayer("p-1", { name: "Talker", archetype: "vanguard" });
+
+  throwsCode(() => world.sendChat("p-1", "yell", "hi"), "INVALID_CHANNEL");
+  throwsCode(() => world.sendChat("p-1", "global", 42), "INVALID_MESSAGE");
+  throwsCode(() => world.sendChat("p-1", "global", "   "), "INVALID_MESSAGE");
+  throwsCode(() => world.sendChat("p-1", "party", "anyone?"), "NO_PARTY");
+
+  world.sendChat("p-1", "global", "  hello\u0007 world  ");
+  throwsCode(() => world.sendChat("p-1", "global", "too fast"), "CHAT_TOO_FAST");
+  world.update(0.4);
+  world.update(0.4);
+  world.sendChat("p-1", "map", "a".repeat(500));
+
+  const chats = world.drainEvents().filter((event) => event.event === "chatMessage");
+  assert.equal(chats.length, 2);
+  assert.equal(chats[0].text, "hello world", "control chars stripped, trimmed");
+  assert.equal(chats[0].scope, undefined, "global chat is unscoped");
+  assert.equal(chats[1].text.length, 200, "long text truncated");
+  assert.deepEqual(chats[1].scope, { mapId: "town" }, "map chat scoped to the sender's map");
+});
+
+
+test("the XP curve keeps kills-per-level rising toward the cap", () => {
+  // Mob XP grows ~linearly in level; the requirement must outgrow it.
+  const mobXp = (level) => (22 + level * 9) * 2;
+  let previous = 0;
+  for (const level of [1, 50, 150, 300, 500, 700, 900, 1000]) {
+    const kills = xpRequiredForLevel(level) / mobXp(level);
+    assert.ok(kills > previous, `kills/level must rise (L${level})`);
+    previous = kills;
+  }
+  assert.equal(xpRequiredForLevel(1), 75, "the first level is untouched");
+});
+
+test("shop potions scale price and healing with the buyer's level", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, autoLevel: false });
+  const player = world.addPlayer("p-1", { name: "Buyer", archetype: "vanguard" });
+  const grocer = world.shops.find((shop) => shop.id === "grocer");
+  player.x = grocer.x;
+  player.y = grocer.y;
+
+  player.gold = 10000;
+  world.buyGood("p-1", "grocer", "potion-s");
+  assert.equal(player.gold, 10000 - 30, "level 1 pays the base price");
+  assert.equal(player.inventory.at(-1).heal, 60, "level 1 gets the base healing");
+
+  player.level = 101;
+  world.buyGood("p-1", "grocer", "potion-s");
+  assert.equal(player.gold, 10000 - 30 - (30 + 2 * 100), "price scales with level");
+  assert.equal(player.inventory.at(-1).heal, 60 + 7 * 100, "healing scales with level");
+
+  // The affordability guard uses the scaled price.
+  player.gold = 100;
+  throwsCode(() => world.buyGood("p-1", "grocer", "potion-s"), "NO_GOLD");
 });

@@ -77,8 +77,10 @@ export const SHOPS = Object.freeze([
     dx: -310,
     dy: 95,
     goods: Object.freeze([
-      Object.freeze({ key: "potion-s", label: "小修复药剂", gold: 30, heal: 60 }),
-      Object.freeze({ key: "potion-l", label: "大修复药剂", gold: 90, heal: 200 }),
+      // Potions scale with the buyer's level (price and healing), so they
+      // stay relevant across the whole 1-1000 ladder.
+      Object.freeze({ key: "potion-s", label: "小修复药剂", gold: 30, heal: 60, goldPerLevel: 2, healPerLevel: 7 }),
+      Object.freeze({ key: "potion-l", label: "大修复药剂", gold: 90, heal: 200, goldPerLevel: 5, healPerLevel: 22 }),
     ]),
   }),
   Object.freeze({
@@ -102,15 +104,18 @@ export const SHOPS = Object.freeze([
 ]);
 
 // The relay's eight-step quest chain; the final hunt repeats forever.
+// Rewards scale with each step's content level on the 1-1000 ladder
+// (roughly one level's worth of XP at that stage), so the chain stays
+// meaningful instead of fossilizing at early-game numbers.
 export const QUEST_CHAIN = Object.freeze([
-  Object.freeze({ id: "chain-1", title: "稳定边缘区", description: "清除裂隙体", type: "killType", param: "riftling", target: 6, rewardXp: 120, rewardGold: 60, rewardDew: 0 }),
-  Object.freeze({ id: "chain-2", title: "暮色狩猎", description: "讨伐暮牙兽", type: "killType", param: "duskfang", target: 8, rewardXp: 240, rewardGold: 100, rewardDew: 0 }),
-  Object.freeze({ id: "chain-3", title: "精英试炼", description: "猎杀任意精英怪", type: "killElite", param: null, target: 3, rewardXp: 400, rewardGold: 150, rewardDew: 1 }),
-  Object.freeze({ id: "chain-4", title: "草原之主", description: "击败棘颚兽", type: "killBoss", param: "thornmaw", target: 1, rewardXp: 600, rewardGold: 300, rewardDew: 1 }),
-  Object.freeze({ id: "chain-5", title: "碎岩行动", description: "讨伐岩角兽", type: "killType", param: "stonehorn", target: 10, rewardXp: 900, rewardGold: 400, rewardDew: 1 }),
-  Object.freeze({ id: "chain-6", title: "沙海霸主", description: "击败沙喉", type: "killBoss", param: "sandmaw", target: 1, rewardXp: 1200, rewardGold: 600, rewardDew: 2 }),
-  Object.freeze({ id: "chain-7", title: "虚空回响", description: "讨伐虚空吞喉", type: "killType", param: "voidmaw", target: 8, rewardXp: 1800, rewardGold: 800, rewardDew: 2 }),
-  Object.freeze({ id: "chain-8", title: "深红的终局", description: "击败深红督军（可重复）", type: "killBoss", param: "warden", target: 1, rewardXp: 4000, rewardGold: 2000, rewardDew: 5 }),
+  Object.freeze({ id: "chain-1", title: "稳定边缘区", description: "清除裂隙体", type: "killType", param: "riftling", target: 6, rewardXp: 400, rewardGold: 150, rewardDew: 0 }),
+  Object.freeze({ id: "chain-2", title: "暮色狩猎", description: "讨伐暮牙兽", type: "killType", param: "duskfang", target: 8, rewardXp: 2600, rewardGold: 500, rewardDew: 1 }),
+  Object.freeze({ id: "chain-3", title: "精英试炼", description: "猎杀任意精英怪", type: "killElite", param: null, target: 3, rewardXp: 9000, rewardGold: 1200, rewardDew: 1 }),
+  Object.freeze({ id: "chain-4", title: "草原之主", description: "击败棘颚兽", type: "killBoss", param: "thornmaw", target: 1, rewardXp: 90000, rewardGold: 9000, rewardDew: 2 }),
+  Object.freeze({ id: "chain-5", title: "碎岩行动", description: "讨伐岩角兽", type: "killType", param: "stonehorn", target: 10, rewardXp: 130000, rewardGold: 12000, rewardDew: 2 }),
+  Object.freeze({ id: "chain-6", title: "沙海霸主", description: "击败沙喉", type: "killBoss", param: "sandmaw", target: 1, rewardXp: 210000, rewardGold: 18000, rewardDew: 3 }),
+  Object.freeze({ id: "chain-7", title: "虚空回响", description: "讨伐虚空吞喉", type: "killType", param: "voidmaw", target: 8, rewardXp: 620000, rewardGold: 45000, rewardDew: 3 }),
+  Object.freeze({ id: "chain-8", title: "深红的终局", description: "击败深红督军（可重复）", type: "killBoss", param: "warden", target: 1, rewardXp: 950000, rewardGold: 90000, rewardDew: 5 }),
 ]);
 
 export const RARITIES = Object.freeze([

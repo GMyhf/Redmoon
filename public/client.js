@@ -32,6 +32,10 @@ import {
     connection: document.querySelector("#connection"),
     sector: document.querySelector("#sector-label"),
     population: document.querySelector("#population"),
+    chatFeed: document.querySelector("#chat-feed"),
+    chatForm: document.querySelector("#chat-form"),
+    chatChannel: document.querySelector("#chat-channel"),
+    chatInput: document.querySelector("#chat-input"),
     leaveButton: document.querySelector("#leave-button"),
     lobbyRoster: document.querySelector("#lobby-roster"),
     lobbyRosterList: document.querySelector("#lobby-roster-list"),
@@ -924,7 +928,9 @@ import {
       const price = document.createElement("span");
       price.className = "gear-trend";
       price.style.width = "auto";
-      price.textContent = good.dew ? `${good.dew}露` : `${good.gold}金`;
+      const level = Math.max(1, finite(player.level, 1));
+      const goldPrice = Math.floor(finite(good.gold, 0) + finite(good.goldPerLevel, 0) * (level - 1));
+      price.textContent = good.dew ? `${good.dew}露` : `${goldPrice}金`;
       price.style.color = good.dew ? "#8fd8ff" : "#f0c15e";
       const buy = document.createElement("button");
       buy.type = "button";
@@ -1081,6 +1087,10 @@ import {
       }
       return;
     }
+    if (eventName === "chatmessage") {
+      pushChat(event);
+      return;
+    }
     if (eventName === "lootpickedup") {
       // Auto-wear now happens server-side, governed by the 自动装备 toggle.
       pushEvent(event.autoEquipped ? `拾取并装备 ${itemLabel(event)}` : `拾取 ${itemLabel(event)}`);
@@ -1207,6 +1217,9 @@ import {
       INVALID_TOKEN: "该呼号已在其他设备注册，本机凭证不符",
       NAME_TAKEN: "该呼号已绑定另一职业的角色，请换呼号或选择原职业",
       RATE_LIMITED: "指令过于频繁，请稍候",
+      CHAT_TOO_FAST: "发言太快，稍等片刻",
+      INVALID_CHANNEL: "无效的聊天频道",
+      NO_PARTY: "尚未加入队伍，无法使用组队频道",
       PROTOCOL_MISMATCH: "客户端版本过旧，请强制刷新页面（Ctrl+Shift+R）",
       NO_STAT_POINTS: "没有可用属性点",
       NO_SKILL_POINTS: "没有可用技能点",
@@ -1245,6 +1258,18 @@ import {
     ui.joinButton.disabled = false;
     if (ui.leaveButton) ui.leaveButton.hidden = true;
     ui.population.hidden = true;
+  }
+
+  const CHANNEL_LABELS = { global: "全服", map: "本图", party: "组队" };
+
+  function pushChat(event) {
+    if (!ui.chatFeed) return;
+    const channel = String(event.channel || "global");
+    const row = document.createElement("div");
+    row.className = `chat-${channel}`;
+    row.textContent = `[${CHANNEL_LABELS[channel] || channel}] ${event.name}: ${event.text}`;
+    ui.chatFeed.append(row);
+    while (ui.chatFeed.children.length > 8) ui.chatFeed.firstElementChild.remove();
   }
 
   function pushEvent(text, alert = false) {
@@ -4052,8 +4077,25 @@ import {
     document.querySelectorAll(".hud > aside").forEach(clampPanel);
   }, { passive: true });
 
+  ui.chatForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const text = ui.chatInput.value.trim();
+    if (!text || !state.joined) return;
+    send({ type: "chat", channel: ui.chatChannel.value, text });
+    ui.chatInput.value = "";
+  });
+
   window.addEventListener("keydown", (event) => {
-    if (event.target instanceof HTMLInputElement) return;
+    if (event.target instanceof HTMLInputElement) {
+      // Esc leaves the chat box and returns keys to the game.
+      if (event.code === "Escape") event.target.blur();
+      return;
+    }
+    if (event.code === "Enter" && state.joined && ui.chatInput) {
+      event.preventDefault();
+      ui.chatInput.focus();
+      return;
+    }
     if (["KeyW", "KeyA", "KeyS", "KeyD", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "ShiftLeft", "ShiftRight"].includes(event.code)) {
       event.preventDefault();
       state.keys.add(event.code);

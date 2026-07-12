@@ -453,6 +453,8 @@ func _apply_snapshot(snapshot: Dictionary) -> void:
 		ui.join_panel.visible = false
 		ui.hud.visible = true
 		ui.skill_bar.visible = true
+		ui.chat_feed.visible = true
+		ui.chat_row.visible = true
 		var me = players[self_id]
 		me.pos = me.target
 		camera.position = iso(me.pos)
@@ -506,9 +508,23 @@ func _push_effect(world_pos: Vector2, text: String, color: Color) -> void:
 		effects.pop_front()
 	effects.append({"pos": world_pos, "text": text, "color": color, "age": 0.0, "life": 0.8})
 
+const CHAT_CHANNELS := [["global", "全服"], ["map", "本图"], ["party", "组队"]]
+var chat_lines: Array = []
+
 func _handle_event(event: Dictionary) -> void:
 	var name := str(event.get("event", ""))
 	match name:
+		"chatMessage":
+			var channel := str(event.get("channel", "global"))
+			var label := "全服"
+			for pair in CHAT_CHANNELS:
+				if pair[0] == channel:
+					label = pair[1]
+			chat_lines.append("[%s] %s: %s" % [label, str(event.get("name", "?")), str(event.get("text", ""))])
+			while chat_lines.size() > 6:
+				chat_lines.pop_front()
+			if ui.has("chat_feed"):
+				ui.chat_feed.text = "\n".join(PackedStringArray(chat_lines))
 		"bossSpawned":
 			_set_status("Boss 出现：%s" % str(event.get("name", "")))
 		"bossSlain":
@@ -602,6 +618,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_C: pulses.c = true
 			KEY_F: pulses.f = true
 			KEY_B: _toggle_bag()
+			KEY_ENTER: ui.chat_input.grab_focus()
 			KEY_ESCAPE: _leave()
 
 # ---- Synthesized audio (no assets, like the browser's WebAudio sfx) -----
@@ -1357,6 +1374,42 @@ func _build_ui() -> void:
 	bag_button.pressed.connect(_toggle_bag)
 	root.add_child(bag_button)
 
+	# Chat: bottom-left feed, channel selector, and input line.
+	var chat_feed := Label.new()
+	chat_feed.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	chat_feed.offset_left = 16.0
+	chat_feed.offset_top = -206.0
+	chat_feed.offset_right = 360.0
+	chat_feed.offset_bottom = -52.0
+	chat_feed.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+	chat_feed.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	chat_feed.add_theme_font_size_override("font_size", 12)
+	chat_feed.visible = false
+	root.add_child(chat_feed)
+	var chat_row := HBoxContainer.new()
+	chat_row.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	chat_row.offset_left = 16.0
+	chat_row.offset_top = -46.0
+	chat_row.offset_right = 360.0
+	chat_row.offset_bottom = -14.0
+	chat_row.visible = false
+	root.add_child(chat_row)
+	var chat_channel := OptionButton.new()
+	for pair in CHAT_CHANNELS:
+		chat_channel.add_item(pair[1])
+	chat_row.add_child(chat_channel)
+	var chat_input := LineEdit.new()
+	chat_input.placeholder_text = "Enter 聊天…"
+	chat_input.max_length = 200
+	chat_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	chat_input.text_submitted.connect(func(text: String) -> void:
+		var cleaned := text.strip_edges()
+		if cleaned != "":
+			_send({"type": "chat", "channel": CHAT_CHANNELS[chat_channel.selected][0], "text": cleaned})
+		chat_input.clear()
+		chat_input.release_focus())
+	chat_row.add_child(chat_input)
+
 	# Skill bar, bottom centre: one button per slot with level/cooldown.
 	var skill_bar := HBoxContainer.new()
 	skill_bar.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
@@ -1442,6 +1495,9 @@ func _build_ui() -> void:
 		"bag_panel": bag_panel,
 		"bag_title": bag_title,
 		"bag_list": bag_list,
+		"chat_feed": chat_feed,
+		"chat_row": chat_row,
+		"chat_input": chat_input,
 	}
 
 func _toggle_bag() -> void:
@@ -1554,6 +1610,9 @@ func _show_lobby(message: String) -> void:
 	ui.bag_button.visible = false
 	ui.skill_bar.visible = false
 	ui.bag_panel.visible = false
+	ui.chat_feed.visible = false
+	ui.chat_row.visible = false
+	chat_lines.clear()
 	if message != "":
 		_set_status(message)
 

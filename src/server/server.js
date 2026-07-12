@@ -236,11 +236,22 @@ export class GameServer {
   _startLoop() {
     if (this._timer) return;
     const interval = 1000 / this.tickRate;
+    // Time-accumulator stepping: when the event loop is busy and the timer
+    // fires late, the world catches up with extra fixed steps instead of
+    // silently running in slow motion. Capped to avoid a death spiral.
+    let lastTime = performance.now();
+    let backlog = 0;
     this._timer = setInterval(() => {
       try {
-        this.world.update(1 / this.tickRate);
+        const now = performance.now();
+        backlog = Math.min(backlog + (now - lastTime), interval * 5);
+        lastTime = now;
+        while (backlog >= interval) {
+          backlog -= interval;
+          this.world.update(1 / this.tickRate);
+        }
         for (const event of this.world.drainEvents()) {
-          this._broadcast({ type: "event", ...event });
+          this._broadcastEvent(event);
         }
         this._snapshotCounter += 1;
         const snapshotEvery = Math.max(1, Math.round(this.tickRate / this.snapshotRate));
@@ -251,7 +262,7 @@ export class GameServer {
           const sharedCache = new Map();
           for (const socket of this.wss.clients) {
             if (socket.readyState !== WebSocket.OPEN || !this.world.players.has(socket.playerId)) continue;
-            this._sendSnapshot(socket, this.world.getSnapshot(socket.playerId, sharedCache));
+            this._sendSnapshot(socket, sharedCache);
           }
         }
         // Lobby sockets (connected, not joined) get a light roster once a
@@ -338,7 +349,7 @@ export class GameServer {
           if (result?.token) {
             send(socket, { type: "session", token: result.token, name: result.name });
           }
-          this._sendSnapshot(socket, this.world.getSnapshot(socket.playerId));
+          this._sendSnapshot(socket);
         } else if (message.type === "leave") {
           // Same flush guarantee as a disconnect, plus an immediate roster
           // so the character screen fills without waiting for the timer.
@@ -369,12 +380,15 @@ export class GameServer {
     });
   }
 
-  _sendSnapshot(socket, snapshot) {
+  // Shared-serialization send: heavy per-map strings/bytes are built once
+  // per broadcast via the cache; only the recipient's own entry is fresh.
+  _sendSnapshot(socket, sharedCache = null) {
+    if (socket.readyState !== WebSocket.OPEN) return;
     if (socket.codec === BINARY_CODEC) {
-      if (socket.readyState === WebSocket.OPEN) socket.send(encodeSnapshotBinary(snapshot));
+      socket.send(encodeSnapshotBinary(this.world.getSnapshot(socket.playerId, sharedCache), sharedCache));
       return;
     }
-    send(socket, snapshot);
+    socket.send(this.world.getSnapshotJson(socket.playerId, sharedCache));
   }
 
   _takeRateToken(socket) {
@@ -388,6 +402,25 @@ export class GameServer {
     if (bucket.tokens < 1) return false;
     bucket.tokens -= 1;
     return true;
+  }
+
+  // Scoped event delivery: `scope` is world-internal routing and never hits
+  // the wire — { mapId } reaches players on that map, { players } explicit
+  // ids; unscoped events (chat global, boss announcements, roster changes)
+  // go to every connection including the lobby.
+  _broadcastEvent(event) {
+    const { scope, ...payload } = event;
+    const message = JSON.stringify({ type: "event", ...payload });
+    for (const socket of this.wss.clients) {
+      if (socket.readyState !== WebSocket.OPEN) continue;
+      if (scope) {
+        const player = this.world.players.get(socket.playerId);
+        if (!player) continue;
+        if (scope.mapId && player.mapId !== scope.mapId) continue;
+        if (scope.players && !scope.players.includes(socket.playerId)) continue;
+      }
+      socket.send(message);
+    }
   }
 
   _broadcast(message) {
