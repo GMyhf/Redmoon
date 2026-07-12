@@ -274,6 +274,19 @@ test("unique and sunset drops use capped ground pools and release slots on expir
   assert.equal(world.specialDropActive.sunset, 0);
 });
 
+test("special drops auto-equip on pickup and preserve their visible class", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, safeZoneRadius: 0 });
+  const player = world.addPlayer("special-hunter", { archetype: "vanguard" });
+  const item = world._rollSpecialDrop("uniq", player.level);
+  item.level = 1;
+  world._placeDrop(player.x, player.y, item, "town");
+  world.update(0.05);
+
+  assert.equal(Object.values(player.equipment).some((entry) => entry?.id === item.id && entry.dropClass === "uniq"), true);
+  assert.equal(player.inventory.some((entry) => entry.id === item.id), false);
+  assert.ok(world.drainEvents().some((event) => event.event === "lootPickedUp" && event.autoEquipped === true));
+});
+
 test("mob level rises with distance from town, the boss respawns, and potions heal", () => {
   const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
   const near = world.spawnMob({ id: "near", x: world.width / 2 + 320, y: world.height / 2 });

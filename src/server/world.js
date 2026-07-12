@@ -2111,13 +2111,20 @@ export class World {
           });
         }
         player.inventory.push(drop.item);
+        let autoEquipped = false;
+        if (drop.item.dropClass && ITEM_SLOTS.includes(drop.item.slot) && player.level >= (drop.item.level ?? 1)) {
+          this.equipItem(player.id, drop.item.id);
+          autoEquipped = true;
+        }
         this._removeDrop(id);
         this._emit("lootPickedUp", {
           playerId: player.id,
           itemId: drop.item.id,
           name: drop.item.name,
           rarity: drop.item.rarity,
+          dropClass: drop.item.dropClass ?? null,
           slot: drop.item.slot,
+          autoEquipped,
         });
         break;
       }

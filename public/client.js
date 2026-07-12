@@ -521,7 +521,8 @@
 
   function itemLabel(item) {
     const base = ITEM_NAMES[item.name] || String(item.name || "未知装备");
-    return `${rarityInfo(item.rarity).prefix}${base}`;
+    const marker = item.dropClass === "uniq" ? "UNIQ·" : item.dropClass === "sunset" ? "SUNSET·" : "";
+    return `${marker}${rarityInfo(item.rarity).prefix}${base}`;
   }
 
   function itemStatLines(item) {
