@@ -83,6 +83,31 @@ test("WebSocket emits welcome, accepts join, and reports protocol errors", async
   assert.equal(error.code, "INVALID_JSON");
 });
 
+test("a flooding connection is rate limited without stalling the world", async (t) => {
+  const server = createGameServer({
+    host: "127.0.0.1",
+    port: 0,
+    persistPath: "",
+    rateLimit: { capacity: 5, refillPerSecond: 1 },
+    world: new World({ rng: () => 0.5, mobTargetCount: 0, spawnMobs: false }),
+  });
+  await server.listen();
+  t.after(() => server.close());
+  const socket = new WebSocket(`ws://127.0.0.1:${server.address().port}/ws`);
+  t.after(() => socket.terminate());
+  const messages = messageQueue(socket);
+  await messages.next("welcome");
+
+  socket.send(JSON.stringify({ type: "join", name: "Flooder", archetype: "vanguard" }));
+  await messages.next("snapshot");
+  for (let index = 0; index < 30; index += 1) {
+    socket.send(JSON.stringify({ type: "input", seq: index, move: { x: 1, y: 0 } }));
+  }
+  const limited = await messages.next("error");
+  assert.equal(limited.code, "RATE_LIMITED");
+  assert.equal(server.world.players.size, 1, "the world keeps running for joined players");
+});
+
 function messageQueue(socket) {
   const buffered = [];
   const waiters = [];

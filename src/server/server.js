@@ -43,6 +43,13 @@ export class GameServer {
     this.tickRate = positiveRate(options.tickRate, TICK_RATE);
     this.snapshotRate = positiveRate(options.snapshotRate, SNAPSHOT_RATE);
     this.publicDir = path.resolve(options.publicDir ?? DEFAULT_PUBLIC_DIR);
+    // Per-connection token bucket: the client legitimately peaks around the
+    // 20 Hz input rate plus a burst of UI commands, so the defaults leave
+    // ample headroom while starving a flooding socket.
+    this.rateLimit = {
+      capacity: positiveRate(options.rateLimit?.capacity, 120),
+      refillPerSecond: positiveRate(options.rateLimit?.refillPerSecond, 60),
+    };
     // Account persistence: a JSON file keyed by character name. Set
     // PERSIST_PATH ("" disables) — progress survives restarts.
     this.persistPath = options.persistPath !== undefined
@@ -220,7 +227,18 @@ export class GameServer {
       archetypes: publicArchetypes(),
     });
 
+    socket.rateBucket = { tokens: this.rateLimit.capacity, refilledAt: Date.now() };
     socket.on("message", (data, isBinary) => {
+      if (!this._takeRateToken(socket)) {
+        // Answer at most once a second so the throttle itself cannot be
+        // used to amplify the flood.
+        const now = Date.now();
+        if (now - (socket.rateWarnedAt ?? 0) >= 1000) {
+          socket.rateWarnedAt = now;
+          sendError(socket, "RATE_LIMITED", "Too many messages; slow down.");
+        }
+        return;
+      }
       if (isBinary) {
         sendError(socket, "INVALID_MESSAGE", "Binary messages are not supported.");
         return;
@@ -266,6 +284,19 @@ export class GameServer {
     socket.on("error", () => {
       // A close event follows; command errors are sent through the protocol.
     });
+  }
+
+  _takeRateToken(socket) {
+    const bucket = socket.rateBucket;
+    const now = Date.now();
+    bucket.tokens = Math.min(
+      this.rateLimit.capacity,
+      bucket.tokens + ((now - bucket.refilledAt) / 1000) * this.rateLimit.refillPerSecond,
+    );
+    bucket.refilledAt = now;
+    if (bucket.tokens < 1) return false;
+    bucket.tokens -= 1;
+    return true;
   }
 
   _broadcast(message) {

@@ -1499,6 +1499,7 @@
       NOT_JOINED: "操作员尚未接入",
       NAME_IN_USE: "该呼号已在线，请换一个呼号",
       INVALID_TOKEN: "该呼号已在其他设备注册，本机凭证不符",
+      RATE_LIMITED: "指令过于频繁，请稍候",
       NO_STAT_POINTS: "没有可用属性点",
       NO_SKILL_POINTS: "没有可用技能点",
       RESPAWN_NOT_READY: "信号尚未恢复",
@@ -1546,6 +1547,8 @@
     canvas.height = Math.round(state.viewHeight * state.dpr);
     canvas.style.width = `${state.viewWidth}px`;
     canvas.style.height = `${state.viewHeight}px`;
+    // Theme layers are keyed by viewport size; stale sizes are dead weight.
+    state.themeCanvases.clear();
   }
 
   const TILE_W = 96;
@@ -1572,21 +1575,6 @@
     let value = (x * 374761393 + y * 668265263) ^ (x * y * 69069);
     value = (value ^ (value >> 13)) * 1274126177;
     return ((value ^ (value >> 16)) >>> 0) / 4294967295;
-  }
-
-  function drawDiamond(x, y, width, height, fill, stroke) {
-    ctx.beginPath();
-    ctx.moveTo(x, y - height * 0.5);
-    ctx.lineTo(x + width * 0.5, y);
-    ctx.lineTo(x, y + height * 0.5);
-    ctx.lineTo(x - width * 0.5, y);
-    ctx.closePath();
-    ctx.fillStyle = fill;
-    ctx.fill();
-    if (stroke) {
-      ctx.strokeStyle = stroke;
-      ctx.stroke();
-    }
   }
 
   function drawWorld(time) {
@@ -1640,6 +1628,41 @@
       ctx.fillRect(0, 0, state.viewWidth, state.viewHeight);
       ctx.restore();
     }
+  }
+
+  // Pre-rendered radial glow sprites replace per-draw shadowBlur, which is
+  // one of the most expensive canvas operations when repeated per frame.
+  const glowSprites = new Map();
+  const GLOW_SPRITE_RADIUS = 16;
+
+  function colorWithAlpha(color, alpha) {
+    const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(color));
+    if (!hex) return `rgba(255, 255, 255, ${alpha})`;
+    let digits = hex[1];
+    if (digits.length === 3) digits = digits.replace(/./g, (c) => c + c);
+    const value = parseInt(digits, 16);
+    return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${alpha})`;
+  }
+
+  function glowSprite(color) {
+    let sprite = glowSprites.get(color);
+    if (!sprite) {
+      sprite = document.createElement("canvas");
+      sprite.width = GLOW_SPRITE_RADIUS * 2;
+      sprite.height = GLOW_SPRITE_RADIUS * 2;
+      const g = sprite.getContext("2d");
+      const gradient = g.createRadialGradient(
+        GLOW_SPRITE_RADIUS, GLOW_SPRITE_RADIUS, 0,
+        GLOW_SPRITE_RADIUS, GLOW_SPRITE_RADIUS, GLOW_SPRITE_RADIUS,
+      );
+      gradient.addColorStop(0, colorWithAlpha(color, 0.95));
+      gradient.addColorStop(0.35, colorWithAlpha(color, 0.5));
+      gradient.addColorStop(1, colorWithAlpha(color, 0));
+      g.fillStyle = gradient;
+      g.fillRect(0, 0, sprite.width, sprite.height);
+      glowSprites.set(color, sprite);
+    }
+    return sprite;
   }
 
   // Warm pool of light around the player so the hero anchors the frame.
@@ -1708,12 +1731,8 @@
       const fade = age < 0.2 ? age / 0.2 : age > 0.75 ? (1 - age) / 0.25 : 1;
       const color = AMBIENT_COLORS[biomeAt(mote.x, mote.y)] || "#d9a2a8";
       ctx.globalAlpha = 0.4 * fade;
-      ctx.fillStyle = color;
-      ctx.shadowColor = color;
-      ctx.shadowBlur = 6;
-      ctx.beginPath();
-      ctx.arc(point.x, point.y, mote.size, 0, Math.PI * 2);
-      ctx.fill();
+      const drawSize = mote.size * 5;
+      ctx.drawImage(glowSprite(color), point.x - drawSize * 0.5, point.y - drawSize * 0.5, drawSize, drawSize);
     }
     ctx.restore();
   }
@@ -2236,9 +2255,30 @@
     ctx.restore();
   }
 
-  function drawTiles(time) {
-    const radiusX = Math.ceil(state.viewWidth / TILE_W) + 5;
-    const radiusY = Math.ceil(state.viewHeight / TILE_H) + 7;
+  // The base ground (diamond fills + clipped texture) is static in world
+  // space, so it renders into an offscreen layer padded by a margin and the
+  // frame loop just blits it at the projected camera offset. It only
+  // re-renders when the camera drifts past the margin, the theme flips, the
+  // viewport resizes, or the terrain texture finishes loading. Animated
+  // accents and decorations still draw live on top.
+  const GROUND_MARGIN_X = 256;
+  const GROUND_MARGIN_Y = 192;
+  let groundCache = null;
+
+  // worldToScreen is linear in (world - camera): a camera delta shifts the
+  // whole cached layer by its isometric projection.
+  function groundCacheOffset() {
+    const dcx = (state.camera.x - groundCache.camX) / WORLD_CELL;
+    const dcy = (state.camera.y - groundCache.camY) / WORLD_CELL;
+    return {
+      x: -(dcx - dcy) * TILE_W * 0.5,
+      y: -(dcx + dcy) * TILE_H * 0.5,
+    };
+  }
+
+  function forEachVisibleTile(padX, padY, visit) {
+    const radiusX = Math.ceil((state.viewWidth + padX * 2) / TILE_W) + 5;
+    const radiusY = Math.ceil((state.viewHeight + padY * 2) / TILE_H) + 7;
     const tileMapWidth = Math.ceil(state.map.width / WORLD_CELL);
     const tileMapHeight = Math.ceil(state.map.height / WORLD_CELL);
     const cameraTileX = state.camera.x / WORLD_CELL;
@@ -2247,40 +2287,116 @@
     const maxX = Math.min(tileMapWidth - 1, Math.ceil(cameraTileX + radiusX));
     const minY = Math.max(0, Math.floor(cameraTileY - radiusY));
     const maxY = Math.min(tileMapHeight - 1, Math.ceil(cameraTileY + radiusY));
-    const textures = new Map();
-
     for (let sum = minX + minY; sum <= maxX + maxY; sum += 1) {
       for (let x = minX; x <= maxX; x += 1) {
         const y = sum - x;
         if (y < minY || y > maxY) continue;
         const point = worldToScreen((x + 0.5) * WORLD_CELL, (y + 0.5) * WORLD_CELL);
-        if (point.x < -TILE_W || point.x > state.viewWidth + TILE_W || point.y < -TILE_H || point.y > state.viewHeight + TILE_H) continue;
-        const noise = tileHash(x, y);
-        const worldX = (x + 0.5) * WORLD_CELL;
-        const worldY = (y + 0.5) * WORLD_CELL;
-        const biomeKey = state.activeTheme;
-        let fill;
-        if (biomeKey === "town") {
-          // Concentric paving bands around the relay plaza.
-          const zone = state.map.safeZone;
-          const distance = zone ? Math.hypot(worldX - zone.x, worldY - zone.y) / zone.radius : 1;
-          fill = distance < 0.14
-            ? "#5a463c"
-            : Math.floor(distance * 6) % 2 === 0
-              ? "#48392f"
-              : "#3f322a";
-        } else {
-          const value = clamp(smoothNoise(x, y) * 0.78 + noise * 0.22, 0, 1);
-          fill = biomeShade(biomeKey, value);
-        }
-        drawDiamond(point.x, point.y, TILE_W + 1, TILE_H + 1, fill, null);
-        if (!textures.has(biomeKey)) textures.set(biomeKey, terrainTexturePattern(biomeKey));
-        drawTexturedDiamond(point, textures.get(biomeKey));
-
-        drawGroundAccent(biomeKey, point, noise, time);
-        drawBiomeDecoration(biomeKey, point, noise, time);
+        if (point.x < -TILE_W - padX || point.x > state.viewWidth + TILE_W + padX
+          || point.y < -TILE_H - padY || point.y > state.viewHeight + TILE_H + padY) continue;
+        visit(x, y, point, tileHash(x, y));
       }
     }
+  }
+
+  function rebuildGroundCache(pattern) {
+    const cssWidth = state.viewWidth + GROUND_MARGIN_X * 2;
+    const cssHeight = state.viewHeight + GROUND_MARGIN_Y * 2;
+    if (!groundCache
+      || groundCache.viewWidth !== state.viewWidth
+      || groundCache.viewHeight !== state.viewHeight
+      || groundCache.dpr !== state.dpr) {
+      const layer = document.createElement("canvas");
+      layer.width = Math.ceil(cssWidth * state.dpr);
+      layer.height = Math.ceil(cssHeight * state.dpr);
+      groundCache = {
+        canvas: layer,
+        ctx: layer.getContext("2d"),
+        viewWidth: state.viewWidth,
+        viewHeight: state.viewHeight,
+        cssWidth,
+        cssHeight,
+        dpr: state.dpr,
+      };
+    }
+    groundCache.camX = state.camera.x;
+    groundCache.camY = state.camera.y;
+    groundCache.theme = state.activeTheme;
+    groundCache.textured = Boolean(pattern);
+
+    const g = groundCache.ctx;
+    g.setTransform(state.dpr, 0, 0, state.dpr, GROUND_MARGIN_X * state.dpr, GROUND_MARGIN_Y * state.dpr);
+    g.clearRect(-GROUND_MARGIN_X, -GROUND_MARGIN_Y, cssWidth, cssHeight);
+    const theme = groundCache.theme;
+    forEachVisibleTile(GROUND_MARGIN_X, GROUND_MARGIN_Y, (x, y, point, noise) => {
+      let fill;
+      if (theme === "town") {
+        // Concentric paving bands around the relay plaza.
+        const zone = state.map.safeZone;
+        const worldX = (x + 0.5) * WORLD_CELL;
+        const worldY = (y + 0.5) * WORLD_CELL;
+        const distance = zone ? Math.hypot(worldX - zone.x, worldY - zone.y) / zone.radius : 1;
+        fill = distance < 0.14
+          ? "#5a463c"
+          : Math.floor(distance * 6) % 2 === 0
+            ? "#48392f"
+            : "#3f322a";
+      } else {
+        const value = clamp(smoothNoise(x, y) * 0.78 + noise * 0.22, 0, 1);
+        fill = biomeShade(theme, value);
+      }
+      g.beginPath();
+      g.moveTo(point.x, point.y - (TILE_H + 1) * 0.5);
+      g.lineTo(point.x + (TILE_W + 1) * 0.5, point.y);
+      g.lineTo(point.x, point.y + (TILE_H + 1) * 0.5);
+      g.lineTo(point.x - (TILE_W + 1) * 0.5, point.y);
+      g.closePath();
+      g.fillStyle = fill;
+      g.fill();
+      if (pattern) {
+        g.save();
+        g.beginPath();
+        g.moveTo(point.x, point.y - TILE_H * 0.5);
+        g.lineTo(point.x + TILE_W * 0.5, point.y);
+        g.lineTo(point.x, point.y + TILE_H * 0.5);
+        g.lineTo(point.x - TILE_W * 0.5, point.y);
+        g.closePath();
+        g.clip();
+        g.globalAlpha = 0.8;
+        g.fillStyle = pattern;
+        g.fillRect(point.x - TILE_W * 0.5, point.y - TILE_H * 0.5, TILE_W, TILE_H);
+        g.restore();
+      }
+    });
+  }
+
+  function drawTiles(time) {
+    const pattern = terrainTexturePattern(state.activeTheme);
+    const stale = !groundCache
+      || groundCache.theme !== state.activeTheme
+      || groundCache.viewWidth !== state.viewWidth
+      || groundCache.viewHeight !== state.viewHeight
+      || groundCache.dpr !== state.dpr
+      || groundCache.textured !== Boolean(pattern);
+    let offset = stale ? null : groundCacheOffset();
+    if (stale
+      || Math.abs(offset.x) > GROUND_MARGIN_X - TILE_W
+      || Math.abs(offset.y) > GROUND_MARGIN_Y - TILE_H) {
+      rebuildGroundCache(pattern);
+      offset = { x: 0, y: 0 };
+    }
+    ctx.drawImage(
+      groundCache.canvas,
+      offset.x - GROUND_MARGIN_X,
+      offset.y - GROUND_MARGIN_Y,
+      groundCache.cssWidth,
+      groundCache.cssHeight,
+    );
+
+    forEachVisibleTile(0, 0, (x, y, point, noise) => {
+      drawGroundAccent(state.activeTheme, point, noise, time);
+      drawBiomeDecoration(state.activeTheme, point, noise, time);
+    });
     drawSafeZoneRing(time);
   }
 
@@ -2303,22 +2419,6 @@
     const origin = worldToScreen(0, 0);
     pattern.setTransform({ a: 0.34, b: 0, c: 0, d: 0.34, e: origin.x, f: origin.y });
     return pattern;
-  }
-
-  function drawTexturedDiamond(point, pattern) {
-    if (!pattern) return;
-    ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(point.x, point.y - TILE_H * 0.5);
-    ctx.lineTo(point.x + TILE_W * 0.5, point.y);
-    ctx.lineTo(point.x, point.y + TILE_H * 0.5);
-    ctx.lineTo(point.x - TILE_W * 0.5, point.y);
-    ctx.closePath();
-    ctx.clip();
-    ctx.globalAlpha = 0.8;
-    ctx.fillStyle = pattern;
-    ctx.fillRect(point.x - TILE_W * 0.5, point.y - TILE_H * 0.5, TILE_W, TILE_H);
-    ctx.restore();
   }
 
   // Small mid-frequency accents that give each biome ground its texture.
@@ -3695,13 +3795,12 @@
       ctx.stroke();
     }
     // Bright core with a glowing halo.
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 14;
+    const glowSize = size * 5;
+    ctx.drawImage(glowSprite(color), point.x - glowSize * 0.5, point.y - glowSize * 0.5, glowSize, glowSize);
     ctx.fillStyle = color;
     ctx.beginPath();
     ctx.arc(point.x, point.y, size, 0, Math.PI * 2);
     ctx.fill();
-    ctx.shadowBlur = 0;
     ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
     ctx.beginPath();
     ctx.arc(point.x, point.y, size * 0.45, 0, Math.PI * 2);
@@ -3711,6 +3810,9 @@
 
   function drawEffects(time) {
     state.effects = state.effects.filter((effect) => time - effect.born < effect.duration);
+    // A big AoE landing on a crowd can burst dozens of effects per snapshot;
+    // cap the pool so the frame loop never drowns, dropping the oldest first.
+    if (state.effects.length > 160) state.effects.splice(0, state.effects.length - 160);
     for (const effect of state.effects) {
       const progress = clamp((time - effect.born) / effect.duration, 0, 1);
       if (effect.type === "enemy-attack") {
@@ -3751,12 +3853,8 @@
         const point = worldToScreen(effect.x + effect.vx * elapsed, effect.y + effect.vy * elapsed, 14 - progress * 20);
         ctx.save();
         ctx.globalAlpha = 1 - progress;
-        ctx.fillStyle = effect.color;
-        ctx.shadowColor = effect.color;
-        ctx.shadowBlur = 6;
-        ctx.beginPath();
-        ctx.arc(point.x, point.y, 2 * (1 - progress * 0.6), 0, Math.PI * 2);
-        ctx.fill();
+        const sparkSize = 9 * (1 - progress * 0.6);
+        ctx.drawImage(glowSprite(effect.color), point.x - sparkSize * 0.5, point.y - sparkSize * 0.5, sparkSize, sparkSize);
         ctx.restore();
         continue;
       }
