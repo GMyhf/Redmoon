@@ -510,6 +510,7 @@ func _push_effect(world_pos: Vector2, text: String, color: Color) -> void:
 
 const CHAT_CHANNELS := [["global", "全服"], ["map", "本图"], ["party", "组队"]]
 var chat_lines: Array = []
+var pending_invite := ""              # inviter id; Y accepts
 
 func _handle_event(event: Dictionary) -> void:
 	var name := str(event.get("event", ""))
@@ -529,6 +530,14 @@ func _handle_event(event: Dictionary) -> void:
 			_set_status("Boss 出现：%s" % str(event.get("name", "")))
 		"bossSlain":
 			_set_status("Boss 被击破：%s" % str(event.get("name", "")))
+		"partyInvited":
+			if str(event.get("playerId", "")) == self_id:
+				pending_invite = str(event.get("from", ""))
+				_set_status("%s 邀请你组队 — 按 Y 接受" % str(event.get("fromName", "?")))
+		"partyJoined":
+			if str(event.get("playerId", "")) == self_id:
+				pending_invite = ""
+				_set_status("已加入队伍")
 		"lootPickedUp":
 			if str(event.get("playerId", "")) == self_id:
 				_sfx("pickup")
@@ -618,6 +627,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_C: pulses.c = true
 			KEY_F: pulses.f = true
 			KEY_B: _toggle_bag()
+			KEY_Y:
+				if pending_invite != "":
+					_send({"type": "partyAccept", "from": pending_invite})
+					pending_invite = ""
 			KEY_ENTER: ui.chat_input.grab_focus()
 			KEY_ESCAPE: _leave()
 

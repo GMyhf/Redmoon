@@ -1087,6 +1087,18 @@ button {
   gap: 6px;
 }
 
+/* The feed itself stays click-through; only its buttons (party accept)
+   take the pointer — the HUD root is pointer-events: none. */
+.event-feed {
+  pointer-events: none;
+}
+
+.event-message button {
+  pointer-events: auto;
+  cursor: pointer;
+  margin-left: 8px;
+}
+
 .event-message {
   max-width: 100%;
   padding: 7px 10px;
