@@ -9,6 +9,29 @@
 - README、架构文档和开发说明统一为“战斗状态内存、账号进度 JSON 持久化”，补充 `npm run check:godot`。
 - Godot HTTP 资源加载失败后支持延迟重试，不会永久停留在失败缓存状态。
 
+## 2026-07-12 · 部署验证、CI、运维增强与性能实测
+
+**部署验证（systemd 用户实例全流程实测）**
+
+- 以 systemd 用户单元运行服务器（`StateDirectory` 对应 `~/.local/state/crimson-relay/`），完成完整周期：创建角色 → 产生进度 → 断线即时落盘 → `systemctl restart` → 凭令牌重登 → 属性点/好友逐项恢复一致；`/health` 的 `persistence.ok` 与 `lastSavedAt` 全程正确，`.bak` 轮转就位。顺带实测无令牌同名进入被 `INVALID_TOKEN` 拒绝。
+- 新增 `deploy/README.md`：root 安装/更新、旧存档迁移、验证清单与监控接法；`systemd-analyze verify` 通过。本机无旧 `data/accounts.json`，无迁移动作。
+
+**Godot 验证环境与 CI**
+
+- Godot 4.3 安装至 `~/.local/bin`；`npm run check:godot` 通过；无头烟测对 systemd 实例走二进制快照全绿；实测运行中重启服务器：客户端自动重连并凭令牌自动重新入场。
+- 新增 `.github/workflows/ci.yml`：每次 push/PR 运行服务器测试与语法检查、Godot 导入检查（解析错误即失败）、对真实服务器的无头烟测（断言 joined=true）、`systemd-analyze verify`。main 分支保护需在 GitHub 设置中勾选这四个必需检查。
+
+**持久化运维增强**
+
+- 时间戳轮转备份：每次成功保存后按间隔写入 `accounts.json.backups/`（默认每小时一份、保留 48 份，`PERSIST_BACKUP_INTERVAL_MS`/`PERSIST_BACKUP_KEEP` 可配）。
+- 存档失败输出结构化 JSON 日志行（`"event":"persistence_failure"`，含连续失败计数），可直接接 journald 告警；`/health` 增加 `consecutiveFailures`。
+- 新增 `/ready` 就绪探针：持久化故障时返回 503（`/health` 保持存活语义不变），故障解除自动恢复。测试覆盖备份保留、就绪翻转与恢复（测试增至 68 项）。
+
+**性能实测与决策（详见 docs/PERFORMANCE.md）**
+
+- 服务端 20/50/100 同图玩家实测：tick 与共享构建健康，成本集中在每连接序列化；binary1 编码器重写为预分配顺序写，提速 6.5 倍（100 玩家 579ms → 88.5ms/广播），现在比 JSON 快 2.7 倍、带宽 1/3.5。
+- Godot 算法层每帧 <3ms（地砖暖缓存 0.35ms、150 实体排序 2.5ms）。决策：增量快照、对象池、静态地表烘焙均暂缓，触发条件已记录在案。
+
 ## 2026-07-12 · Godot 客户端精致化：加色发光、UI 主题与实体动态
 
 - **加色发光层**（新 `glow.gd`，`BLEND_MODE_ADD`）：角色光池、传送门光柱、信标光束、路灯光晕、投射物光晕、特殊掉落光柱、环境光尘、命中火花全部迁入——发光终于"发光"而不是平涂半透明，对应浏览器的 `lighter` 合成模式。

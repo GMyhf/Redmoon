@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createReadStream, existsSync, mkdirSync, readFileSync, renameSync } from "node:fs";
-import { copyFile, rename, stat, writeFile } from "node:fs/promises";
+import { copyFile, readdir, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -62,6 +62,16 @@ export class GameServer {
     this._savePromise = Promise.resolve();
     this._lastPersistError = null;
     this._lastPersistAt = null;
+    this._persistFailureCount = 0;
+    // Rotated backups beside the live store: at most one per interval,
+    // pruned to `keep` files (defaults: hourly, keep 48 ≈ two days).
+    this.backup = {
+      intervalMs: positiveRate(
+        options.backup?.intervalMs ?? process.env.PERSIST_BACKUP_INTERVAL_MS, 3_600_000),
+      keep: Math.max(1, Math.floor(positiveRate(
+        options.backup?.keep ?? process.env.PERSIST_BACKUP_KEEP, 48))),
+    };
+    this._lastBackupAt = 0;
     this.httpServer = createHttpServer((request, response) => {
       this._handleHttp(request, response).catch((error) => {
         console.error("HTTP request failed", error);
@@ -131,10 +141,20 @@ export class GameServer {
     // Serialize writers so the timer, disconnect flushes, and close cannot
     // interleave on the same temp file.
     this._savePromise = this._savePromise.catch(() => {}).then(() => this._writeAccounts()).catch((error) => {
+      this._persistFailureCount += 1;
       this._lastPersistError = {
         message: error instanceof Error ? error.message : String(error),
         at: new Date().toISOString(),
       };
+      // One structured line per failure: greppable in journald and easy to
+      // wire into log-based alerting.
+      console.error(JSON.stringify({
+        event: "persistence_failure",
+        at: this._lastPersistError.at,
+        consecutiveFailures: this._persistFailureCount,
+        path: this.persistPath,
+        message: this._lastPersistError.message,
+      }));
       throw error;
     });
     return this._savePromise;
@@ -152,7 +172,35 @@ export class GameServer {
     }
     await rename(tempPath, this.persistPath);
     this._lastPersistError = null;
+    this._persistFailureCount = 0;
     this._lastPersistAt = new Date().toISOString();
+    await this._rotateBackups();
+  }
+
+  async _rotateBackups() {
+    const now = Date.now();
+    if (now - this._lastBackupAt < this.backup.intervalMs) return;
+    this._lastBackupAt = now;
+    const directory = `${this.persistPath}.backups`;
+    mkdirSync(directory, { recursive: true });
+    const stamp = new Date(now).toISOString().replace(/[:.]/g, "-");
+    await copyFile(this.persistPath, path.join(directory, `accounts-${stamp}.json`));
+    const entries = (await readdir(directory))
+      .filter((name) => name.startsWith("accounts-") && name.endsWith(".json"))
+      .sort();
+    for (const stale of entries.slice(0, Math.max(0, entries.length - this.backup.keep))) {
+      await unlink(path.join(directory, stale));
+    }
+  }
+
+  _persistenceStatus() {
+    return {
+      enabled: Boolean(this.persistPath),
+      ok: !this.persistPath || !this._lastPersistError,
+      lastSavedAt: this._lastPersistAt,
+      lastErrorAt: this._lastPersistError?.at ?? null,
+      consecutiveFailures: this._persistFailureCount,
+    };
   }
 
   address() {
@@ -366,17 +414,25 @@ export class GameServer {
     }
 
     if (pathname === "/health" || pathname === "/api/health") {
+      // Liveness: the process runs and ticks. Persistence state is reported
+      // for diagnostics but never fails this endpoint — use /ready for that.
       sendJson(response, 200, {
         ok: true,
         tick: this.world.tick,
         players: this.world.players.size,
         enemies: this.world.mobs.size,
-        persistence: {
-          enabled: Boolean(this.persistPath),
-          ok: !this.persistPath || !this._lastPersistError,
-          lastSavedAt: this._lastPersistAt,
-          lastErrorAt: this._lastPersistError?.at ?? null,
-        },
+        persistence: this._persistenceStatus(),
+      }, method === "HEAD");
+      return;
+    }
+
+    if (pathname === "/ready" || pathname === "/api/ready") {
+      // Readiness: refuses traffic while account saves are failing, so a
+      // monitor alerts before players lose progress.
+      const persistence = this._persistenceStatus();
+      sendJson(response, persistence.ok ? 200 : 503, {
+        ready: persistence.ok,
+        persistence,
       }, method === "HEAD");
       return;
     }

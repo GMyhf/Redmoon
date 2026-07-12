@@ -34,53 +34,71 @@
 export const BINARY_CODEC = "binary1";
 const MAGIC = 0xb1;
 
+// Preallocated sequential writer: one growing buffer, offset writes. The
+// naive one-Buffer-per-field + concat approach benchmarked slower than
+// JSON.stringify at scale; this one is an order of magnitude faster.
 class Writer {
-  constructor() {
-    this.chunks = [];
-    this.length = 0;
+  constructor(initial = 64 * 1024) {
+    this.buffer = Buffer.allocUnsafe(initial);
+    this.offset = 0;
   }
 
-  _push(buffer) {
-    this.chunks.push(buffer);
-    this.length += buffer.length;
+  _ensure(bytes) {
+    if (this.offset + bytes <= this.buffer.length) return;
+    const grown = Buffer.allocUnsafe(Math.max(this.buffer.length * 2, this.offset + bytes));
+    this.buffer.copy(grown, 0, 0, this.offset);
+    this.buffer = grown;
   }
 
   u8(value) {
-    this._push(Buffer.from([value & 0xff]));
+    this._ensure(1);
+    this.buffer.writeUInt8(value & 0xff, this.offset);
+    this.offset += 1;
   }
 
   u16(value) {
-    const buffer = Buffer.allocUnsafe(2);
-    buffer.writeUInt16LE(value & 0xffff, 0);
-    this._push(buffer);
+    this._ensure(2);
+    this.buffer.writeUInt16LE(value & 0xffff, this.offset);
+    this.offset += 2;
   }
 
   u32(value) {
-    const buffer = Buffer.allocUnsafe(4);
-    buffer.writeUInt32LE(value >>> 0, 0);
-    this._push(buffer);
+    this._ensure(4);
+    this.buffer.writeUInt32LE(value >>> 0, this.offset);
+    this.offset += 4;
   }
 
   i32(value) {
-    const buffer = Buffer.allocUnsafe(4);
-    buffer.writeInt32LE(value | 0, 0);
-    this._push(buffer);
+    this._ensure(4);
+    this.buffer.writeInt32LE(value | 0, this.offset);
+    this.offset += 4;
   }
 
   f32(value) {
-    const buffer = Buffer.allocUnsafe(4);
-    buffer.writeFloatLE(Number(value) || 0, 0);
-    this._push(buffer);
+    this._ensure(4);
+    this.buffer.writeFloatLE(Number(value) || 0, this.offset);
+    this.offset += 4;
   }
 
   str(value) {
-    const bytes = Buffer.from(String(value ?? ""), "utf8");
-    this.u16(bytes.length);
-    this._push(bytes);
+    const text = String(value ?? "");
+    const length = Buffer.byteLength(text, "utf8");
+    this._ensure(2 + length);
+    this.buffer.writeUInt16LE(length, this.offset);
+    this.offset += 2;
+    this.buffer.write(text, this.offset, "utf8");
+    this.offset += length;
+  }
+
+  _push(bytes) {
+    this._ensure(bytes.length);
+    bytes.copy(this.buffer, this.offset);
+    this.offset += bytes.length;
   }
 
   toBuffer() {
-    return Buffer.concat(this.chunks, this.length);
+    // Each encode uses a fresh Writer, so sharing the backing store is safe.
+    return this.buffer.subarray(0, this.offset);
   }
 }
 

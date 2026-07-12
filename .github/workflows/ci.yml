@@ -1,0 +1,77 @@
+# Every push and PR must prove: the server suite passes, all scripts parse,
+# the Godot project imports and its client can join a live server headlessly,
+# and the systemd unit stays valid. Pair with branch protection on main so
+# unverified protocol/GDScript/deploy changes cannot land.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  GODOT_VERSION: 4.3-stable
+
+jobs:
+  server:
+    name: Server tests & syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+
+  godot:
+    name: Godot import & live smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Cache Godot
+        id: godot-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/bin/godot
+          key: godot-${{ env.GODOT_VERSION }}
+      - name: Install Godot
+        if: steps.godot-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.local/bin
+          curl -sL -o /tmp/godot.zip \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_linux.x86_64.zip"
+          unzip -q /tmp/godot.zip -d /tmp
+          mv "/tmp/Godot_v${GODOT_VERSION}_linux.x86_64" ~/.local/bin/godot
+          chmod +x ~/.local/bin/godot
+      - name: Add Godot to PATH
+        run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Import check (scripts must parse)
+        run: |
+          npm run check:godot 2>&1 | tee /tmp/godot-check.log
+          ! grep -Ei "SCRIPT ERROR|Parse Error" /tmp/godot-check.log
+      - name: Headless smoke against a live server
+        run: |
+          HOST=127.0.0.1 PORT=3000 PERSIST_PATH= node src/server/server.js &
+          SERVER_PID=$!
+          sleep 2
+          cd clients/godot
+          CRIMSON_AUTOJOIN=CI CRIMSON_SMOKE=8 timeout 90 godot --headless 2>&1 | tee /tmp/smoke.log
+          kill $SERVER_PID
+          grep -q "joined as CI" /tmp/smoke.log
+          grep -q "smoke: joined=true" /tmp/smoke.log
+          ! grep -Ei "SCRIPT ERROR|Parse Error" /tmp/smoke.log
+
+  systemd:
+    name: systemd unit verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: systemd-analyze verify deploy/crimson-relay.service

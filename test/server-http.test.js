@@ -29,7 +29,12 @@ test("HTTP serves the client and health status", async (t) => {
     ok: true,
     lastSavedAt: null,
     lastErrorAt: null,
+    consecutiveFailures: 0,
   });
+
+  const ready = await fetch(`http://127.0.0.1:${port}/ready`);
+  assert.equal(ready.status, 200);
+  assert.equal((await ready.json()).ready, true);
 
   const index = await fetch(`http://127.0.0.1:${port}/`);
   assert.equal(index.status, 200);
