@@ -991,6 +991,21 @@ test("snapshots share per-map arrays and only send full detail to the owner", ()
   assert.equal(fresh.players.find((entry) => entry.id === "alpha-1").inventory.length, 1);
 });
 
+test("snapshots carry the authoritative move speed for client prediction", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
+  const player = world.addPlayer("player-1", { name: "Pacer", archetype: "strider" });
+
+  const entry = world.getSnapshot("player-1").players[0];
+  assert.equal(entry.moveSpeed, Math.round(world._moveSpeed(player) * 1000) / 1000);
+  assert.ok(entry.moveSpeed > 0);
+
+  // Terrain modifiers flow into the advertised speed (snow slows to 0.86x).
+  const townSpeed = world._moveSpeed(player);
+  player.mapId = "snowmountain";
+  const snowSpeed = world._moveSpeed(player);
+  assert.ok(Math.abs(snowSpeed - townSpeed * 0.86) < 0.0001);
+});
+
 test("accounts are claimed by a session token on first join", () => {
   const store = {};
   const world = new World({

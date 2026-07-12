@@ -67,7 +67,7 @@ WebSocket 使用 UTF-8 JSON 对象，单条消息上限为 16 KiB。每条命令
 | --- | --- | --- |
 | `welcome` | `protocol`, `id`, `tickRate`, `snapshotRate`, `world`（含 `safeZone`、`portals`）, `rebirthLevel`, `archetypes` | 建立身份并下发初始配置。传送门成对出现：站上任一门约 0.6 秒后传送到配对门旁（步行穿过不触发），落点带 2.5 秒锁避免弹回 |
 | `session` | `token`, `name` | `join` 成功后仅发给本连接：账号会话令牌。客户端存入 `localStorage`，重连与后续进入同名角色时随 `join` 一并提交 |
-| `snapshot` | `tick`, `serverTime`, `selfId`, `mapId`, `world`, `safeZone`, `players`, `enemies`, `projectiles`, `drops` | 当前地图状态，实体只包含当前地图内容。`players` 中只有本人条目携带完整数据（背包、好友、任务、技能、金币等）；其他玩家为渲染所需的轻量条目（位置、血蓝、等级、装备的名称/稀有度/特殊掉落标识），不含属性数值。服务器对同一地图的所有接收者共享一次构建 |
+| `snapshot` | `tick`, `serverTime`, `selfId`, `mapId`, `world`, `safeZone`, `players`, `enemies`, `projectiles`, `drops` | 当前地图状态，实体只包含当前地图内容。`players` 中只有本人条目携带完整数据（背包、好友、任务、技能、金币等）；其他玩家为渲染所需的轻量条目（位置、血蓝、等级、装备的名称/稀有度/特殊掉落标识），不含属性数值。所有条目携带 `moveSpeed`（含地形修正、不含奔跑倍率的权威移速），客户端据此对本地角色做输入预测，服务器位置仍是最终事实。服务器对同一地图的所有接收者共享一次构建 |
 | `enemyAttack` | `enemyId`, `playerId`, `fromX/fromY`, `toX/toY`, `damage`, `boss` | 服务端确认近战命中时广播，客户端据此绘制挥击轨迹和命中冲击；伤害仍由世界模拟结算 |
 
 技能槽由服务端定义解锁等级：初始开放普攻、Q、E、F；R 在 5 级、C 在 10 级开放。未解锁技能不出现在操作栏，且无法施放、升级或被自动加点选中。怪物快照提供 `damage`、`defense`、`speed`、`attackStyle`、`combatState` 和攻击前摇剩余时间，用于目标属性展示和持续可见的蓄力反馈。

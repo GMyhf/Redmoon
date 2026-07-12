@@ -373,14 +373,14 @@
   const zoneTexturePatterns = new Map();
   const heroSpriteImages = new Map();
   const HERO_SPRITES = Object.freeze({
-    vanguard: "vanguard-3d.png",
-    channeler: "channeler-3d.png",
-    strider: "strider-3d.png",
-    bulwark: "bulwark-3d.png",
-    longshot: "longshot-3d.png",
-    pyre: "pyre-3d.png",
-    eclipse: "eclipse-3d.png",
-    moonblade: "moonblade-3d.png",
+    vanguard: "vanguard-3d.webp",
+    channeler: "channeler-3d.webp",
+    strider: "strider-3d.webp",
+    bulwark: "bulwark-3d.webp",
+    longshot: "longshot-3d.webp",
+    pyre: "pyre-3d.webp",
+    eclipse: "eclipse-3d.webp",
+    moonblade: "moonblade-3d.webp",
   });
 
   // Themed regions of the alien world, resolved purely from world position.
@@ -763,7 +763,7 @@
     ui.name.textContent = state.profile.name.toUpperCase();
     ui.className.textContent = `${archetype.label} · ${archetype.role}`;
     ui.sigil.textContent = "";
-    ui.sigil.style.backgroundImage = `url(/assets/heroes/${HERO_SPRITES[state.profile.archetype] || `${state.profile.archetype}.png`}?v=5)`;
+    ui.sigil.style.backgroundImage = `url(/assets/heroes/${HERO_SPRITES[state.profile.archetype] || `${state.profile.archetype}.webp`}?v=6)`;
     ui.skillQ.textContent = archetype.q;
     ui.skillE.textContent = archetype.e;
   }
@@ -2406,7 +2406,7 @@
     let image = zoneTextureImages.get(asset);
     if (!image) {
       image = new Image();
-      image.src = `/assets/textures/${asset}.png`;
+      image.src = `/assets/textures/${asset}.webp?v=6`;
       zoneTextureImages.set(asset, image);
     }
     if (!image.complete || !image.naturalWidth) return null;
@@ -2417,7 +2417,10 @@
       zoneTexturePatterns.set(asset, pattern);
     }
     const origin = worldToScreen(0, 0);
-    pattern.setTransform({ a: 0.34, b: 0, c: 0, d: 0.34, e: origin.x, f: origin.y });
+    // Keep the on-screen repeat at ~426px (the look tuned on the original
+    // 1254px sources) regardless of the shipped texture resolution.
+    const scale = 426 / image.naturalWidth;
+    pattern.setTransform({ a: scale, b: 0, c: 0, d: scale, e: origin.x, f: origin.y });
     return pattern;
   }
 
@@ -3139,7 +3142,7 @@
     let image = heroSpriteImages.get(key);
     if (!image) {
       image = new Image();
-      image.src = `/assets/heroes/${HERO_SPRITES[key] || `${key}.png`}?v=5`;
+      image.src = `/assets/heroes/${HERO_SPRITES[key] || `${key}.webp`}?v=6`;
       heroSpriteImages.set(key, image);
     }
     if (!image.complete || !image.naturalWidth) return false;
@@ -3894,15 +3897,68 @@
     ctx.restore();
   }
 
+  // Local-player prediction: our own movement is driven directly by held
+  // input at the server-authoritative moveSpeed, with a gentle pull toward
+  // the latest snapshot to absorb drift — so walking starts and stops the
+  // instant a key changes instead of a round trip later. The server still
+  // owns the real position; a large disagreement (teleport, respawn,
+  // rejected move) snaps immediately.
+  const SPRINT_FACTOR = 1.42; // mirrors SPRINT_FACTOR in src/server/world.js
+  const PREDICTION_SNAP_DISTANCE = 240;
+
+  function predictLocalPlayer(local, delta) {
+    const easeFactor = 1 - Math.exp(-delta * 0.014);
+    const speed = finite(local.moveSpeed, 0);
+    if (local.alive === false || speed <= 0) {
+      local.x += (local.targetX - local.x) * easeFactor;
+      local.y += (local.targetY - local.y) * easeFactor;
+      return;
+    }
+    const move = currentMove();
+    const keyboardMoving = move.x !== 0 || move.y !== 0;
+    const dt = delta / 1000;
+    if (keyboardMoving) {
+      const sprinting = state.keys.has("ShiftLeft") || state.keys.has("ShiftRight");
+      const step = speed * (sprinting ? SPRINT_FACTOR : 1) * dt;
+      local.x = clamp(local.x + move.x * step, 0, state.map.width);
+      local.y = clamp(local.y + move.y * step, 0, state.map.height);
+    } else if (local.moveTarget) {
+      // March orders echo back in snapshots; walk the same straight line
+      // the server walks.
+      const dx = local.moveTarget.x - local.x;
+      const dy = local.moveTarget.y - local.y;
+      const distance = Math.hypot(dx, dy);
+      if (distance > 6) {
+        const step = Math.min(distance, speed * dt);
+        local.x += (dx / distance) * step;
+        local.y += (dy / distance) * step;
+      }
+    } else {
+      local.x += (local.targetX - local.x) * easeFactor;
+      local.y += (local.targetY - local.y) * easeFactor;
+      return;
+    }
+    // While predicting, only a weak correction toward the server position.
+    const pull = 1 - Math.exp(-delta * 0.004);
+    local.x += (local.targetX - local.x) * pull;
+    local.y += (local.targetY - local.y) * pull;
+    if (Math.hypot(local.targetX - local.x, local.targetY - local.y) > PREDICTION_SNAP_DISTANCE) {
+      local.x = local.targetX;
+      local.y = local.targetY;
+    }
+  }
+
   function interpolateEntities(delta) {
     const factor = 1 - Math.exp(-delta * 0.014);
+    const local = localPlayer();
     for (const store of [state.players, state.enemies, state.projectiles, state.drops]) {
       for (const entity of store.values()) {
+        if (entity === local) continue;
         entity.x += (entity.targetX - entity.x) * factor;
         entity.y += (entity.targetY - entity.y) * factor;
       }
     }
-    const local = localPlayer();
+    if (local) predictLocalPlayer(local, delta);
     const targetX = local?.x ?? state.map.width * 0.5;
     const targetY = local?.y ?? state.map.height * 0.5;
     const cameraFactor = 1 - Math.exp(-delta * 0.005);
@@ -3994,7 +4050,7 @@
 
     const portrait = document.createElement("img");
     portrait.className = "hero-detail-portrait";
-    portrait.src = `/assets/heroes/${HERO_SPRITES[id] || `${id}.png`}?v=5`;
+    portrait.src = `/assets/heroes/${HERO_SPRITES[id] || `${id}.webp`}?v=6`;
     portrait.alt = hero.label;
 
     const info = document.createElement("div");
@@ -4055,7 +4111,7 @@
       button.setAttribute("aria-checked", String(id === state.selectedArchetype));
       button.dataset.archetype = id;
       const portrait = document.createElement("img");
-      portrait.src = `/assets/heroes/${id}.png`;
+      portrait.src = `/assets/heroes/${id}.webp?v=6`;
       portrait.alt = "";
       const copy = document.createElement("span");
       copy.className = "archetype-copy";
@@ -4318,11 +4374,29 @@
   canvas.addEventListener("contextmenu", (event) => event.preventDefault());
   window.addEventListener("resize", resizeCanvas, { passive: true });
 
+  // The whole art set is ~1.3 MB as WebP, so warm every terrain texture and
+  // hero sprite while the player sits on the join screen — no pop-in later.
+  function warmAssets() {
+    for (const asset of Object.values(ZONE_TEXTURE)) {
+      if (zoneTextureImages.has(asset)) continue;
+      const image = new Image();
+      image.src = `/assets/textures/${asset}.webp?v=6`;
+      zoneTextureImages.set(asset, image);
+    }
+    for (const [key, file] of Object.entries(HERO_SPRITES)) {
+      if (heroSpriteImages.has(key)) continue;
+      const image = new Image();
+      image.src = `/assets/heroes/${file}?v=6`;
+      heroSpriteImages.set(key, image);
+    }
+  }
+
   resizeCanvas();
   applyProfileToHud();
   updateQuest();
   connect();
   requestAnimationFrame(frame);
+  window.setTimeout(warmAssets, 400);
 
   // Debug affordance: open with #autojoin (optionally #autojoin=heroId) to
   // enter the world automatically (used by headless screenshot checks).

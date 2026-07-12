@@ -49,6 +49,9 @@ const RESPAWN_DELAY = 3;
 const MOB_RESPAWN_DELAY = 2.5;
 const DEFAULT_SAFE_ZONE_RADIUS = 220;
 const MOVE_ARRIVAL_EPSILON = 4;
+// Sprint multiplier — the client mirrors this constant to predict its own
+// movement; keep the two in sync (public/client.js predictLocalPlayer).
+const SPRINT_FACTOR = 1.42;
 const SHOP_RANGE = 130;
 // Fields copied between live players and their persisted account record.
 const ACCOUNT_FIELDS = Object.freeze([
@@ -1169,17 +1172,23 @@ export class World {
     return 1 + Math.floor((Math.hypot(dx, dy) / reach) * (MAX_MOB_LEVEL - 1));
   }
 
+  // Effective walk speed on the player's current terrain, before the sprint
+  // multiplier. Sent in snapshots so the client can predict its own motion.
+  _moveSpeed(player) {
+    const zone = this.zones.find((entry) => entry.id === player.mapId);
+    const terrainFactor = zone?.theme === "snow" ? 0.86 : zone?.theme === "desert" ? 0.92 : zone?.theme === "skycity" ? 1.06 : 1;
+    return (ARCHETYPES[player.archetype].baseSpeed
+      + this._statTotal(player, "agility") * 3.2
+      + player.gearMods.speed) * terrainFactor;
+  }
+
   _updatePlayers(dt) {
     for (const player of this.players.values()) {
       if (!player.alive) continue;
       const manualMove = player.input.move.x !== 0 || player.input.move.y !== 0;
-      const zone = this.zones.find((entry) => entry.id === player.mapId);
-      const terrainFactor = zone?.theme === "snow" ? 0.86 : zone?.theme === "desert" ? 0.92 : zone?.theme === "skycity" ? 1.06 : 1;
-      const runFactor = player.input.sprint && manualMove ? 1.42 : 1;
+      const runFactor = player.input.sprint && manualMove ? SPRINT_FACTOR : 1;
       player.running = runFactor > 1;
-      const speed = (ARCHETYPES[player.archetype].baseSpeed
-        + this._statTotal(player, "agility") * 3.2
-        + player.gearMods.speed) * terrainFactor * runFactor;
+      const speed = this._moveSpeed(player) * runFactor;
 
       if (manualMove) {
         player.moveTarget = null;
@@ -1982,6 +1991,7 @@ export class World {
       targetId: player.attackTarget,
       rebirths: player.rebirths,
       level: player.level,
+      moveSpeed: round(this._moveSpeed(player)),
     };
   }
 
