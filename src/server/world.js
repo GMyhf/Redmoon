@@ -61,6 +61,18 @@ const BOSS_RESPAWN_DELAY = 90;
 const PORTAL_RADIUS = 30;
 const PORTAL_LOCK = 2.5;
 const PORTAL_DWELL = 0.6;
+const DEFAULT_MAP_MOB_TARGETS = Object.freeze({
+  town: 24,
+  residential: 16,
+  downtown: 18,
+  backhill: 20,
+  scrapyard: 20,
+  desert: 22,
+  snowmountain: 22,
+  castle: 24,
+  starship: 24,
+  skycity: 26,
+});
 
 const MAP_NAMES = Object.freeze({
   town: "灰港中继站",
@@ -113,6 +125,7 @@ export class World {
       ? { x: this.width / 2, y: this.height / 2, radius: safeZoneRadius }
       : null;
     this.mobTargetCount = nonNegativeInteger(options.mobTargetCount, 40);
+    this.mapMobTargets = options.mobTargetCount === undefined ? DEFAULT_MAP_MOB_TARGETS : null;
     this.players = new Map();
     this.mobs = new Map();
     this.projectiles = new Map();
@@ -1007,7 +1020,7 @@ export class World {
 
   spawnMob(overrides = {}) {
     const point = overrides.x === undefined || overrides.y === undefined
-      ? this._mobSpawn()
+      ? this._mobSpawn(overrides.mapId)
       : { x: Number(overrides.x), y: Number(overrides.y) };
     // Districts define their own level bands; open terrain scales with
     // distance from the town at the map centre.
@@ -1757,7 +1770,7 @@ export class World {
         }
       }
     }
-    this.pendingMobSpawns.push({ at: this.time + MOB_RESPAWN_DELAY });
+    this.pendingMobSpawns.push({ at: this.time + MOB_RESPAWN_DELAY, mapId: mob.mapId });
     this._emit("enemyDefeated", {
       enemyId: mob.id,
       enemyType: mob.type,
@@ -1999,7 +2012,16 @@ export class World {
     };
   }
 
-  _mobSpawn() {
+  _mobSpawn(mapId = null) {
+    const zone = this.zones.find((entry) => entry.id === mapId);
+    if (zone) {
+      const angle = this.rng() * Math.PI * 2;
+      const radius = Math.sqrt(this.rng()) * 0.82;
+      return {
+        x: clamp(zone.x + Math.cos(angle) * zone.rx * radius, MOB_RADIUS, this.width - MOB_RADIUS),
+        y: clamp(zone.y + Math.sin(angle) * zone.ry * radius, MOB_RADIUS, this.height - MOB_RADIUS),
+      };
+    }
     // Anywhere on the map except inside (or hugging) the town safe zone.
     const margin = 70;
     const buffer = (this.safeZone?.radius ?? 0) + 120;
@@ -2018,7 +2040,7 @@ export class World {
     let spawned = false;
     this.pendingMobSpawns = this.pendingMobSpawns.filter((spawn) => {
       if (spawn.at > this.time) return true;
-      this.spawnMob();
+      this.spawnMob({ mapId: spawn.mapId });
       spawned = true;
       return false;
     });
@@ -2032,6 +2054,16 @@ export class World {
   }
 
   _maintainMobPopulation() {
+    if (this.mapMobTargets) {
+      for (const [mapId, targetCount] of Object.entries(this.mapMobTargets)) {
+        const current = [...this.mobs.values()].filter((mob) => mob.mapId === mapId).length;
+        const pending = this.pendingMobSpawns.filter((spawn) => spawn.mapId === mapId).length;
+        for (let index = current + pending; index < targetCount; index += 1) {
+          this.spawnMob({ mapId });
+        }
+      }
+      return;
+    }
     const reserved = this.mobs.size + this.pendingMobSpawns.length;
     for (let index = reserved; index < this.mobTargetCount; index += 1) {
       this.spawnMob();
