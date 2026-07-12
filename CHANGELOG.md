@@ -2,6 +2,12 @@
 
 本文件记录 CRIMSON RELAY 每轮迭代的玩法与架构改进。协议层面的字段变化见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
+## 2026-07-12 · 协议 schema 化与一致性测试（Godot 前置）
+
+- 新增 `src/server/protocol.js`：机器可读的协议契约（`PROTOCOL`），覆盖全部 24 条客户端命令、6 类服务器消息（含快照的完整嵌套字段规格：本人/他人玩家条目、怪物、掉落、投射物、世界元数据）、38 个事件名与 39 个错误码，附带一个零依赖的规格校验器；随 `PROTOCOL_VERSION` 版本化，作为 Godot 等原生客户端的开发依据。
+- 新增 `test/protocol-conformance.test.js`（7 项）：对真实世界快照与真实 WebSocket 上的 welcome/session/roster/error 做逐字段严格校验——出现未记录字段即失败，新增协议字段必须同步更新 schema；并用源码扫描保证命令/事件/错误码清单与实现双向完备（实现了没记录、记录了没实现都会报错）。
+- `src/server/index.js` 导出 `PROTOCOL` 与校验器；架构文档协议章节改为指向 schema，演进路线第 3 阶段的前置项标记完成。
+
 ## 2026-07-12 · 返回主画面与在线名册
 
 - 顶栏新增「返回主画面」按钮：新 `leave` 命令保存账号、释放席位并回到选人界面，同一连接可直接再次进入（同名同职业凭本机令牌无缝恢复）。
