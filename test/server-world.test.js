@@ -54,6 +54,9 @@ test("sprint input accelerates movement and map snapshots isolate entities", () 
   const snapshot = world.getSnapshot(player.id);
   assert.equal(snapshot.mapId, "desert");
   assert.deepEqual(snapshot.enemies.map((entry) => entry.id), [desertMob.id]);
+  assert.equal(snapshot.world.theme, "desert");
+  assert.deepEqual(snapshot.world.zones.map((entry) => entry.id), ["desert"]);
+  assert.equal(snapshot.world.portals.every((portal) => portal.mapId === "desert"), true);
   assert.equal(world.mobs.has(townMob.id), true);
 });
 
@@ -183,6 +186,7 @@ test("marking an enemy walks the player into range and auto-attacks it down", ()
     speed: 0.001,
     damage: 0.001,
     xp: 40,
+    mapId: "town",
   });
 
   world.handleCommand("player-1", { type: "input", seq: 1, target: enemy.id });

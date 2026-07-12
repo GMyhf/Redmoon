@@ -61,6 +61,19 @@ const PORTAL_RADIUS = 30;
 const PORTAL_LOCK = 2.5;
 const PORTAL_DWELL = 0.6;
 
+const MAP_NAMES = Object.freeze({
+  town: "灰港中继站",
+  residential: "暮居街区",
+  downtown: "旧都核心",
+  backhill: "北境回山",
+  scrapyard: "锈蚀废料场",
+  desert: "赤潮沙海",
+  snowmountain: "霜脊山线",
+  castle: "坠落城堡",
+  starship: "失落星港",
+  skycity: "悬空天城",
+});
+
 const BASE_STATS = Object.freeze({
   vanguard: Object.freeze({ power: 6, agility: 3, spirit: 2, vitality: 7 }),
   channeler: Object.freeze({ power: 2, agility: 4, spirit: 7, vitality: 4 }),
@@ -903,6 +916,9 @@ export class World {
         starship: "spaceport",
       }[mapId] ?? mapId);
     const visible = (entity) => !mapId || entity.mapId === mapId;
+    const mapZones = mapId === "town"
+      ? []
+      : this.zones.filter((zone) => zone.id === mapId).map((zone) => ({ ...zone }));
     const enemies = [...this.mobs.values()].filter(visible).map((mob) => ({
       id: mob.id,
       type: mob.type,
@@ -956,16 +972,21 @@ export class World {
       serverTime: round(this.time),
       selfId,
       world: {
-        name: this.name,
+        name: MAP_NAMES[mapId] ?? this.name,
         width: this.width,
         height: this.height,
         time: round(this.time),
         tick: this.tick,
         mapId,
         theme: mapTheme,
+        zones: mapZones,
+        portals: this.portals.filter((portal) => !mapId || portal.mapId === mapId).map((portal) => ({ ...portal })),
+        shops: mapId === "town"
+          ? this.shops.map((shop) => ({ id: shop.id, name: shop.name, x: shop.x, y: shop.y, goods: shop.goods.map((good) => ({ ...good })) }))
+          : [],
       },
       safeZone: mapId === "town" && this.safeZone ? { ...this.safeZone } : null,
-      portals: this.portals.map((portal) => ({ ...portal })),
+      portals: this.portals.filter((portal) => !mapId || portal.mapId === mapId).map((portal) => ({ ...portal })),
       players: [...this.players.values()].filter(visible).map((player) => this._serializePlayer(player)),
       enemies,
       mobs: enemies,
@@ -1128,7 +1149,7 @@ export class World {
     let destination = null;
     if (player.attackTarget) {
       const mob = this.mobs.get(player.attackTarget);
-      if (!mob) {
+      if (!mob || mob.mapId !== player.mapId) {
         player.attackTarget = null;
       } else {
         const range = ARCHETYPES[player.archetype].primary.range;
@@ -1168,7 +1189,7 @@ export class World {
   _updateMobs(dt) {
     for (const mob of [...this.mobs.values()]) {
       let target = mob.aggroTargetId ? this.players.get(mob.aggroTargetId) : null;
-      if (!target?.alive || this._inSafeZone(target)
+      if (!target?.alive || target.mapId !== mob.mapId || this._inSafeZone(target)
         || Math.hypot(target.x - mob.homeX, target.y - mob.homeY) > (mob.boss ? 780 : 520)) {
         target = this._nearestLivingPlayer(mob, mob.boss ? 520 : 340);
         mob.aggroTargetId = target?.id ?? null;
@@ -1253,6 +1274,7 @@ export class World {
 
       if (projectile.team === "players") {
         for (const mob of [...this.mobs.values()]) {
+          if (mob.mapId !== this.players.get(projectile.ownerId)?.mapId) continue;
           if (projectile.hitIds.has(mob.id)) continue;
           if (!segmentHitsCircle(oldX, oldY, projectile.x, projectile.y, mob.x, mob.y, mob.radius + projectile.radius)) {
             continue;
@@ -1952,7 +1974,7 @@ export class World {
     let nearest = null;
     let nearestSquared = maximumDistance * maximumDistance;
     for (const player of this.players.values()) {
-      if (!player.alive) continue;
+      if (!player.alive || player.mapId !== entity.mapId) continue;
       const dx = player.x - entity.x;
       const dy = player.y - entity.y;
       const distanceSquared = dx * dx + dy * dy;
@@ -2020,7 +2042,7 @@ export class World {
         continue;
       }
       for (const player of this.players.values()) {
-        if (!player.alive) continue;
+        if (!player.alive || player.mapId !== drop.mapId) continue;
         const dx = player.x - drop.x;
         const dy = player.y - drop.y;
         const distance = Math.hypot(dx, dy);
@@ -2247,6 +2269,7 @@ export class World {
     let nearest = null;
     let nearestSquared = range * range;
     for (const mob of this.mobs.values()) {
+      if (mob.mapId !== player.mapId) continue;
       const dx = mob.x - player.x;
       const dy = mob.y - player.y;
       const distanceSquared = dx * dx + dy * dy;
@@ -2302,6 +2325,7 @@ export class World {
     for (const player of this.players.values()) {
       if (!player.alive || this.time < player.portalLockUntil) continue;
       const covering = this.portals.find((portal) => {
+        if (portal.mapId !== player.mapId) return false;
         const dx = player.x - portal.x;
         const dy = player.y - portal.y;
         return dx * dx + dy * dy <= PORTAL_RADIUS * PORTAL_RADIUS;
@@ -2341,7 +2365,7 @@ export class World {
   }
 
   _inSafeZone(entity) {
-    if (!this.safeZone) return false;
+    if (!this.safeZone || entity.mapId !== "town") return false;
     const dx = entity.x - this.safeZone.x;
     const dy = entity.y - this.safeZone.y;
     return dx * dx + dy * dy <= this.safeZone.radius * this.safeZone.radius;
