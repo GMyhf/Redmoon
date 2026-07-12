@@ -234,6 +234,8 @@
     rare: { label: "谐振", prefix: "谐振·", color: "#63aef0" },
     epic: { label: "赤月", prefix: "赤月·", color: "#e0596d" },
     relic: { label: "遗物", prefix: "", color: "#ffd479" },
+    unique: { label: "唯一", prefix: "唯一·", color: "#e7a7ff" },
+    sunset: { label: "日落", prefix: "日落·", color: "#ff9a5c" },
   };
 
   const ITEM_NAMES = {
@@ -2810,13 +2812,20 @@
     ctx.beginPath();
     ctx.ellipse(point.x, point.y + 2, 9, 4, 0, 0, Math.PI * 2);
     ctx.fill();
-    if (drop.rarity === "epic" || drop.rarity === "rare") {
+    if (drop.rarity === "epic" || drop.rarity === "rare" || drop.dropClass === "uniq" || drop.dropClass === "sunset") {
       // Rare finds throw a short light pillar so they read from far away.
       const beam = ctx.createLinearGradient(point.x, point.y - 46, point.x, point.y);
       beam.addColorStop(0, "rgba(0,0,0,0)");
       beam.addColorStop(1, info.color + "66");
       ctx.fillStyle = beam;
       ctx.fillRect(point.x - 3, point.y - 46, 6, 44);
+    }
+    if (drop.dropClass === "sunset") {
+      ctx.strokeStyle = "rgba(255, 154, 92, 0.75)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(point.x, point.y - 12 + bob, 16 + Math.sin(time * 0.004) * 2, 0, Math.PI * 2);
+      ctx.stroke();
     }
     ctx.translate(point.x, point.y - 12 + bob);
     ctx.shadowColor = info.color;

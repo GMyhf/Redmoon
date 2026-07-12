@@ -26,6 +26,7 @@ import {
   REPUTATION_LIMIT,
   RING_KEYS,
   SOUL_BARRIER,
+  SPECIAL_DROPS,
   ZONES,
   REBIRTH_DAMAGE_BONUS,
   REBIRTH_HP_BONUS,
@@ -123,6 +124,7 @@ export class World {
     this._mobSequence = 0;
     this._projectileSequence = 0;
     this._dropSequence = 0;
+    this.specialDropActive = { uniq: 0, sunset: 0 };
     this._itemSequence = 0;
     this._bossRespawns = new Map();
     this.autoLevelDefault = options.autoLevel !== false;
@@ -948,6 +950,7 @@ export class World {
       y: round(drop.y),
       slot: drop.item.slot,
       rarity: drop.item.rarity,
+      dropClass: drop.item.dropClass ?? null,
       name: drop.item.name,
     }));
 
@@ -2038,7 +2041,7 @@ export class World {
   _updateDrops(dt) {
     for (const [id, drop] of [...this.drops]) {
       if (this.time >= drop.expiresAt) {
-        this.drops.delete(id);
+        this._removeDrop(id);
         continue;
       }
       for (const player of this.players.values()) {
@@ -2076,7 +2079,7 @@ export class World {
           });
         }
         player.inventory.push(drop.item);
-        this.drops.delete(id);
+        this._removeDrop(id);
         this._emit("lootPickedUp", {
           playerId: player.id,
           itemId: drop.item.id,
@@ -2094,8 +2097,10 @@ export class World {
       this._placeDrop(mob.x, mob.y, this._rollPotion(mob.level), mob.mapId);
     }
     const chance = Math.min(0.85, (0.22 + (mob.level - 1) * 0.07) * (mob.elite ? 1.8 : 1));
-    if (this.rng() >= chance) return;
-    this._placeDrop(mob.x, mob.y, this._rollItem(mob.level, mob.elite ? 2 : 1), mob.mapId);
+    if (this.rng() < chance) {
+      this._placeDrop(mob.x, mob.y, this._rollItem(mob.level, mob.elite ? 2 : 1), mob.mapId);
+    }
+    this._trySpecialDrop(mob);
   }
 
   _dropBossHoard(mob) {
@@ -2113,6 +2118,7 @@ export class World {
     if (this.rng() < 0.15 + mob.level * 0.01) {
       this._placeDrop(mob.x, mob.y - 30, this._rollRelic(mob.level), mob.mapId);
     }
+    this._trySpecialDrop(mob, true);
     this._placeDrop(mob.x, mob.y + 30, this._rollPotion(mob.level), mob.mapId);
   }
 
@@ -2126,15 +2132,71 @@ export class World {
       expiresAt: this.time + DROP_TTL,
       item,
     });
+    if (item.dropClass && Object.hasOwn(this.specialDropActive, item.dropClass)) {
+      this.specialDropActive[item.dropClass] += 1;
+    }
     this._emit("lootDropped", {
       dropId: id,
       name: item.name,
       rarity: item.rarity,
+      dropClass: item.dropClass ?? null,
       slot: item.slot,
       x: round(x),
       y: round(y),
     });
     return id;
+  }
+
+  _removeDrop(id) {
+    const drop = this.drops.get(id);
+    if (!drop) return false;
+    this.drops.delete(id);
+    if (drop.item.dropClass && Object.hasOwn(this.specialDropActive, drop.item.dropClass)) {
+      this.specialDropActive[drop.item.dropClass] = Math.max(0, this.specialDropActive[drop.item.dropClass] - 1);
+    }
+    return true;
+  }
+
+  _trySpecialDrop(mob, boss = false) {
+    const candidates = Object.entries(SPECIAL_DROPS)
+      .filter(([, pool]) => mob.level >= pool.minLevel)
+      .sort(([, left], [, right]) => right.tier - left.tier);
+    for (const [kind, pool] of candidates) {
+      if (this.specialDropActive[kind] >= pool.maxActive) continue;
+      const chance = boss ? Math.min(0.8, pool.chance * 8) : pool.chance;
+      if (this.rng() >= chance) continue;
+      const item = this._rollSpecialDrop(kind, mob.level);
+      this._placeDrop(
+        mob.x + (this.rng() - 0.5) * 50,
+        mob.y + (this.rng() - 0.5) * 50,
+        item,
+        mob.mapId,
+      );
+      return item;
+    }
+    return null;
+  }
+
+  _rollSpecialDrop(kind, level) {
+    const pool = SPECIAL_DROPS[kind];
+    const template = pool.templates[Math.floor(clamp(this.rng(), 0, 0.999999) * pool.templates.length)];
+    const itemLevel = Math.min(MAX_ITEM_LEVEL, Math.max(pool.minLevel, level + 1));
+    const bonuses = zeroStats();
+    bonuses[template.stat] = kind === "sunset" ? 30 + itemLevel * 3 : 16 + itemLevel * 2;
+    return {
+      id: `item-${++this._itemSequence}`,
+      slot: template.slot,
+      rarity: pool.rarity,
+      dropClass: kind,
+      tier: pool.tier,
+      level: itemLevel,
+      name: template.name,
+      bonuses,
+      ...(template.damage ? { damageBonus: template.damage } : {}),
+      ...(template.hp ? { hpBonus: template.hp + itemLevel * 4 } : {}),
+      ...(template.speed ? { speedBonus: template.speed } : {}),
+      ...(template.defense ? { defenseBonus: template.defense } : {}),
+    };
   }
 
   _rollPotion(level) {
@@ -2411,6 +2473,7 @@ function serializeItem(item) {
     id: item.id,
     slot: item.slot,
     rarity: item.rarity,
+    ...(item.dropClass !== undefined ? { dropClass: item.dropClass } : {}),
     tier: item.tier,
     level: item.level ?? 1,
     name: item.name,

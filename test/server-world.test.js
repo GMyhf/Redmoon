@@ -257,6 +257,23 @@ test("defeated enemies drop equipment that players pick up by walking over it", 
   assert.ok(world.drainEvents().some((event) => event.event === "lootPickedUp"));
 });
 
+test("unique and sunset drops use capped ground pools and release slots on expiry", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, safeZoneRadius: 0 });
+  const unique = world._rollSpecialDrop("uniq", 8);
+  const sunset = world._rollSpecialDrop("sunset", 15);
+  const uniqueId = world._placeDrop(300, 300, unique, "backhill");
+  const sunsetId = world._placeDrop(600, 300, sunset, "sunset");
+
+  assert.equal(world.specialDropActive.uniq, 1);
+  assert.equal(world.specialDropActive.sunset, 1);
+  assert.equal(world.getSnapshot().drops.find((drop) => drop.id === uniqueId).dropClass, "uniq");
+  assert.equal(world.getSnapshot().drops.find((drop) => drop.id === sunsetId).dropClass, "sunset");
+
+  for (let index = 0; index < 121; index += 1) world.update(0.5);
+  assert.equal(world.specialDropActive.uniq, 0);
+  assert.equal(world.specialDropActive.sunset, 0);
+});
+
 test("mob level rises with distance from town, the boss respawns, and potions heal", () => {
   const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
   const near = world.spawnMob({ id: "near", x: world.width / 2 + 320, y: world.height / 2 });

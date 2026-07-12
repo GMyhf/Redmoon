@@ -160,6 +160,36 @@ export const RELIC_JEWELRY = Object.freeze([
   Object.freeze({ name: "回澜之链", slot: "necklace", bonuses: Object.freeze({ power: 1400, spirit: 1400, agility: 2000, vitality: 1200 }), defense: 0.1 }),
 ]);
 
+// Server-wide special drop pools inspired by Redmoon unique/sunset drops.
+// Pool limits count items waiting on the ground; pickup or expiry frees a slot.
+export const SPECIAL_DROPS = Object.freeze({
+  uniq: Object.freeze({
+    rarity: "unique",
+    tier: 6,
+    maxActive: 2,
+    minLevel: 5,
+    chance: 0.028,
+    templates: Object.freeze([
+      Object.freeze({ name: "裂界·逐风刃", slot: "weapon", stat: "agility", damage: 0.18, speed: 22 }),
+      Object.freeze({ name: "赤潮·守望盾", slot: "shield", stat: "vitality", hp: 180, defense: 0.12 }),
+      Object.freeze({ name: "星痕·永燃项链", slot: "necklace", stat: "spirit", damage: 0.14, hp: 90 }),
+      Object.freeze({ name: "暮影·猎行靴", slot: "boots", stat: "agility", speed: 38, hp: 60 }),
+    ]),
+  }),
+  sunset: Object.freeze({
+    rarity: "sunset",
+    tier: 7,
+    maxActive: 1,
+    minLevel: 12,
+    chance: 0.009,
+    templates: Object.freeze([
+      Object.freeze({ name: "日蚀终焉·天穹刃", slot: "weapon", stat: "power", damage: 0.34 }),
+      Object.freeze({ name: "日蚀终焉·无光甲", slot: "chest", stat: "vitality", hp: 420, defense: 0.2 }),
+      Object.freeze({ name: "日蚀终焉·双星戒", slot: "ring", stat: "spirit", damage: 0.24, hp: 220 }),
+    ]),
+  }),
+});
+
 export const INVENTORY_LIMIT = 48;
 export const DROP_TTL = 60;
 export const DROP_PICKUP_RADIUS = 26;
