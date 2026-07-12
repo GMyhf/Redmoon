@@ -297,11 +297,11 @@ button {
 }
 
 .archetype-copy {
-  position: absolute;
-  inset: auto 11px 26px;
+  position: static;
+  padding: 7px 10px 0;
   display: grid;
   gap: 2px;
-  text-shadow: 0 2px 5px #000;
+  text-shadow: none;
 }
 
 .archetype-copy strong {
@@ -318,8 +318,8 @@ button {
 }
 
 .archetype-trait {
-  position: absolute;
-  inset: auto 11px 9px;
+  position: static;
+  padding: 3px 10px 8px;
   color: var(--gold);
 }
 
@@ -549,6 +549,9 @@ button {
   color: #ff8190;
   font-family: Impact, sans-serif;
   font-size: 17px;
+  background-size: 170%;
+  background-position: center 18%;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.1), 0 0 18px rgba(226,75,92,.2);
 }
 
 .operator-heading > div:nth-child(2) {
@@ -1188,6 +1191,64 @@ button {
   cursor: default;
 }
 
+.ability.is-locked {
+  filter: grayscale(.9);
+  opacity: .48;
+}
+
+.ability.is-locked::after {
+  content: "未解锁";
+  position: absolute;
+  inset: 19px 4px auto;
+  z-index: 3;
+  color: #d8c7ad;
+  font-size: 8px;
+  text-align: center;
+}
+
+.gear-icon {
+  position: relative;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  display: inline-block;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  color: #b9c4c2;
+  opacity: .9;
+}
+
+.gear-icon::before, .gear-icon::after {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border: 1px solid currentColor;
+}
+
+.gear-icon-weapon { transform: rotate(-35deg); border-radius: 8px 2px; }
+.gear-icon-shield { border-radius: 8px 8px 11px 11px; }
+.gear-icon-helm { border-radius: 9px 9px 3px 3px; }
+.gear-icon-necklace { border-radius: 50%; border-width: 0 1px 1px; }
+.gear-icon-chest::before { inset: 3px 2px; border-radius: 5px 5px 2px 2px; }
+.gear-icon-belt::before { inset: 7px 1px; }
+.gear-icon-gloves { border-radius: 4px 4px 8px 8px; }
+.gear-icon-pants::before { inset: 3px 4px 1px; border-width: 1px 1px 0; }
+.gear-icon-boots { border-radius: 3px 3px 8px 2px; }
+.gear-icon-ring { border-radius: 50%; }
+.gear-icon-ring::before { border-radius: 50%; }
+.gear-icon-potion { border-radius: 3px 3px 8px 8px; color: #e88a94; }
+
+.slot-box .gear-icon {
+  width: 20px;
+  height: 20px;
+  color: inherit;
+}
+
+.gear-row > .gear-icon {
+  width: 17px;
+  height: 17px;
+}
+
 .skill-upgrades {
   position: absolute;
   left: calc(100% + 7px);
@@ -1195,7 +1256,7 @@ button {
   height: 70px;
   padding: 5px;
   display: grid;
-  grid-template-columns: repeat(2, 34px);
+  grid-template-columns: repeat(5, 30px);
   grid-template-rows: 18px 36px;
   gap: 3px;
   border: 1px solid var(--line-strong);
@@ -1219,6 +1280,52 @@ button {
   color: var(--gold);
   font-size: 9px;
   cursor: pointer;
+}
+
+.r-icon {
+  border-color: #f08a4b;
+  color: #f08a4b;
+  transform: translateX(-50%) rotate(22.5deg);
+}
+
+.c-icon {
+  border-color: #8ac7ff;
+  border-radius: 50% 50% 15% 50%;
+  color: #8ac7ff;
+}
+
+/* Tactical glass panels: stronger hierarchy and less flat black. */
+.operator-panel, .stats-panel, .gear-panel, .quest-panel {
+  border-color: rgba(230, 218, 198, .23);
+  background: linear-gradient(145deg, rgba(25, 29, 34, .95), rgba(10, 13, 17, .92));
+  box-shadow: 0 16px 42px rgba(0,0,0,.38), inset 0 1px rgba(255,255,255,.035);
+}
+
+.panel-title {
+  min-height: 24px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(231,186,91,.18);
+  color: #f0e8dc;
+  font-size: 11px;
+  letter-spacing: .12em;
+}
+
+.stat-row {
+  height: 34px;
+  padding: 0 3px;
+  background: linear-gradient(90deg, rgba(255,255,255,.025), transparent);
+}
+
+.slot-box {
+  min-height: 42px;
+  border-radius: 3px;
+  background: linear-gradient(145deg, rgba(35,39,44,.9), rgba(9,11,14,.86));
+}
+
+.ability {
+  border-radius: 4px;
+  background: radial-gradient(circle at 50% 38%, rgba(63,72,80,.56), #11151a 68%);
+  box-shadow: inset 0 0 18px rgba(0,0,0,.42);
 }
 
 .death-panel {

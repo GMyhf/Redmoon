@@ -37,9 +37,13 @@
     questFill: document.querySelector("#quest-fill"),
     skillQ: document.querySelector("#skill-q-name"),
     skillE: document.querySelector("#skill-e-name"),
+    skillR: document.querySelector("#skill-r-name"),
+    skillC: document.querySelector("#skill-c-name"),
     skillF: document.querySelector("#skill-f-name"),
     skillQLevel: document.querySelector("#skill-q-level"),
     skillELevel: document.querySelector("#skill-e-level"),
+    skillRLevel: document.querySelector("#skill-r-level"),
+    skillCLevel: document.querySelector("#skill-c-level"),
     skillFLevel: document.querySelector("#skill-f-level"),
     skillUpgrades: document.querySelector("#skill-upgrades"),
     skillPoints: document.querySelector("#skill-points"),
@@ -290,12 +294,22 @@
     "gloves", "pants", "boots",
   ];
 
+  function gearIcon(slot) {
+    const icon = document.createElement("i");
+    icon.className = `gear-icon gear-icon-${slot === "ring1" || slot === "ring2" || slot === "ring3" ? "ring" : slot}`;
+    icon.setAttribute("aria-hidden", "true");
+    return icon;
+  }
+
   const MOB_NAMES = {
     riftling: "裂隙体",
     duskfang: "暮牙兽",
     ashwing: "烬翼",
+    thorncrawler: "棘甲爬兽",
     stonehorn: "岩角兽",
+    frostseer: "霜眼祭兽",
     scraphulk: "废钢巨兽",
+    stormeye: "风暴浮眼",
     voidmaw: "虚空吞喉",
     warden: "深红督军",
     thornmaw: "棘颚兽",
@@ -309,6 +323,9 @@
 
   // Biome bosses reuse the closest species body at boss scale.
   const RENDER_AS = {
+    thorncrawler: "riftling",
+    frostseer: "voidmaw",
+    stormeye: "ashwing",
     thornmaw: "duskfang",
     cragfather: "stonehorn",
     rustking: "scraphulk",
@@ -570,7 +587,7 @@
     camera: { x: 800, y: 450 },
     pointer: { x: 0, y: 0, worldX: 800, worldY: 450, down: false, seen: false },
     keys: new Set(),
-    pulses: { q: false, e: false, f: false, primary: false },
+    pulses: { q: false, e: false, r: false, c: false, f: false, primary: false },
     orders: { moveTo: undefined, target: undefined },
     dragMove: false,
     rebirthLevel: 10,
@@ -583,6 +600,9 @@
     dpr: 1,
     viewWidth: innerWidth,
     viewHeight: innerHeight,
+    themeCanvases: new Map(),
+    activeTheme: "town",
+    themeChangedAt: 0,
   };
 
   const clamp = (value, min, max) => Math.max(min, Math.min(max, Number(value) || 0));
@@ -706,7 +726,8 @@
     const archetype = ARCHETYPES[state.profile.archetype] || ARCHETYPES.vanguard;
     ui.name.textContent = state.profile.name.toUpperCase();
     ui.className.textContent = `${archetype.label} · ${archetype.role}`;
-    ui.sigil.textContent = archetype.sigil;
+    ui.sigil.textContent = "";
+    ui.sigil.style.backgroundImage = `url(/assets/heroes/${state.profile.archetype}.png)`;
     ui.skillQ.textContent = archetype.q;
     ui.skillE.textContent = archetype.e;
   }
@@ -799,6 +820,7 @@
       state.camera.x = local.x;
       state.camera.y = local.y;
       ui.titleArt.classList.add("is-hidden");
+      ui.titleArt.hidden = true;
       ui.joinPanel.hidden = true;
       ui.hud.hidden = false;
       ui.joinButton.disabled = false;
@@ -896,7 +918,7 @@
     const rebirths = Math.max(0, Math.floor(finite(player.rebirths, 0)));
     ui.name.textContent = String(first(player.name, state.profile?.name, "RELAY-07")).toUpperCase();
     ui.className.textContent = `${archetype.label} · ${archetype.role}`;
-    ui.sigil.textContent = archetype.sigil;
+    ui.sigil.textContent = "";
     ui.level.textContent = `L${String(level).padStart(2, "0")}${rebirths > 0 ? ` ★${rebirths}` : ""}`;
     if (ui.rebirthButton) {
       ui.rebirthButton.hidden = level < state.rebirthLevel;
@@ -959,22 +981,45 @@
     const skills = player.skills && typeof player.skills === "object" ? player.skills : {};
     const q = skills.q || skills.Q || {};
     const e = skills.e || skills.E || {};
+    const r = skills.r || skills.R || {};
+    const c = skills.c || skills.C || {};
     const f = skills.f || skills.F || {};
     const qLevel = Math.max(1, Math.floor(finite(first(q.level, player.qLevel), 1)));
     const eLevel = Math.max(1, Math.floor(finite(first(e.level, player.eLevel), 1)));
     const fLevel = Math.max(1, Math.floor(finite(f.level, 1)));
     ui.skillQ.textContent = archetype.q;
     ui.skillE.textContent = archetype.e;
+    ui.skillR.textContent = r.name || "战术爆发";
+    ui.skillC.textContent = c.name || "机动回环";
     if (ui.skillF) ui.skillF.textContent = archetype.f;
     ui.skillQLevel.textContent = String(qLevel);
     ui.skillELevel.textContent = String(eLevel);
+    ui.skillRLevel.textContent = String(Math.max(1, Math.floor(finite(r.level, 1))));
+    ui.skillCLevel.textContent = String(Math.max(1, Math.floor(finite(c.level, 1))));
     if (ui.skillFLevel) ui.skillFLevel.textContent = String(fLevel);
     const skillPoints = Math.max(0, Math.floor(finite(first(player.skillPoints, skills.points), 0)));
     ui.skillPoints.textContent = `${skillPoints} 技能点`;
     ui.skillUpgrades.hidden = skillPoints < 1;
     updateAbilityCooldown("q", q);
     updateAbilityCooldown("e", e);
+    updateAbilityCooldown("r", r);
+    updateAbilityCooldown("c", c);
     updateAbilityCooldown("f", f);
+    for (const [slot, skill] of [["r", r], ["c", c]]) {
+      const button = ui.abilities.find((item) => item.dataset.ability === slot);
+      if (!button) continue;
+      const unlocked = skill.unlocked !== false;
+      button.classList.toggle("is-locked", !unlocked);
+      button.hidden = !unlocked;
+      button.title = unlocked ? `施放 ${slot.toUpperCase()} 能力` : `${finite(skill.unlockLevel, 1)} 级解锁`;
+      button.disabled = !unlocked || finite(skill.remaining, 0) > 0;
+    }
+    document.querySelectorAll("[data-upgrade]").forEach((button) => {
+      const skill = skills[button.dataset.upgrade];
+      button.disabled = skill?.unlocked === false;
+      button.hidden = skill?.unlocked === false;
+      if (skill?.unlocked === false) button.title = `${finite(skill.unlockLevel, 1)} 级解锁`;
+    });
 
     updateQuest();
     updateGear(player);
@@ -1016,13 +1061,13 @@
         name.style.color = info.color;
         const level = document.createElement("i");
         level.textContent = `L${Math.max(1, finite(item.level, 1))}`;
-        box.append(name, level);
+        box.append(gearIcon(item.slot), name, level);
       } else {
         box.disabled = true;
         box.title = `${label}（空）`;
         const empty = document.createElement("span");
         empty.textContent = label;
-        box.append(empty);
+        box.append(gearIcon(slot), empty);
       }
       return box;
     }));
@@ -1067,6 +1112,7 @@
       sellButton.title = "折算为金币";
       sellButton.dataset.action = "sell";
       sellButton.dataset.item = String(item.id);
+      row.prepend(gearIcon(isPotion ? "potion" : item.slot));
       row.append(name, trend, mainButton, sellButton);
       return row;
     }));
@@ -1256,6 +1302,21 @@
       bossslain: () => { sfx(659, 0.14, "triangle", 0.05); setTimeout(() => sfx(880, 0.22, "triangle", 0.05), 130); },
       potionused: () => sfx(520, 0.09, "sine", 0.05, 140),
     };
+    if (eventName === "enemyattack") {
+      const styles = {
+        claw: ["#ff755f", "claw"], bite: ["#ffb15f", "bite"], ember: ["#ff6b35", "ember"],
+        spike: ["#8fd66f", "spike"], charge: ["#e6d18b", "charge"], frost: ["#86d9ff", "frost"],
+        slam: ["#8fc0c8", "slam"], lightning: ["#b8d7ff", "lightning"], void: ["#b875ff", "void"],
+      };
+      const [color, attackStyle] = styles[event.attackStyle] || [event.boss ? "#ff334f" : "#ff755f", "claw"];
+      state.effects.push({
+        type: "enemy-attack", born: performance.now(), duration: event.phase === "windup" ? finite(event.duration, .5) * 1000 : event.boss ? 620 : 460,
+        x: finite(event.fromX), y: finite(event.fromY),
+        toX: finite(event.toX), toY: finite(event.toY), color, attackStyle, boss: event.boss, phase: event.phase,
+      });
+      sfx(event.boss ? 82 : 118, 0.12, "sawtooth", 0.035, 45);
+      return;
+    }
     sounds[eventName]?.();
     if (eventName === "skillused" || eventName === "itemdiscarded") return;
     if (eventName === "lootdropped") {
@@ -1395,6 +1456,7 @@
       INVALID_SLOT: "无效的装备部位",
       INVENTORY_FULL: "背包已满",
       ITEM_LEVEL_TOO_HIGH: "等级不足，无法穿戴该装备",
+      SKILL_LOCKED: "角色等级不足，该技能尚未解锁",
     };
     const message = String(first(translated[error.code], error.message, error.error, "中继请求失败"));
     pushEvent(message, true);
@@ -1407,6 +1469,7 @@
       state.joined = false;
       state.pendingJoin = false;
       ui.titleArt.classList.remove("is-hidden");
+      ui.titleArt.hidden = false;
       ui.joinPanel.hidden = false;
       ui.hud.hidden = true;
       ui.joinButton.disabled = false;
@@ -1475,8 +1538,7 @@
 
   function drawWorld(time) {
     ctx.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
-    ctx.fillStyle = "#0b0f13";
-    ctx.fillRect(0, 0, state.viewWidth, state.viewHeight);
+    drawThemeCanvas(time);
 
     drawAtmosphere(time);
     drawTiles(time);
@@ -1487,6 +1549,44 @@
     drawGrading();
     drawMinimap();
     drawCursor(time);
+  }
+
+  function drawThemeCanvas(time) {
+    const local = localPlayer();
+    const theme = local ? biomeAt(local.x, local.y) : state.activeTheme;
+    if (theme !== state.activeTheme) {
+      state.activeTheme = theme;
+      state.themeChangedAt = time;
+    }
+    const key = `${theme}:${state.viewWidth}x${state.viewHeight}`;
+    let layer = state.themeCanvases.get(key);
+    if (!layer) {
+      layer = document.createElement("canvas");
+      layer.width = Math.max(1, Math.floor(state.viewWidth));
+      layer.height = Math.max(1, Math.floor(state.viewHeight));
+      const layerCtx = layer.getContext("2d");
+      const ramp = BIOME_RAMPS[theme] || BIOME_RAMPS.grass;
+      const gradient = layerCtx.createLinearGradient(0, 0, layer.width, layer.height);
+      gradient.addColorStop(0, ramp[0]);
+      gradient.addColorStop(1, ramp[1]);
+      layerCtx.fillStyle = gradient;
+      layerCtx.fillRect(0, 0, layer.width, layer.height);
+      const asset = ZONE_TEXTURE[theme];
+      const image = asset ? zoneTextureImages.get(asset) : null;
+      if (image?.complete && image.naturalWidth) {
+        layerCtx.globalAlpha = 0.28;
+        layerCtx.drawImage(image, 0, 0, layer.width, layer.height);
+      }
+      state.themeCanvases.set(key, layer);
+    }
+    ctx.drawImage(layer, 0, 0, state.viewWidth, state.viewHeight);
+    if (time - state.themeChangedAt < 420) {
+      ctx.save();
+      ctx.globalAlpha = 1 - (time - state.themeChangedAt) / 420;
+      ctx.fillStyle = "#f3e4cf";
+      ctx.fillRect(0, 0, state.viewWidth, state.viewHeight);
+      ctx.restore();
+    }
   }
 
   // Warm pool of light around the player so the hero anchors the frame.
@@ -2103,7 +2203,7 @@
         const noise = tileHash(x, y);
         const worldX = (x + 0.5) * WORLD_CELL;
         const worldY = (y + 0.5) * WORLD_CELL;
-        const biomeKey = biomeAt(worldX, worldY);
+        const biomeKey = state.activeTheme;
         let fill;
         if (biomeKey === "town") {
           // Concentric paving bands around the relay plaza.
@@ -2857,7 +2957,9 @@
     drawHumanoid(key, player, legSwing, time);
     ctx.restore();
 
-    drawEntityLabel(point.x, point.y - 86 + bob, String(first(player.name, "操作员")), player, isSelf ? archetype.accent : "#d7dddb");
+    if (!isSelf) {
+      drawEntityLabel(point.x, point.y - 86 + bob, String(first(player.name, "操作员")), player, "#d7dddb");
+    }
   }
 
   function drawHumanoid(key, player, legSwing, time) {
@@ -3025,6 +3127,7 @@
     const trueSpecies = String(first(enemy.type, "riftling")).toLowerCase();
     const species = RENDER_AS[trueSpecies] || trueSpecies;
     const scale = enemy.boss ? 2.5 : enemy.elite ? 1.65 : 1.3;
+    if (enemy.combatState === "windup") drawEnemyWindup(enemy, point, time);
     ctx.save();
     ctx.translate(point.x, point.y);
     ctx.fillStyle = "rgba(0, 0, 0, 0.48)";
@@ -3088,6 +3191,40 @@
       enemy.boss ? "#ff5f70" : enemy.elite ? "#f0c15e" : "#f18a95",
       enemy.boss ? 96 : 58,
     );
+  }
+
+  function drawEnemyWindup(enemy, point, time) {
+    const target = state.players.get(String(enemy.attackTargetId));
+    if (!target) return;
+    const targetPoint = worldToScreen(target.x, target.y);
+    const total = Math.max(0.1, finite(enemy.attackWindup, 0.6));
+    const charge = 1 - ratio(finite(enemy.attackRemaining, total), total);
+    const colors = {
+      claw: "#ff755f", bite: "#ffb15f", ember: "#ff6b35", spike: "#8fd66f",
+      charge: "#e6d18b", frost: "#86d9ff", slam: "#8fc0c8", lightning: "#b8d7ff", void: "#b875ff",
+    };
+    const color = colors[enemy.attackStyle] || "#ff755f";
+    ctx.save();
+    ctx.globalAlpha = 0.58 + Math.sin(time * 0.025) * 0.18;
+    ctx.strokeStyle = color;
+    ctx.fillStyle = `${color}22`;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 12 + charge * 16;
+    ctx.lineWidth = 2 + charge * 3;
+    ctx.setLineDash([7, 5]);
+    ctx.beginPath();
+    ctx.moveTo(point.x, point.y - 18);
+    ctx.lineTo(targetPoint.x, targetPoint.y - 10);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.ellipse(targetPoint.x, targetPoint.y + 5, 20 + charge * 18, 9 + charge * 8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(point.x, point.y - 18, 9 + charge * 13, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
   }
 
   function drawWarden(time) {
@@ -3373,6 +3510,11 @@
     ctx.fillRect(x - half, y + 2, barWidth, 2);
     ctx.fillStyle = entity.kind === "enemy" ? "#df4658" : "#54cbbd";
     ctx.fillRect(x - half, y + 2, barWidth * ratio(hp, maxHp), 2);
+    if (entity.kind === "enemy" && (entity.boss || entity.elite || String(entity.id) === String(localPlayer()?.targetId))) {
+      ctx.fillStyle = "rgba(218,225,222,.72)";
+      ctx.font = "600 7px ui-monospace, monospace";
+      ctx.fillText(`攻 ${Math.round(finite(entity.damage))}  防 ${Math.round(finite(entity.defense))}  速 ${Math.round(finite(entity.speed))}`, x, y + 13);
+    }
     ctx.restore();
   }
 
@@ -3423,6 +3565,39 @@
     state.effects = state.effects.filter((effect) => time - effect.born < effect.duration);
     for (const effect of state.effects) {
       const progress = clamp((time - effect.born) / effect.duration, 0, 1);
+      if (effect.type === "enemy-attack") {
+        const from = worldToScreen(effect.x, effect.y, 18);
+        const to = worldToScreen(effect.toX, effect.toY, 18);
+        ctx.save();
+        ctx.globalAlpha = Math.sin(progress * Math.PI);
+        ctx.strokeStyle = effect.color;
+        ctx.shadowColor = effect.color;
+        ctx.shadowBlur = 18;
+        ctx.lineWidth = (effect.attackStyle === "slam" ? 14 : effect.attackStyle === "charge" ? 10 : 8) - progress * 5;
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        if (effect.attackStyle === "slam") {
+          ctx.ellipse(to.x, to.y + 8, 12 + progress * 42, 5 + progress * 18, 0, 0, Math.PI * 2);
+        } else if (effect.attackStyle === "void") {
+          ctx.arc(to.x, to.y, 10 + progress * 28, progress * 5, progress * 5 + Math.PI * 1.55);
+        } else {
+          ctx.moveTo(from.x, from.y);
+          const lift = effect.attackStyle === "ember" ? 64 : effect.attackStyle === "bite" ? 22 : 38;
+          ctx.quadraticCurveTo((from.x + to.x) / 2, Math.min(from.y, to.y) - lift, to.x, to.y);
+        }
+        ctx.stroke();
+        ctx.fillStyle = "#fff0d5";
+        ctx.beginPath();
+        ctx.arc(to.x, to.y, 4 + progress * 13, 0, Math.PI * 2);
+        ctx.fill();
+        if (effect.attackStyle === "claw" || effect.attackStyle === "bite") {
+          ctx.globalAlpha *= 0.6;
+          ctx.translate(6, 0);
+          ctx.stroke();
+        }
+        ctx.restore();
+        continue;
+      }
       if (effect.type === "spark") {
         const elapsed = (time - effect.born) / 1000;
         const point = worldToScreen(effect.x + effect.vx * elapsed, effect.y + effect.vy * elapsed, 14 - progress * 20);
@@ -3526,6 +3701,8 @@
       primary: state.pulses.primary,
       q: state.pulses.q,
       e: state.pulses.e,
+      r: state.pulses.r,
+      c: state.pulses.c,
       f: state.pulses.f,
     });
     state.orders.moveTo = undefined;
@@ -3533,6 +3710,8 @@
     state.pulses.primary = false;
     state.pulses.q = false;
     state.pulses.e = false;
+    state.pulses.r = false;
+    state.pulses.c = false;
     state.pulses.f = false;
   }
 
@@ -3549,7 +3728,7 @@
   function triggerAbility(ability) {
     if (!state.joined) return;
     const button = ui.abilities.find((item) => item.dataset.ability === ability);
-    if (button?.classList.contains("is-cooling")) return;
+    if (button?.disabled || button?.classList.contains("is-cooling") || button?.classList.contains("is-locked")) return;
     if (ability === "primary") state.pulses.primary = true;
     else state.pulses[ability] = true;
     if (button) {
@@ -3748,8 +3927,10 @@
     }
     if (!event.repeat && event.code === "KeyQ") triggerAbility("q");
     if (!event.repeat && event.code === "KeyE") triggerAbility("e");
+    if (!event.repeat && event.code === "KeyR") triggerAbility("r");
+    if (!event.repeat && event.code === "KeyC") triggerAbility("c");
     if (!event.repeat && event.code === "KeyF") triggerAbility("f");
-    if (!event.repeat && event.code === "KeyR") {
+    if (!event.repeat && event.code === "KeyV") {
       const local = localPlayer();
       const potion = (local?.inventory || []).find((item) => Number.isFinite(finite(item.heal, NaN)));
       if (potion) send({ type: "use", item: potion.id });

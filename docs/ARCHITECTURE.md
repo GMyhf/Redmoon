@@ -43,7 +43,7 @@ WebSocket 使用 UTF-8 JSON 对象，单条消息上限为 16 KiB。每条命令
 | `type` | 主要字段 | 用途 |
 | --- | --- | --- |
 | `join` | `name`, `archetype` | 创建会话角色 |
-| `input` | `seq`, `move`, `aim`, `moveTo?`, `target?`, `primary`, `q`, `e`, `f` | 提交有序移动与技能意图（`f` 为大招）。`moveTo`（点坐标）下达点击移动指令，`target`（敌人 id）下达锁定自动攻击指令；两者缺省表示保持现有指令，显式 `null` 表示取消，键盘移动会取消所有指令 |
+| `input` | `seq`, `move`, `aim`, `moveTo?`, `target?`, `primary`, `q`, `e`, `r`, `c`, `f` | 提交有序移动与五个技能意图（`f` 为大招）。`moveTo`（点坐标）下达点击移动指令，`target`（敌人 id）下达锁定自动攻击指令；两者缺省表示保持现有指令，显式 `null` 表示取消，键盘移动会取消所有指令 |
 | `allocate` | `stat` | 消耗属性点 |
 | `upgrade` | `skill` | 消耗技能点 |
 | `respawn` | 无 | 请求合法重生 |
@@ -67,6 +67,13 @@ WebSocket 使用 UTF-8 JSON 对象，单条消息上限为 16 KiB。每条命令
 | --- | --- | --- |
 | `welcome` | `protocol`, `id`, `tickRate`, `snapshotRate`, `world`（含 `safeZone`、`portals`）, `rebirthLevel`, `archetypes` | 建立身份并下发初始配置。传送门成对出现：站上任一门约 0.6 秒后传送到配对门旁（步行穿过不触发），落点带 2.5 秒锁避免弹回 |
 | `snapshot` | `tick`, `serverTime`, `selfId`, `world`, `safeZone`, `players`, `enemies`, `projectiles`, `drops` | 可替换的当前世界状态；玩家条目含 `moveTarget`、`targetId`、`rebirths`、`equipment`、`inventory`、`gearStats` |
+| `enemyAttack` | `enemyId`, `playerId`, `fromX/fromY`, `toX/toY`, `damage`, `boss` | 服务端确认近战命中时广播，客户端据此绘制挥击轨迹和命中冲击；伤害仍由世界模拟结算 |
+
+技能槽由服务端定义解锁等级：初始开放普攻、Q、E、F；R 在 5 级、C 在 10 级开放。未解锁技能不出现在操作栏，且无法施放、升级或被自动加点选中。怪物快照提供 `damage`、`defense`、`speed`、`attackStyle`、`combatState` 和攻击前摇剩余时间，用于目标属性展示和持续可见的蓄力反馈。
+
+客户端按当前区域选择独立的主题缓存 Canvas；进入新区时整张可视地面切换到单一主题并淡入，不再将相邻主题拼接在同一画面。世界坐标、实体与权威碰撞不变。商店位于城镇安全区边缘之外，购买仍由服务端距离校验。
+
+怪物采用巡逻、警戒、追击、攻击前摇、命中、脱战状态。每种怪物定义独立射程、前摇、冷却、速度、护甲和攻击类型；无目标时围绕出生点巡逻，追出活动半径后返回警戒逻辑。护甲参与服务器伤害减免，攻击前摇状态随快照广播，避免瞬时事件因帧率或网络节奏不可见。
 | `event` | `event`, `tick`, `serverTime`, 事件载荷 | 短时表现或离散结果 |
 | `error` | `code`, `message`, `requestType?` | 可处理的协议错误 |
 

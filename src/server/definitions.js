@@ -12,15 +12,18 @@ export const REBIRTH_STAT_BONUS = 6;
 export const REBIRTH_HP_BONUS = 0.12;
 export const REBIRTH_DAMAGE_BONUS = 0.15;
 
-// Species ladder: two mob levels per band; later species are bigger,
-// tougher, and worth far more experience.
+// Species own combat profiles; these values drive both simulation stats and
+// client-side attack presentation.
 export const MOB_TYPES = Object.freeze([
-  Object.freeze({ type: "riftling", name: "Riftling", hpMul: 1, xpMul: 1, size: 0, speedMul: 1 }),
-  Object.freeze({ type: "duskfang", name: "Duskfang", hpMul: 1.1, xpMul: 1.1, size: 0, speedMul: 1.05 }),
-  Object.freeze({ type: "ashwing", name: "Ashwing", hpMul: 1.15, xpMul: 1.25, size: 0, speedMul: 1.1 }),
-  Object.freeze({ type: "stonehorn", name: "Stonehorn", hpMul: 1.5, xpMul: 1.6, size: 6, speedMul: 0.85 }),
-  Object.freeze({ type: "scraphulk", name: "Scraphulk", hpMul: 2, xpMul: 2.3, size: 10, speedMul: 0.7 }),
-  Object.freeze({ type: "voidmaw", name: "Voidmaw", hpMul: 2.6, xpMul: 3.2, size: 12, speedMul: 0.8 }),
+  Object.freeze({ type: "riftling", name: "Riftling", hpMul: 1, xpMul: 1, size: 0, speedMul: 1, attack: "claw", defense: 2, range: 44, windup: 0.45, cooldown: 1.25 }),
+  Object.freeze({ type: "duskfang", name: "Duskfang", hpMul: 1.1, xpMul: 1.1, size: 0, speedMul: 1.08, attack: "bite", defense: 3, range: 46, windup: 0.38, cooldown: 1.1 }),
+  Object.freeze({ type: "ashwing", name: "Ashwing", hpMul: 1.15, xpMul: 1.25, size: 0, speedMul: 1.1, attack: "ember", defense: 3, range: 190, windup: 0.7, cooldown: 1.8 }),
+  Object.freeze({ type: "thorncrawler", name: "Thorncrawler", hpMul: 1.3, xpMul: 1.4, size: 3, speedMul: 0.95, attack: "spike", defense: 6, range: 150, windup: 0.65, cooldown: 1.7 }),
+  Object.freeze({ type: "stonehorn", name: "Stonehorn", hpMul: 1.5, xpMul: 1.6, size: 6, speedMul: 0.85, attack: "charge", defense: 8, range: 72, windup: 0.8, cooldown: 2 }),
+  Object.freeze({ type: "frostseer", name: "Frostseer", hpMul: 1.45, xpMul: 1.8, size: 4, speedMul: 0.82, attack: "frost", defense: 7, range: 220, windup: 0.9, cooldown: 2.1 }),
+  Object.freeze({ type: "scraphulk", name: "Scraphulk", hpMul: 2, xpMul: 2.3, size: 10, speedMul: 0.7, attack: "slam", defense: 12, range: 62, windup: 1, cooldown: 2.3 }),
+  Object.freeze({ type: "stormeye", name: "Stormeye", hpMul: 1.7, xpMul: 2.5, size: 7, speedMul: 0.9, attack: "lightning", defense: 9, range: 250, windup: 0.75, cooldown: 2 }),
+  Object.freeze({ type: "voidmaw", name: "Voidmaw", hpMul: 2.6, xpMul: 3.2, size: 12, speedMul: 0.8, attack: "void", defense: 10, range: 210, windup: 1.1, cooldown: 2.5 }),
 ]);
 
 // Item slot types; rings occupy three interchangeable equip keys.
@@ -69,8 +72,8 @@ export const SHOPS = Object.freeze([
   Object.freeze({
     id: "grocer",
     name: "杂货商·芦婆",
-    dx: -90,
-    dy: 62,
+    dx: -310,
+    dy: 95,
     goods: Object.freeze([
       Object.freeze({ key: "potion-s", label: "小修复药剂", gold: 30, heal: 60 }),
       Object.freeze({ key: "potion-l", label: "大修复药剂", gold: 90, heal: 200 }),
@@ -79,8 +82,8 @@ export const SHOPS = Object.freeze([
   Object.freeze({
     id: "smith",
     name: "锻匠·坤铁",
-    dx: 90,
-    dy: 62,
+    dx: 310,
+    dy: 95,
     goods: Object.freeze([
       Object.freeze({ key: "forge-gear", label: "定制装备（随机部位，精制以上）", gold: 120 }),
     ]),
@@ -89,7 +92,7 @@ export const SHOPS = Object.freeze([
     id: "blackmarket",
     name: "黑市商人·影三",
     dx: 0,
-    dy: -95,
+    dy: -315,
     goods: Object.freeze([
       Object.freeze({ key: "relic-box", label: "遗物匣（随机遗物）", dew: 3 }),
     ]),
@@ -221,7 +224,29 @@ export const STAT_KEYS = Object.freeze([
   "vitality",
 ]);
 
-export const SKILL_SLOTS = Object.freeze(["q", "e", "f"]);
+export const SKILL_SLOTS = Object.freeze(["q", "e", "r", "c", "f"]);
+
+const EXTRA_SKILL_NAMES = Object.freeze({
+  vanguard: ["裂阵重斩", "赤钢回旋"], channeler: ["星核坠落", "潮汐跃迁"],
+  strider: ["追风连星", "残影回刃"], bulwark: ["震岳壁击", "守望铁环"],
+  longshot: ["猎隼标记", "折光箭雨"], pyre: ["灼地火柱", "焰影穿行"],
+  eclipse: ["暮光裁决", "双魂轮转"], moonblade: ["银月交叉", "镜花回舞"],
+});
+
+export function skillDefinition(archetype, slot) {
+  const native = ARCHETYPES[archetype]?.skills?.[slot];
+  if (native) return native;
+  const names = EXTRA_SKILL_NAMES[archetype];
+  if (!names || (slot !== "r" && slot !== "c")) return null;
+  return Object.freeze({
+    id: `${archetype}-${slot}-technique`,
+    name: names[slot === "r" ? 0 : 1],
+    description: slot === "r" ? "Concentrate power into a heavy five-point assault." : "Reposition and release a defensive ring.",
+    cooldown: slot === "r" ? 8.5 : 10,
+    maxLevel: 15,
+    unlockLevel: slot === "r" ? 5 : 10,
+  });
+}
 
 export const ARCHETYPES = Object.freeze({
   vanguard: Object.freeze({
@@ -552,11 +577,12 @@ export function publicArchetypes() {
           SKILL_SLOTS.map((slot) => [
             slot,
             {
-              id: archetype.skills[slot].id,
-              name: archetype.skills[slot].name,
-              description: archetype.skills[slot].description,
-              cooldown: archetype.skills[slot].cooldown,
-              maxLevel: archetype.skills[slot].maxLevel,
+              id: skillDefinition(id, slot).id,
+              name: skillDefinition(id, slot).name,
+              description: skillDefinition(id, slot).description,
+              cooldown: skillDefinition(id, slot).cooldown,
+              maxLevel: skillDefinition(id, slot).maxLevel,
+              unlockLevel: skillDefinition(id, slot).unlockLevel ?? 1,
             },
           ]),
         ),

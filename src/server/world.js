@@ -32,6 +32,7 @@ import {
   REBIRTH_LEVEL,
   REBIRTH_STAT_BONUS,
   SKILL_SLOTS,
+  skillDefinition,
   STAT_KEYS,
   TICK_RATE,
   publicArchetypes,
@@ -246,6 +247,9 @@ export class World {
     for (const key of EQUIP_KEYS) {
       if (player.equipment[key] === undefined) player.equipment[key] = null;
     }
+    for (const slot of SKILL_SLOTS) {
+      if (!Number.isFinite(player.skillLevels?.[slot])) player.skillLevels[slot] = 1;
+    }
     this._refreshGear(player);
   }
 
@@ -359,6 +363,8 @@ export class World {
       primary: input.primary === true,
       q: input.q === true,
       e: input.e === true,
+      r: input.r === true,
+      c: input.c === true,
       f: input.f === true,
     };
 
@@ -408,13 +414,16 @@ export class World {
     const player = this._requirePlayer(id);
     const slot = resolveSkillSlot(player.archetype, requestedSkill);
     if (!slot) {
-      throw new WorldError("INVALID_SKILL", "skill must be q, e, or one of this archetype's skill ids.");
+      throw new WorldError("INVALID_SKILL", "skill must be q, e, r, c, f, or one of this archetype's skill ids.");
     }
     if (player.skillPoints <= 0) {
       throw new WorldError("NO_SKILL_POINTS", "No unspent skill points are available.");
     }
 
-    const definition = ARCHETYPES[player.archetype].skills[slot];
+    const definition = skillDefinition(player.archetype, slot);
+    if (player.level < (definition.unlockLevel ?? 1)) {
+      throw new WorldError("SKILL_LOCKED", `${definition.name} unlocks at level ${definition.unlockLevel}.`);
+    }
     if (player.skillLevels[slot] >= definition.maxLevel) {
       throw new WorldError("SKILL_MAX_LEVEL", `${definition.name} is already at maximum level.`);
     }
@@ -599,7 +608,8 @@ export class World {
     let skillsSpent = 0;
     while (player.skillPoints > 0) {
       const openSlots = SKILL_SLOTS.filter(
-        (slot) => player.skillLevels[slot] < ARCHETYPES[player.archetype].skills[slot].maxLevel,
+        (slot) => player.level >= (skillDefinition(player.archetype, slot).unlockLevel ?? 1)
+          && player.skillLevels[slot] < skillDefinition(player.archetype, slot).maxLevel,
       );
       if (openSlots.length === 0) break;
       const slot = openSlots.sort((a, b) => player.skillLevels[a] - player.skillLevels[b])[0];
@@ -893,6 +903,14 @@ export class World {
       level: mob.level,
       elite: mob.elite === true,
       boss: mob.boss === true,
+      damage: round(mob.damage),
+      speed: round(mob.speed),
+      defense: mob.defense,
+      attackStyle: mob.attackStyle,
+      combatState: mob.attackTargetId ? "windup" : mob.aggroTargetId ? "chasing" : "patrolling",
+      attackTargetId: mob.attackTargetId,
+      attackRemaining: round(Math.max(0, mob.attackResolveAt - this.time)),
+      attackWindup: mob.attackWindup,
       alive: true,
     }));
 
@@ -958,8 +976,8 @@ export class World {
       : clamp(this._levelForPoint(point) + Math.floor(roll * 2), 1, MAX_MOB_LEVEL);
     const level = Math.max(1, nonNegativeInteger(overrides.level, rolledLevel));
     const elite = overrides.elite ?? (overrides.level === undefined && this.rng() < ELITE_CHANCE);
-    const band = Math.min(MOB_TYPES.length - 1, Math.floor((level - 1) / 3));
-    const species = MOB_TYPES[band];
+    const band = Math.min(MOB_TYPES.length - 1, Math.floor((level - 1) / 2));
+    const species = MOB_TYPES.find((entry) => entry.type === overrides.type) ?? MOB_TYPES[band];
     const power = elite ? 1.6 : 1;
     const maxHp = positiveNumber(
       overrides.maxHp,
@@ -980,8 +998,21 @@ export class World {
       maxHp,
       speed: positiveNumber(overrides.speed, (70 + level * 3) * species.speedMul),
       damage: positiveNumber(overrides.damage, (5 + level * 2.5) * power),
+      defense: nonNegativeInteger(overrides.defense, species.defense + Math.floor(level * 0.8)),
+      attackStyle: overrides.attackStyle ?? species.attack,
+      attackRange: positiveNumber(overrides.attackRange, species.range),
+      attackWindup: positiveNumber(overrides.attackWindup, species.windup),
+      attackCooldown: positiveNumber(overrides.attackCooldown, species.cooldown),
       xp: positiveNumber(overrides.xp, Math.round((22 + level * 9) * (elite ? 2 : 1) * species.xpMul)),
       nextAttackAt: this.time,
+      homeX: clamp(point.x, MOB_RADIUS, this.width - MOB_RADIUS),
+      homeY: clamp(point.y, MOB_RADIUS, this.height - MOB_RADIUS),
+      patrolX: null,
+      patrolY: null,
+      nextPatrolAt: this.time + this.rng() * 2,
+      aggroTargetId: null,
+      attackTargetId: null,
+      attackResolveAt: 0,
     };
     if (this.mobs.has(mob.id)) {
       throw new WorldError("DUPLICATE_ENTITY", `A mob with id ${mob.id} already exists.`);
@@ -1062,6 +1093,8 @@ export class World {
       if (player.input.primary) this._usePrimary(player, aim);
       if (player.input.q) this._useSkill(player, "q", aim);
       if (player.input.e) this._useSkill(player, "e", aim);
+      if (player.input.r) this._useSkill(player, "r", aim);
+      if (player.input.c) this._useSkill(player, "c", aim);
       if (player.input.f) this._useSkill(player, "f", aim);
     }
   }
@@ -1111,22 +1144,78 @@ export class World {
 
   _updateMobs(dt) {
     for (const mob of [...this.mobs.values()]) {
-      const target = this._nearestLivingPlayer(mob, mob.boss ? 460 : 300);
-      if (!target || this._inSafeZone(target)) continue;
+      let target = mob.aggroTargetId ? this.players.get(mob.aggroTargetId) : null;
+      if (!target?.alive || this._inSafeZone(target)
+        || Math.hypot(target.x - mob.homeX, target.y - mob.homeY) > (mob.boss ? 780 : 520)) {
+        target = this._nearestLivingPlayer(mob, mob.boss ? 520 : 340);
+        mob.aggroTargetId = target?.id ?? null;
+      }
+
+      if (mob.attackTargetId) {
+        const attackTarget = this.players.get(mob.attackTargetId);
+        if (this.time < mob.attackResolveAt) continue;
+        mob.attackTargetId = null;
+        if (attackTarget?.alive && !this._inSafeZone(attackTarget)
+          && Math.hypot(attackTarget.x - mob.x, attackTarget.y - mob.y) <= mob.attackRange + attackTarget.radius + 28) {
+          this._emit("enemyAttack", {
+            enemyId: mob.id, playerId: attackTarget.id,
+            fromX: round(mob.x), fromY: round(mob.y),
+            toX: round(attackTarget.x), toY: round(attackTarget.y),
+            damage: round(mob.damage), boss: mob.boss,
+            attackStyle: mob.attackStyle, enemyType: mob.type, phase: "impact",
+          });
+          this._damagePlayer(attackTarget, mob.damage, mob.id);
+        }
+        continue;
+      }
+
+      if (target && this._inSafeZone(target)) continue;
+      if (!target) {
+        this._patrolMob(mob, dt);
+        continue;
+      }
 
       const dx = target.x - mob.x;
       const dy = target.y - mob.y;
       const distance = Math.hypot(dx, dy);
-      const contactDistance = target.radius + mob.radius + 5;
-      if (distance > contactDistance) {
-        const travel = Math.min(mob.speed * dt, Math.max(0, distance - contactDistance));
+      const attackDistance = target.radius + mob.radius + mob.attackRange;
+      if (distance > attackDistance) {
+        const travel = Math.min(mob.speed * dt, Math.max(0, distance - attackDistance));
         mob.x += (dx / distance) * travel;
         mob.y += (dy / distance) * travel;
       } else if (this.time >= mob.nextAttackAt) {
-        mob.nextAttackAt = this.time + 1.15;
-        this._damagePlayer(target, mob.damage, mob.id);
+        mob.nextAttackAt = this.time + mob.attackCooldown;
+        mob.attackTargetId = target.id;
+        mob.attackResolveAt = this.time + mob.attackWindup;
+        this._emit("enemyAttack", {
+          enemyId: mob.id, playerId: target.id,
+          fromX: round(mob.x), fromY: round(mob.y),
+          toX: round(target.x), toY: round(target.y),
+          damage: round(mob.damage), boss: mob.boss,
+          attackStyle: mob.attackStyle, enemyType: mob.type,
+          phase: "windup", duration: mob.attackWindup,
+        });
       }
     }
+  }
+
+  _patrolMob(mob, dt) {
+    if (mob.boss) return;
+    if (mob.patrolX === null || this.time >= mob.nextPatrolAt
+      || Math.hypot(mob.patrolX - mob.x, mob.patrolY - mob.y) < 8) {
+      const angle = this.rng() * Math.PI * 2;
+      const distance = 45 + this.rng() * 105;
+      mob.patrolX = clamp(mob.homeX + Math.cos(angle) * distance, MOB_RADIUS, this.width - MOB_RADIUS);
+      mob.patrolY = clamp(mob.homeY + Math.sin(angle) * distance, MOB_RADIUS, this.height - MOB_RADIUS);
+      mob.nextPatrolAt = this.time + 2.5 + this.rng() * 4;
+    }
+    const dx = mob.patrolX - mob.x;
+    const dy = mob.patrolY - mob.y;
+    const distance = Math.hypot(dx, dy);
+    if (distance < 1) return;
+    const travel = Math.min(mob.speed * 0.34 * dt, distance);
+    mob.x += (dx / distance) * travel;
+    mob.y += (dy / distance) * travel;
   }
 
   _updateProjectiles(dt) {
@@ -1180,12 +1269,26 @@ export class World {
   _useSkill(player, slot, direction) {
     if (this.time < player.nextSkillAt[slot]) return;
     const archetype = ARCHETYPES[player.archetype];
-    const skill = archetype.skills[slot];
+    const skill = skillDefinition(player.archetype, slot);
+    if (player.level < (skill.unlockLevel ?? 1)) return;
     const level = player.skillLevels[slot];
     const cooldownReduction = 1 - Math.min(0.4, (level - 1) * 0.05);
     player.nextSkillAt[slot] = this.time + skill.cooldown * cooldownReduction;
 
-    if (player.archetype === "eclipse") {
+    if (slot === "r") {
+      for (const angle of [-0.26, -0.13, 0, 0.13, 0.26]) {
+        this._spawnProjectile(player, rotate(direction, angle), {
+          damage: 18 + level * 7 + (this._statTotal(player, "power") + this._statTotal(player, "spirit")) * 0.9,
+          speed: 690, range: 470, radius: 8, color: archetype.color,
+        });
+      }
+    } else if (slot === "c") {
+      this._movePlayer(player, direction, 90 + level * 8);
+      this._radialBurst(player, 8, {
+        damage: 12 + level * 5 + this._statTotal(player, "agility") * 1.2,
+        speed: 500, range: 170 + level * 9, radius: 8, color: archetype.color,
+      });
+    } else if (player.archetype === "eclipse") {
       this._useEclipseSkill(player, slot, direction, level);
     } else if (slot === "f") {
       this._useUltimate(player, direction, level, archetype);
@@ -1564,7 +1667,8 @@ export class World {
 
   _damageMob(mob, damage, ownerId) {
     if (!this.mobs.has(mob.id)) return;
-    mob.hp -= Math.max(0, damage);
+    const mitigation = Math.min(0.55, mob.defense / (mob.defense + 80));
+    mob.hp -= Math.max(1, damage * (1 - mitigation));
     if (mob.hp > 0) return;
 
     this.mobs.delete(mob.id);
@@ -1732,7 +1836,7 @@ export class World {
   _serializePlayer(player) {
     const archetype = ARCHETYPES[player.archetype];
     const skills = Object.fromEntries(SKILL_SLOTS.map((slot) => {
-      const definition = archetype.skills[slot];
+      const definition = skillDefinition(player.archetype, slot);
       return [slot, {
         id: definition.id,
         name: definition.name,
@@ -1740,6 +1844,8 @@ export class World {
         maxLevel: definition.maxLevel,
         cooldown: definition.cooldown,
         remaining: round(Math.max(0, player.nextSkillAt[slot] - this.time)),
+        unlockLevel: definition.unlockLevel ?? 1,
+        unlocked: player.level >= (definition.unlockLevel ?? 1),
       }];
     }));
     return {
@@ -2284,13 +2390,15 @@ function emptyInput() {
     primary: false,
     q: false,
     e: false,
+    r: false,
+    c: false,
     f: false,
   };
 }
 
 function resolveSkillSlot(archetype, requestedSkill) {
   if (SKILL_SLOTS.includes(requestedSkill)) return requestedSkill;
-  return SKILL_SLOTS.find((slot) => ARCHETYPES[archetype].skills[slot].id === requestedSkill) ?? null;
+  return SKILL_SLOTS.find((slot) => skillDefinition(archetype, slot).id === requestedSkill) ?? null;
 }
 
 function optionalFinitePoint(value) {

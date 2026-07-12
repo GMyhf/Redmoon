@@ -103,7 +103,8 @@ test("piercing projectiles cannot damage the same enemy more than once", () => {
   });
   for (let index = 0; index < 12; index += 1) world.update(0.05);
 
-  const expectedDamage = 27 + 9 + player.stats.spirit * 2.25;
+  const rawDamage = 27 + 9 + player.stats.spirit * 2.25;
+  const expectedDamage = rawDamage * (1 - enemy.defense / (enemy.defense + 80));
   assert.equal(enemy.hp, 1_000 - expectedDamage);
 });
 
@@ -118,7 +119,7 @@ test("a defeated player observes the respawn delay and can return at full health
     damage: 10_000,
   });
 
-  world.update(0.05);
+  world.update(0.7);
   assert.equal(player.alive, false);
   assert.throws(
     () => world.respawnPlayer(player.id),
@@ -145,7 +146,7 @@ test("a click-to-move order walks the player to the destination and stops", () =
   // Manual keyboard movement cancels any standing order.
   world.handleCommand("player-1", { type: "input", seq: 2, moveTo: destination });
   world.handleCommand("player-1", { type: "input", seq: 3, move: { x: 0, y: 1 } });
-  world.update(0.05);
+  world.update(0.7);
   assert.equal(player.moveTarget, null);
 });
 
@@ -347,19 +348,27 @@ test("items carry a level requirement that gates equipping", () => {
   assert.equal(player.equipment.helm.id, relic.id);
 });
 
-test("all seven heroes can join and fire all three of their skills", () => {
+test("heroes begin with four actions and unlock two more skills by level", () => {
   const heroes = ["vanguard", "channeler", "strider", "bulwark", "longshot", "pyre", "moonblade"];
   const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
   heroes.forEach((archetype, index) => {
     const id = `hero-${index}`;
     const player = world.addPlayer(id, { archetype });
     assert.equal(player.archetype, archetype);
-    assert.deepEqual(Object.keys(player.skillLevels).sort(), ["e", "f", "q"]);
+    assert.deepEqual(Object.keys(player.skillLevels).sort(), ["c", "e", "f", "q", "r"]);
+    assert.throws(
+      () => world.handleCommand(id, { type: "upgrade", skill: "r" }),
+      (error) => error instanceof WorldError && error.code === "SKILL_LOCKED",
+    );
+    world._grantXp(player, 20_000);
+    assert.ok(player.level >= 10);
     world.setInput(id, {
       seq: 1,
       aim: { x: player.x + 100, y: player.y },
       q: true,
       e: true,
+      r: true,
+      c: true,
       f: true,
     });
   });
@@ -370,6 +379,32 @@ test("all seven heroes can join and fire all three of their skills", () => {
   // Ultimates go on cooldown independently of Q/E.
   const first = world.players.get("hero-0");
   assert.ok(first.nextSkillAt.f > world.time + 5, "ultimate cooldown must be long");
+});
+
+test("monster snapshots expose combat attributes and attacks identify their effect", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, safeZoneRadius: 0 });
+  const player = world.addPlayer("player-1", { archetype: "vanguard" });
+  const enemy = world.spawnMob({ x: player.x + 20, y: player.y, type: "stonehorn", level: 7, speed: 80 });
+  world.update(0.05);
+  const serialized = world.getSnapshot().enemies.find((entry) => entry.id === enemy.id);
+  assert.ok(serialized.damage > 0);
+  assert.ok(serialized.defense > 0);
+  assert.equal(serialized.attackStyle, "charge");
+  assert.equal(serialized.combatState, "windup");
+  assert.ok(serialized.attackRemaining > 0);
+  const attack = world.drainEvents().find((event) => event.event === "enemyAttack");
+  assert.equal(attack.attackStyle, "charge");
+  assert.equal(attack.enemyType, "stonehorn");
+});
+
+test("idle monsters patrol around their spawn and use species combat profiles", () => {
+  const world = new World({ rng: () => 0.25, spawnMobs: false, mobTargetCount: 0, safeZoneRadius: 0 });
+  const enemy = world.spawnMob({ x: 200, y: 200, type: "stormeye", level: 15 });
+  const start = { x: enemy.x, y: enemy.y };
+  for (let index = 0; index < 80; index += 1) world.update(0.05);
+  assert.ok(Math.hypot(enemy.x - start.x, enemy.y - start.y) > 5);
+  assert.equal(enemy.attackStyle, "lightning");
+  assert.ok(enemy.attackRange >= 200);
 });
 
 test("autoEquip dresses the strongest eligible item in every slot", () => {
@@ -681,7 +716,7 @@ test("kills pay gold, dew revives in place, and shops trade goods", () => {
   // Dew revive: die, then rise on the spot at full health.
   player.dew = 1;
   world.spawnMob({ id: "brute", x: player.x + player.radius + 14, y: player.y, speed: 0.001, damage: 100000 });
-  world.update(0.05);
+  world.update(0.7);
   assert.equal(player.alive, false);
   world.handleCommand("player-1", { type: "revive" });
   assert.equal(player.alive, true);
