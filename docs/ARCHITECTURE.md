@@ -115,7 +115,7 @@ WebSocket 使用 UTF-8 JSON 对象，单条消息上限为 16 KiB。每条命令
 
 ### 3. Godot 原生客户端
 
-版本化 schema（`src/server/protocol.js`）与协议一致性测试已完成；Godot 客户端位于 `clients/godot`：等距渲染（与浏览器同投影公式）、美术资源经 HTTP 从服务器复用、会话令牌、无头烟测模式，覆盖 连接/入场/快照渲染/输入/离开 全链路；下一步充实 Godot macOS/Linux 客户端。浏览器仍是快速试玩入口。高频快照成为瓶颈后，可在不改变玩法语义的前提下引入二进制编码、增量快照、插值与客户端预测。
+版本化 schema（`src/server/protocol.js`）与协议一致性测试已完成；Godot 客户端位于 `clients/godot`：等距渲染（与浏览器同投影公式）、美术资源经 HTTP 从服务器复用、会话令牌、无头烟测模式，覆盖 连接/入场/快照渲染/输入/离开 全链路；下一步充实 Godot macOS/Linux 客户端。浏览器仍是快速试玩入口。快照二进制编码已实现（`src/server/codec.js`，join 以 `codec: "binary1"` 按连接协商，实体数组紧凑打包、世界元数据与本人条目内嵌 JSON，实测约为 JSON 体积的 1/3；浏览器客户端继续使用 JSON）。后续可按需引入增量快照。
 
 ### 4. 长线玩法
 

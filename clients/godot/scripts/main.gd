@@ -3,20 +3,21 @@ extends Node2D
 #
 # Server state is authoritative; this client renders snapshots and forwards
 # intents. The isometric projection matches the browser client
-# (sx = wx - wy, sy = (wx + wy) / 2), and art is reused straight from the
-# game server over HTTP (/assets/... WebP files) — one source of truth, no
-# copied files. Until a texture arrives, entities fall back to primitive
-# shapes, mirroring the browser's progressive loading.
-# The protocol contract lives in src/server/protocol.js.
+# (sx = wx - wy, sy = (wx + wy) / 2), art streams over HTTP from the game
+# server (WebP), and snapshots arrive as binary1 frames (negotiated via the
+# join codec field; see src/server/codec.js for the layout). The protocol
+# contract lives in src/server/protocol.js.
 
 const SERVER_URL := "ws://127.0.0.1:3000/ws"
 const CLIENT_PROTOCOL := 2
+const SNAPSHOT_CODEC := "binary1"
 const INPUT_INTERVAL := 0.05          # 20 Hz, same as the browser client
 const LERP_RATE := 14.0               # snapshot smoothing, ~browser feel
 const RECONNECT_DELAY := 3.0
 const TOKEN_FILE := "user://session.cfg"
 const HERO_SIZE := Vector2(58, 84)    # browser world-sprite footprint
 const GROUND_REPEAT := 512.0          # texture repeat in world units
+const BINARY_MAGIC := 0xB1
 
 # theme -> terrain texture asset (mirrors ZONE_TEXTURE in public/data.js;
 # themes without a texture render the flat base colour only).
@@ -40,6 +41,17 @@ const RARITY_COLORS := {
 	"relic": Color(0.92, 0.78, 0.35),
 }
 
+# One body colour per species; the silhouettes live in _draw_enemy.
+const SPECIES_COLORS := {
+	"riftling": Color(0.74, 0.3, 0.35), "duskfang": Color(0.56, 0.36, 0.3),
+	"ashwing": Color(0.62, 0.46, 0.4), "thorncrawler": Color(0.46, 0.52, 0.34),
+	"stonehorn": Color(0.56, 0.5, 0.44), "frostseer": Color(0.52, 0.66, 0.8),
+	"scraphulk": Color(0.52, 0.42, 0.3), "stormeye": Color(0.56, 0.52, 0.76),
+	"voidmaw": Color(0.42, 0.3, 0.52),
+}
+
+const SKILL_SLOTS := [["primary", "M1"], ["q", "Q"], ["e", "E"], ["r", "R"], ["c", "C"], ["f", "F"]]
+
 var socket := WebSocketPeer.new()
 var socket_active := false
 var reconnect_timer := 0.0
@@ -51,6 +63,7 @@ var portals: Array = []
 var map_name := ""
 var map_theme := "town"
 var online_count := 0
+var archetype_meta := {}              # welcome archetypes (primary skill names)
 
 # Entity stores: id -> { pos: Vector2 (smoothed), target: Vector2, data: Dictionary }
 var players := {}
@@ -66,6 +79,7 @@ var pulses := {"primary": false, "q": false, "e": false, "r": false, "c": false,
 var textures := {}                    # url path -> Texture2D (absent = not requested, null = loading)
 var camera := Camera2D.new()
 var ui := {}
+var bag_signature := ""
 var smoke_timer := -1.0               # CRIMSON_SMOKE=<seconds>: headless verification run
 
 # ---- Isometric projection (matches public/client.js) --------------------
@@ -99,22 +113,7 @@ func _process(delta: float) -> void:
 	if smoke_timer > 0.0:
 		smoke_timer -= delta
 		if smoke_timer <= 0.0:
-			var me = players.get(self_id)
-			var loaded := PackedStringArray()
-			for path in textures:
-				var texture = textures[path]
-				if texture != null:
-					loaded.append("%s %dx%d" % [path.get_file(), texture.get_width(), texture.get_height()])
-			print("smoke: joined=%s players=%d enemies=%d drops=%d online=%d pos=%s" % [
-				str(joined), players.size(), enemies.size(), drops.size(), online_count,
-				str(me.pos.round()) if me else "n/a",
-			])
-			print("smoke textures: [%s]" % ", ".join(loaded))
-			var probe := iso(Vector2(123, 456))
-			print("smoke iso roundtrip ok=%s ring=%d" % [
-				str(from_iso(probe).distance_to(Vector2(123, 456)) < 0.001),
-				_iso_ring(Vector2(100, 100), 50).size(),
-			])
+			_print_smoke_summary()
 			get_tree().quit()
 			return
 	_poll_socket(delta)
@@ -127,6 +126,24 @@ func _process(delta: float) -> void:
 			_update_hud(me.data)
 	queue_redraw()
 
+func _print_smoke_summary() -> void:
+	var me = players.get(self_id)
+	var loaded := PackedStringArray()
+	for path in textures:
+		var texture = textures[path]
+		if texture != null:
+			loaded.append("%s %dx%d" % [path.get_file(), texture.get_width(), texture.get_height()])
+	print("smoke: joined=%s players=%d enemies=%d drops=%d online=%d pos=%s" % [
+		str(joined), players.size(), enemies.size(), drops.size(), online_count,
+		str(me.pos.round()) if me else "n/a",
+	])
+	print("smoke textures: [%s]" % ", ".join(loaded))
+	var probe := iso(Vector2(123, 456))
+	print("smoke iso roundtrip ok=%s ring=%d" % [
+		str(from_iso(probe).distance_to(Vector2(123, 456)) < 0.001),
+		_iso_ring(Vector2(100, 100), 50).size(),
+	])
+
 func _poll_socket(delta: float) -> void:
 	if not socket_active:
 		reconnect_timer -= delta
@@ -138,9 +155,15 @@ func _poll_socket(delta: float) -> void:
 	match socket.get_ready_state():
 		WebSocketPeer.STATE_OPEN:
 			while socket.get_available_packet_count() > 0:
-				var parsed = JSON.parse_string(socket.get_packet().get_string_from_utf8())
-				if parsed is Dictionary:
-					_handle_message(parsed)
+				var packet := socket.get_packet()
+				if socket.was_string_packet():
+					var parsed = JSON.parse_string(packet.get_string_from_utf8())
+					if parsed is Dictionary:
+						_handle_message(parsed)
+				else:
+					var snapshot := _decode_binary_snapshot(packet)
+					if not snapshot.is_empty():
+						_apply_snapshot(snapshot)
 		WebSocketPeer.STATE_CLOSED:
 			socket_active = false
 			reconnect_timer = RECONNECT_DELAY
@@ -152,6 +175,129 @@ func _poll_socket(delta: float) -> void:
 func _send(message: Dictionary) -> void:
 	if socket_active and socket.get_ready_state() == WebSocketPeer.STATE_OPEN:
 		socket.send_text(JSON.stringify(message))
+
+# ---- Binary snapshot decoding (mirror of src/server/codec.js) -----------
+
+func _read_str(buffer: StreamPeerBuffer) -> String:
+	var length := buffer.get_u16()
+	if length == 0:
+		return ""
+	return buffer.get_data(length)[1].get_string_from_utf8()
+
+func _decode_binary_snapshot(bytes: PackedByteArray) -> Dictionary:
+	var buffer := StreamPeerBuffer.new()
+	buffer.data_array = bytes
+	buffer.big_endian = false
+	if buffer.get_u8() != BINARY_MAGIC:
+		return {}
+	var meta_length := buffer.get_u32()
+	var meta = JSON.parse_string(buffer.get_data(meta_length)[1].get_string_from_utf8())
+	if not (meta is Dictionary):
+		return {}
+
+	var player_list := []
+	if meta.get("self") is Dictionary:
+		player_list.append(meta["self"])
+	for _index in buffer.get_u16():
+		var player := {
+			"id": _read_str(buffer), "name": _read_str(buffer),
+			"archetype": _read_str(buffer), "color": _read_str(buffer),
+			"attunement": _read_str(buffer),
+		}
+		var target_id := _read_str(buffer)
+		player["targetId"] = target_id if target_id != "" else null
+		player["running"] = buffer.get_u8() == 1
+		player["alive"] = buffer.get_u8() == 1
+		player["x"] = buffer.get_float()
+		player["y"] = buffer.get_float()
+		player["facing"] = {"x": buffer.get_float(), "y": buffer.get_float()}
+		player["hp"] = buffer.get_float()
+		player["maxHp"] = buffer.get_float()
+		player["mp"] = buffer.get_float()
+		player["maxMp"] = buffer.get_float()
+		player["respawnIn"] = buffer.get_float()
+		player["moveSpeed"] = buffer.get_float()
+		player["reputation"] = buffer.get_32()
+		player["will"] = buffer.get_u32()
+		player["radius"] = buffer.get_u16()
+		player["rebirths"] = buffer.get_u16()
+		player["level"] = buffer.get_u16()
+		var equipment := {}
+		for _piece in buffer.get_u8():
+			var key := _read_str(buffer)
+			var item := {"name": _read_str(buffer), "rarity": _read_str(buffer)}
+			var drop_class := _read_str(buffer)
+			if drop_class != "":
+				item["dropClass"] = drop_class
+			item["level"] = buffer.get_u16()
+			equipment[key] = item
+		player["equipment"] = equipment
+		player_list.append(player)
+
+	var enemy_list := []
+	for _index in buffer.get_u16():
+		var enemy := {
+			"id": _read_str(buffer), "type": _read_str(buffer), "name": _read_str(buffer),
+			"attackStyle": _read_str(buffer), "combatState": _read_str(buffer),
+		}
+		var attack_target := _read_str(buffer)
+		enemy["attackTargetId"] = attack_target if attack_target != "" else null
+		var flags := buffer.get_u8()
+		enemy["elite"] = (flags & 1) != 0
+		enemy["boss"] = (flags & 2) != 0
+		enemy["alive"] = (flags & 4) != 0
+		enemy["x"] = buffer.get_float()
+		enemy["y"] = buffer.get_float()
+		enemy["hp"] = buffer.get_float()
+		enemy["maxHp"] = buffer.get_float()
+		enemy["damage"] = buffer.get_float()
+		enemy["speed"] = buffer.get_float()
+		enemy["attackRemaining"] = buffer.get_float()
+		enemy["attackWindup"] = buffer.get_float()
+		enemy["radius"] = buffer.get_u16()
+		enemy["level"] = buffer.get_u16()
+		enemy["defense"] = buffer.get_u16()
+		enemy_list.append(enemy)
+
+	var projectile_list := []
+	for _index in buffer.get_u16():
+		var projectile := {
+			"id": _read_str(buffer), "ownerId": _read_str(buffer),
+			"team": _read_str(buffer), "color": _read_str(buffer),
+		}
+		projectile["x"] = buffer.get_float()
+		projectile["y"] = buffer.get_float()
+		projectile["fromX"] = buffer.get_float()
+		projectile["fromY"] = buffer.get_float()
+		projectile["radius"] = buffer.get_u16()
+		projectile_list.append(projectile)
+
+	var drop_list := []
+	for _index in buffer.get_u16():
+		var drop := {
+			"id": _read_str(buffer), "slot": _read_str(buffer), "rarity": _read_str(buffer),
+		}
+		var drop_class := _read_str(buffer)
+		drop["dropClass"] = drop_class if drop_class != "" else null
+		drop["name"] = _read_str(buffer)
+		drop["x"] = buffer.get_float()
+		drop["y"] = buffer.get_float()
+		drop_list.append(drop)
+
+	return {
+		"type": "snapshot",
+		"tick": meta.get("tick", 0),
+		"serverTime": meta.get("serverTime", 0),
+		"selfId": meta.get("selfId", ""),
+		"mapId": meta.get("mapId", ""),
+		"online": meta.get("online", 0),
+		"world": meta.get("world", {}),
+		"safeZone": meta.get("safeZone"),
+		"players": player_list,
+		"enemies": enemy_list,
+		"projectiles": projectile_list,
+		"drops": drop_list,
+	}
 
 # ---- Protocol ----------------------------------------------------------
 
@@ -165,10 +311,11 @@ func _handle_message(message: Dictionary) -> void:
 			var world: Dictionary = message.get("world", {})
 			world_size = Vector2(float(world.get("width", 4800)), float(world.get("height", 2700)))
 			_apply_world(world)
-			_fill_archetypes(message.get("archetypes", {}))
+			archetype_meta = message.get("archetypes", {})
+			_fill_archetypes(archetype_meta)
 			_render_roster(message.get("roster", []))
 			_set_status("已连接，选择角色进入")
-			print("welcome: protocol v%d, %d archetypes" % [server_protocol, message.get("archetypes", {}).size()])
+			print("welcome: protocol v%d, %d archetypes" % [server_protocol, archetype_meta.size()])
 			# Debug affordance for headless runs and CI: auto-join on connect.
 			var autojoin := OS.get_environment("CRIMSON_AUTOJOIN")
 			if autojoin != "" and not joined:
@@ -198,6 +345,7 @@ func _join() -> void:
 	var message := {
 		"type": "join",
 		"protocol": CLIENT_PROTOCOL,
+		"codec": SNAPSHOT_CODEC,
 		"name": player_name,
 		"archetype": archetype,
 	}
@@ -232,6 +380,7 @@ func _apply_snapshot(snapshot: Dictionary) -> void:
 		joined = true
 		ui.join_panel.visible = false
 		ui.hud.visible = true
+		ui.skill_bar.visible = true
 		var me = players[self_id]
 		me.pos = me.target
 		camera.position = iso(me.pos)
@@ -331,6 +480,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_R: pulses.r = true
 			KEY_C: pulses.c = true
 			KEY_F: pulses.f = true
+			KEY_B: _toggle_bag()
 			KEY_ESCAPE: _leave()
 
 # ---- Art fetched from the game server -----------------------------------
@@ -434,6 +584,11 @@ func _draw_zone_markers() -> void:
 func _draw_shadow(at: Vector2, size: float) -> void:
 	draw_colored_polygon(_iso_ring(from_iso(at), size, 20), Color(0, 0, 0, 0.28))
 
+func _draw_ellipse(centre: Vector2, rx: float, ry: float, color: Color) -> void:
+	draw_set_transform(centre, 0.0, Vector2(1.0, ry / rx))
+	draw_circle(Vector2.ZERO, rx, color)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
 func _draw_drop(drop: Dictionary) -> void:
 	var p := iso(drop.pos)
 	var rarity := str(drop.data.get("rarity", "common"))
@@ -447,15 +602,77 @@ func _draw_drop(drop: Dictionary) -> void:
 	])
 	draw_colored_polygon(diamond, color)
 
+# Nine species, nine silhouettes built from primitives — a readable
+# miniature of the browser's bestiary, not a copy of it.
 func _draw_enemy(enemy: Dictionary) -> void:
 	var p := iso(enemy.pos)
-	var radius := float(enemy.data.get("radius", 16))
-	var body := Color(0.55, 0.15, 0.2) if bool(enemy.data.get("boss", false)) else Color(0.75, 0.28, 0.32)
-	if bool(enemy.data.get("elite", false)):
-		body = Color(0.85, 0.5, 0.2)
+	var data: Dictionary = enemy.data
+	var species := str(data.get("type", "riftling"))
+	var radius := float(data.get("radius", 16))
+	var body: Color = SPECIES_COLORS.get(species, Color(0.7, 0.3, 0.34))
+	if bool(data.get("elite", false)):
+		body = body.lightened(0.18)
 	_draw_shadow(p, radius)
-	draw_circle(p - Vector2(0, radius * 0.7), radius, body)
-	_draw_health_bar(p - Vector2(0, radius * 1.7 + 10), enemy.data)
+	var bc := p - Vector2(0, radius * 0.7)
+	match species:
+		"duskfang":
+			_draw_ellipse(bc + Vector2(0, radius * 0.2), radius * 1.25, radius * 0.7, body)
+			for side in [-1, 1]:
+				draw_colored_polygon(PackedVector2Array([
+					bc + Vector2(side * radius * 0.5, -radius * 0.4),
+					bc + Vector2(side * radius * 0.9, -radius * 1.1),
+					bc + Vector2(side * radius * 0.2, -radius * 0.6),
+				]), body.darkened(0.2))
+		"ashwing":
+			bc -= Vector2(0, radius * 0.8)
+			for side in [-1, 1]:
+				draw_colored_polygon(PackedVector2Array([
+					bc, bc + Vector2(side * radius * 1.6, -radius * 0.7), bc + Vector2(side * radius * 0.7, radius * 0.3),
+				]), body.darkened(0.15))
+			draw_circle(bc, radius * 0.6, body)
+		"thorncrawler":
+			_draw_ellipse(bc + Vector2(0, radius * 0.25), radius * 1.35, radius * 0.65, body)
+			for spike in range(-2, 3):
+				draw_line(bc + Vector2(spike * radius * 0.4, 0),
+					bc + Vector2(spike * radius * 0.5, -radius * 0.9), body.darkened(0.25), 2.0)
+		"stonehorn":
+			draw_circle(bc, radius, body)
+			for side in [-1, 1]:
+				draw_line(bc + Vector2(side * radius * 0.5, -radius * 0.5),
+					bc + Vector2(side * radius * 1.1, -radius * 1.3), Color(0.85, 0.82, 0.75), 3.0)
+		"frostseer":
+			draw_colored_polygon(PackedVector2Array([
+				bc + Vector2(0, -radius * 1.1), bc + Vector2(radius * 0.8, 0),
+				bc + Vector2(0, radius * 0.9), bc + Vector2(-radius * 0.8, 0),
+			]), body)
+			draw_arc(bc, radius * 1.2, 0, TAU, 24, Color(0.7, 0.9, 1.0, 0.5), 1.5)
+		"scraphulk":
+			draw_rect(Rect2(bc - Vector2(radius, radius * 0.9), Vector2(radius * 2, radius * 1.6)), body, true)
+			draw_rect(Rect2(bc - Vector2(radius * 0.45, radius * 1.5), Vector2(radius * 0.9, radius * 0.7)), body.darkened(0.2), true)
+		"stormeye":
+			bc -= Vector2(0, radius * 0.9)
+			draw_circle(bc, radius * 0.9, body)
+			draw_circle(bc, radius * 0.45, Color(0.95, 0.95, 1.0))
+			draw_circle(bc, radius * 0.2, Color(0.2, 0.2, 0.4))
+		"voidmaw":
+			draw_arc(bc, radius, 0, TAU, 28, body.lightened(0.3), 3.0)
+			draw_circle(bc, radius * 0.75, Color(0.1, 0.06, 0.14))
+		_:
+			# riftling and unknown species: spiked orb
+			draw_circle(bc, radius * 0.9, body)
+			for spike in 5:
+				var angle := -PI * 0.15 - spike * PI * 0.18
+				draw_line(bc, bc + Vector2(cos(angle), sin(angle)) * radius * 1.3, body.darkened(0.2), 2.0)
+	if bool(data.get("boss", false)):
+		draw_polyline(_iso_ring(enemy.pos, radius + 14, 32), Color(0.9, 0.2, 0.25, 0.6), 2.0)
+	elif bool(data.get("elite", false)):
+		draw_polyline(_iso_ring(enemy.pos, radius + 8, 24), Color(0.95, 0.8, 0.3, 0.6), 1.5)
+	# Windup telegraph: the arc closes as the strike lands.
+	if str(data.get("combatState", "")) == "windup":
+		var windup := maxf(0.05, float(data.get("attackWindup", 0.5)))
+		var progress := 1.0 - clampf(float(data.get("attackRemaining", 0)) / windup, 0.0, 1.0)
+		draw_arc(bc, radius + 6, -PI / 2, -PI / 2 + TAU * progress, 24, Color(1, 0.35, 0.3, 0.85), 2.5)
+	_draw_health_bar(p - Vector2(0, radius * 1.7 + 10), data)
 
 func _draw_player(player: Dictionary) -> void:
 	var p := iso(player.pos)
@@ -505,11 +722,15 @@ func _draw_health_bar(at: Vector2, data: Dictionary) -> void:
 func _build_ui() -> void:
 	var layer := CanvasLayer.new()
 	add_child(layer)
+	var root := Control.new()
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(root)
 
 	var panel := PanelContainer.new()
 	panel.set_anchors_preset(Control.PRESET_CENTER)
 	panel.custom_minimum_size = Vector2(360, 0)
-	layer.add_child(panel)
+	root.add_child(panel)
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 10)
 	panel.add_child(box)
@@ -545,14 +766,61 @@ func _build_ui() -> void:
 	var hud := Label.new()
 	hud.position = Vector2(16, 12)
 	hud.visible = false
-	layer.add_child(hud)
+	root.add_child(hud)
 
 	var leave_button := Button.new()
 	leave_button.text = "返回主画面 (Esc)"
 	leave_button.position = Vector2(16, 60)
 	leave_button.visible = false
 	leave_button.pressed.connect(_leave)
-	layer.add_child(leave_button)
+	root.add_child(leave_button)
+
+	var bag_button := Button.new()
+	bag_button.text = "背包 (B)"
+	bag_button.position = Vector2(170, 60)
+	bag_button.visible = false
+	bag_button.pressed.connect(_toggle_bag)
+	root.add_child(bag_button)
+
+	# Skill bar, bottom centre: one button per slot with level/cooldown.
+	var skill_bar := HBoxContainer.new()
+	skill_bar.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	skill_bar.offset_top = -86.0
+	skill_bar.offset_bottom = -16.0
+	skill_bar.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	skill_bar.add_theme_constant_override("separation", 6)
+	skill_bar.visible = false
+	root.add_child(skill_bar)
+	var skill_buttons := {}
+	for pair in SKILL_SLOTS:
+		var slot: String = pair[0]
+		var button := Button.new()
+		button.custom_minimum_size = Vector2(88, 64)
+		button.text = pair[1]
+		button.pressed.connect(func() -> void: pulses[slot] = true)
+		skill_bar.add_child(button)
+		skill_buttons[slot] = button
+
+	# Bag panel, right side: item rows rebuilt when the bag changes.
+	var bag_panel := PanelContainer.new()
+	bag_panel.set_anchors_preset(Control.PRESET_CENTER_RIGHT)
+	bag_panel.offset_left = -330.0
+	bag_panel.offset_right = -14.0
+	bag_panel.offset_top = -240.0
+	bag_panel.offset_bottom = 240.0
+	bag_panel.visible = false
+	root.add_child(bag_panel)
+	var bag_box := VBoxContainer.new()
+	bag_panel.add_child(bag_box)
+	var bag_title := Label.new()
+	bag_title.text = "背包"
+	bag_box.add_child(bag_title)
+	var bag_scroll := ScrollContainer.new()
+	bag_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	bag_box.add_child(bag_scroll)
+	var bag_list := VBoxContainer.new()
+	bag_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bag_scroll.add_child(bag_list)
 
 	ui = {
 		"join_panel": panel,
@@ -562,7 +830,17 @@ func _build_ui() -> void:
 		"roster": roster,
 		"hud": hud,
 		"leave_button": leave_button,
+		"bag_button": bag_button,
+		"skill_bar": skill_bar,
+		"skill_buttons": skill_buttons,
+		"bag_panel": bag_panel,
+		"bag_title": bag_title,
+		"bag_list": bag_list,
 	}
+
+func _toggle_bag() -> void:
+	ui.bag_panel.visible = not ui.bag_panel.visible
+	bag_signature = ""
 
 func _fill_archetypes(archetypes: Dictionary) -> void:
 	if archetypes.is_empty():
@@ -584,22 +862,91 @@ func _render_roster(entries: Array) -> void:
 	ui.roster.text = "在线：无人" if lines.is_empty() else "在线：\n" + "\n".join(lines)
 
 func _update_hud(data: Dictionary) -> void:
-	ui.hud.text = "%s  L%d  HP %d/%d  金币 %d  %s  在线 %d" % [
+	var inventory: Array = data.get("inventory", [])
+	ui.hud.text = "%s  L%d  HP %d/%d  MP %d/%d  金币 %d  背包 %d  %s  在线 %d" % [
 		str(data.get("name", "")), int(data.get("level", 1)),
 		int(data.get("hp", 0)), int(data.get("maxHp", 1)),
-		int(data.get("gold", 0)), map_name, online_count,
+		int(data.get("mp", 0)), int(data.get("maxMp", 1)),
+		int(data.get("gold", 0)), inventory.size(), map_name, online_count,
 	]
 	ui.hud.visible = true
 	ui.leave_button.visible = true
+	ui.bag_button.visible = true
+	_update_skill_bar(data)
+	if ui.bag_panel.visible:
+		_update_bag(data)
+
+func _update_skill_bar(data: Dictionary) -> void:
+	var skills: Dictionary = data.get("skills", {})
+	var hero: Dictionary = archetype_meta.get(str(data.get("archetype", "")), {})
+	for pair in SKILL_SLOTS:
+		var slot: String = pair[0]
+		var button: Button = ui.skill_buttons[slot]
+		if slot == "primary":
+			var primary: Dictionary = hero.get("primary", {})
+			button.text = "M1\n%s" % str(primary.get("name", "普攻"))
+			continue
+		var skill = skills.get(slot)
+		if not (skill is Dictionary):
+			button.text = pair[1]
+			continue
+		var unlocked := bool(skill.get("unlocked", true))
+		var remaining := float(skill.get("remaining", 0))
+		var line := "%s Lv%d" % [str(skill.get("name", "")), int(skill.get("level", 0))]
+		if not unlocked:
+			line = "%s (L%d解锁)" % [str(skill.get("name", "")), int(skill.get("unlockLevel", 1))]
+		elif remaining > 0.05:
+			line += "  %.1fs" % remaining
+		button.text = "%s\n%s" % [pair[1], line]
+		button.disabled = not unlocked
+		button.modulate = Color(1, 1, 1, 0.55) if remaining > 0.05 else Color.WHITE
+
+func _update_bag(data: Dictionary) -> void:
+	var inventory: Array = data.get("inventory", [])
+	var signature := ""
+	for item in inventory:
+		signature += str(item.get("id", "")) + ","
+	if signature == bag_signature:
+		return
+	bag_signature = signature
+	ui.bag_title.text = "背包 %d" % inventory.size()
+	for child in ui.bag_list.get_children():
+		child.queue_free()
+	for item in inventory:
+		if not (item is Dictionary):
+			continue
+		var row := HBoxContainer.new()
+		var label := Label.new()
+		var rarity := str(item.get("rarity", "common"))
+		label.text = "%s L%d" % [str(item.get("name", "?")), int(item.get("level", 1))]
+		label.modulate = RARITY_COLORS.get(rarity, Color.WHITE)
+		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(label)
+		var item_id := str(item.get("id", ""))
+		var is_potion := item.get("heal") != null
+		var action := Button.new()
+		action.text = "用" if is_potion else "装"
+		action.pressed.connect(func() -> void:
+			_send({"type": "use" if is_potion else "equip", "item": item_id}))
+		row.add_child(action)
+		var sell := Button.new()
+		sell.text = "卖"
+		sell.pressed.connect(func() -> void: _send({"type": "sell", "item": item_id}))
+		row.add_child(sell)
+		ui.bag_list.add_child(row)
 
 func _show_lobby(message: String) -> void:
 	joined = false
 	self_id = ""
+	bag_signature = ""
 	for store in [players, enemies, drops, projectiles]:
 		store.clear()
 	ui.join_panel.visible = true
 	ui.hud.visible = false
 	ui.leave_button.visible = false
+	ui.bag_button.visible = false
+	ui.skill_bar.visible = false
+	ui.bag_panel.visible = false
 	if message != "":
 		_set_status(message)
 

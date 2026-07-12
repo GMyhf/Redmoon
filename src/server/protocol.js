@@ -262,7 +262,7 @@ export const PROTOCOL = Object.freeze({
   // `start`→`join`, `upgradeSkill`→`upgrade`, and accepts all-lowercase
   // spellings of camelCase names.
   clientMessages: {
-    join: { name: "string?", archetype: "string?", token: "string?", protocol: "number?" },
+    join: { name: "string?", archetype: "string?", token: "string?", protocol: "number?", codec: "string?" },
     input: {
       seq: "number?",
       move: { $optional: POINT },

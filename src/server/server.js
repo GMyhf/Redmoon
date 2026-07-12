@@ -15,6 +15,7 @@ import {
   TICK_RATE,
   publicArchetypes,
 } from "./definitions.js";
+import { BINARY_CODEC, encodeSnapshotBinary } from "./codec.js";
 import { World, WorldError } from "./world.js";
 
 const DEFAULT_PUBLIC_DIR = fileURLToPath(new URL("../../public/", import.meta.url));
@@ -192,7 +193,7 @@ export class GameServer {
           const sharedCache = new Map();
           for (const socket of this.wss.clients) {
             if (socket.readyState !== WebSocket.OPEN || !this.world.players.has(socket.playerId)) continue;
-            send(socket, this.world.getSnapshot(socket.playerId, sharedCache));
+            this._sendSnapshot(socket, this.world.getSnapshot(socket.playerId, sharedCache));
           }
         }
         // Lobby sockets (connected, not joined) get a light roster once a
@@ -273,10 +274,13 @@ export class GameServer {
       try {
         const result = this.world.handleCommand(socket.playerId, message);
         if (message.type === "join" || message.type === "start") {
+          // Binary snapshots are opt-in per connection; everything else
+          // stays JSON regardless of codec.
+          socket.codec = message.codec === BINARY_CODEC ? BINARY_CODEC : null;
           if (result?.token) {
             send(socket, { type: "session", token: result.token, name: result.name });
           }
-          send(socket, this.world.getSnapshot(socket.playerId));
+          this._sendSnapshot(socket, this.world.getSnapshot(socket.playerId));
         } else if (message.type === "leave") {
           // Same flush guarantee as a disconnect, plus an immediate roster
           // so the character screen fills without waiting for the timer.
@@ -305,6 +309,14 @@ export class GameServer {
     socket.on("error", () => {
       // A close event follows; command errors are sent through the protocol.
     });
+  }
+
+  _sendSnapshot(socket, snapshot) {
+    if (socket.codec === BINARY_CODEC) {
+      if (socket.readyState === WebSocket.OPEN) socket.send(encodeSnapshotBinary(snapshot));
+      return;
+    }
+    send(socket, snapshot);
   }
 
   _takeRateToken(socket) {

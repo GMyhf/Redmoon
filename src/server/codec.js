@@ -1,0 +1,359 @@
+// Optional binary snapshot codec ("binary1"), negotiated per connection via
+// the join message's `codec` field. High-frequency entity arrays are packed
+// as little-endian binary; low-frequency or deeply nested parts (world
+// metadata, the recipient's own full entry) ride as an embedded JSON block.
+// Everything other than snapshots stays JSON regardless of codec.
+//
+// Frame layout (little-endian):
+//   u8   magic 0xB1 (codec version tag)
+//   u32  jsonLength, then jsonLength bytes of UTF-8 JSON:
+//        { tick, serverTime, selfId, mapId, online, world, safeZone, self }
+//        (`self` is the recipient's full player entry, or null)
+//   u16  playerCount, then per public player (recipient excluded):
+//        str id, name, archetype, color, attunement, targetId ("" = null)
+//        u8  running, alive
+//        f32 x, y, facingX, facingY, hp, maxHp, mp, maxMp, respawnIn, moveSpeed
+//        i32 reputation; u32 will
+//        u16 radius, rebirths, level
+//        u8  equipCount, then per equipped piece:
+//            str key, name, rarity, dropClass ("" = none); u16 level
+//        (soul-barrier detail is omitted in binary1)
+//   u16  enemyCount, then per enemy:
+//        str id, type, name, attackStyle, combatState, attackTargetId ("" = null)
+//        u8  flags (bit0 elite, bit1 boss, bit2 alive)
+//        f32 x, y, hp, maxHp, damage, speed, attackRemaining, attackWindup
+//        u16 radius, level, defense
+//   u16  projectileCount, then per projectile:
+//        str id, ownerId, team, color
+//        f32 x, y, fromX, fromY; u16 radius
+//   u16  dropCount, then per drop:
+//        str id, slot, rarity, dropClass ("" = null), name
+//        f32 x, y
+// str = u16 byte length + UTF-8 bytes.
+
+export const BINARY_CODEC = "binary1";
+const MAGIC = 0xb1;
+
+class Writer {
+  constructor() {
+    this.chunks = [];
+    this.length = 0;
+  }
+
+  _push(buffer) {
+    this.chunks.push(buffer);
+    this.length += buffer.length;
+  }
+
+  u8(value) {
+    this._push(Buffer.from([value & 0xff]));
+  }
+
+  u16(value) {
+    const buffer = Buffer.allocUnsafe(2);
+    buffer.writeUInt16LE(value & 0xffff, 0);
+    this._push(buffer);
+  }
+
+  u32(value) {
+    const buffer = Buffer.allocUnsafe(4);
+    buffer.writeUInt32LE(value >>> 0, 0);
+    this._push(buffer);
+  }
+
+  i32(value) {
+    const buffer = Buffer.allocUnsafe(4);
+    buffer.writeInt32LE(value | 0, 0);
+    this._push(buffer);
+  }
+
+  f32(value) {
+    const buffer = Buffer.allocUnsafe(4);
+    buffer.writeFloatLE(Number(value) || 0, 0);
+    this._push(buffer);
+  }
+
+  str(value) {
+    const bytes = Buffer.from(String(value ?? ""), "utf8");
+    this.u16(bytes.length);
+    this._push(bytes);
+  }
+
+  toBuffer() {
+    return Buffer.concat(this.chunks, this.length);
+  }
+}
+
+export function encodeSnapshotBinary(snapshot) {
+  const writer = new Writer();
+  writer.u8(MAGIC);
+
+  const selfEntry = snapshot.players.find((entry) => entry.id === snapshot.selfId) ?? null;
+  const meta = JSON.stringify({
+    tick: snapshot.tick,
+    serverTime: snapshot.serverTime,
+    selfId: snapshot.selfId,
+    mapId: snapshot.mapId,
+    online: snapshot.online,
+    world: snapshot.world,
+    safeZone: snapshot.safeZone,
+    self: selfEntry,
+  });
+  const metaBytes = Buffer.from(meta, "utf8");
+  writer.u32(metaBytes.length);
+  writer._push(metaBytes);
+
+  const publicPlayers = snapshot.players.filter((entry) => entry.id !== snapshot.selfId);
+  writer.u16(publicPlayers.length);
+  for (const player of publicPlayers) {
+    writer.str(player.id);
+    writer.str(player.name);
+    writer.str(player.archetype);
+    writer.str(player.color);
+    writer.str(player.attunement);
+    writer.str(player.targetId ?? "");
+    writer.u8(player.running ? 1 : 0);
+    writer.u8(player.alive ? 1 : 0);
+    writer.f32(player.x);
+    writer.f32(player.y);
+    writer.f32(player.facing.x);
+    writer.f32(player.facing.y);
+    writer.f32(player.hp);
+    writer.f32(player.maxHp);
+    writer.f32(player.mp);
+    writer.f32(player.maxMp);
+    writer.f32(player.respawnIn);
+    writer.f32(player.moveSpeed);
+    writer.i32(player.reputation);
+    writer.u32(player.will);
+    writer.u16(player.radius);
+    writer.u16(player.rebirths);
+    writer.u16(player.level);
+    const equipped = Object.entries(player.equipment ?? {}).filter(([, item]) => item);
+    writer.u8(equipped.length);
+    for (const [key, item] of equipped) {
+      writer.str(key);
+      writer.str(item.name);
+      writer.str(item.rarity);
+      writer.str(item.dropClass ?? "");
+      writer.u16(item.level ?? 1);
+    }
+  }
+
+  writer.u16(snapshot.enemies.length);
+  for (const enemy of snapshot.enemies) {
+    writer.str(enemy.id);
+    writer.str(enemy.type);
+    writer.str(enemy.name);
+    writer.str(enemy.attackStyle);
+    writer.str(enemy.combatState);
+    writer.str(enemy.attackTargetId ?? "");
+    writer.u8((enemy.elite ? 1 : 0) | (enemy.boss ? 2 : 0) | (enemy.alive ? 4 : 0));
+    writer.f32(enemy.x);
+    writer.f32(enemy.y);
+    writer.f32(enemy.hp);
+    writer.f32(enemy.maxHp);
+    writer.f32(enemy.damage);
+    writer.f32(enemy.speed);
+    writer.f32(enemy.attackRemaining);
+    writer.f32(enemy.attackWindup);
+    writer.u16(enemy.radius);
+    writer.u16(enemy.level);
+    writer.u16(enemy.defense);
+  }
+
+  writer.u16(snapshot.projectiles.length);
+  for (const projectile of snapshot.projectiles) {
+    writer.str(projectile.id);
+    writer.str(projectile.ownerId);
+    writer.str(projectile.team);
+    writer.str(projectile.color);
+    writer.f32(projectile.x);
+    writer.f32(projectile.y);
+    writer.f32(projectile.fromX);
+    writer.f32(projectile.fromY);
+    writer.u16(projectile.radius);
+  }
+
+  writer.u16(snapshot.drops.length);
+  for (const drop of snapshot.drops) {
+    writer.str(drop.id);
+    writer.str(drop.slot);
+    writer.str(drop.rarity);
+    writer.str(drop.dropClass ?? "");
+    writer.str(drop.name);
+    writer.f32(drop.x);
+    writer.f32(drop.y);
+  }
+
+  return writer.toBuffer();
+}
+
+// Reference decoder. The Godot client implements the same layout in
+// GDScript; this mirror keeps the format executable and testable in JS.
+class Reader {
+  constructor(buffer) {
+    this.buffer = buffer;
+    this.offset = 0;
+  }
+
+  u8() {
+    return this.buffer.readUInt8(this.offset++);
+  }
+
+  u16() {
+    const value = this.buffer.readUInt16LE(this.offset);
+    this.offset += 2;
+    return value;
+  }
+
+  u32() {
+    const value = this.buffer.readUInt32LE(this.offset);
+    this.offset += 4;
+    return value;
+  }
+
+  i32() {
+    const value = this.buffer.readInt32LE(this.offset);
+    this.offset += 4;
+    return value;
+  }
+
+  f32() {
+    const value = this.buffer.readFloatLE(this.offset);
+    this.offset += 4;
+    // Round to keep float32 round-trips readable in comparisons.
+    return Math.round(value * 1000) / 1000;
+  }
+
+  str() {
+    const length = this.u16();
+    const value = this.buffer.toString("utf8", this.offset, this.offset + length);
+    this.offset += length;
+    return value;
+  }
+}
+
+export function decodeSnapshotBinary(buffer) {
+  const reader = new Reader(buffer);
+  if (reader.u8() !== MAGIC) throw new Error("not a binary1 snapshot frame");
+  const metaLength = reader.u32();
+  const meta = JSON.parse(reader.buffer.toString("utf8", reader.offset, reader.offset + metaLength));
+  reader.offset += metaLength;
+
+  const players = [];
+  if (meta.self) players.push(meta.self);
+  const playerCount = reader.u16();
+  for (let index = 0; index < playerCount; index += 1) {
+    const player = {
+      id: reader.str(),
+      name: reader.str(),
+      archetype: reader.str(),
+      color: reader.str(),
+      attunement: reader.str(),
+      targetId: reader.str() || null,
+      running: reader.u8() === 1,
+      alive: reader.u8() === 1,
+      x: reader.f32(),
+      y: reader.f32(),
+      facing: { x: reader.f32(), y: reader.f32() },
+      hp: reader.f32(),
+      maxHp: reader.f32(),
+      mp: reader.f32(),
+      maxMp: reader.f32(),
+      respawnIn: reader.f32(),
+      moveSpeed: reader.f32(),
+      reputation: reader.i32(),
+      will: reader.u32(),
+      radius: reader.u16(),
+      rebirths: reader.u16(),
+      level: reader.u16(),
+      equipment: {},
+    };
+    const equipCount = reader.u8();
+    for (let piece = 0; piece < equipCount; piece += 1) {
+      const key = reader.str();
+      player.equipment[key] = {
+        name: reader.str(),
+        rarity: reader.str(),
+        dropClass: reader.str() || undefined,
+        level: reader.u16(),
+      };
+    }
+    players.push(player);
+  }
+
+  const enemies = [];
+  const enemyCount = reader.u16();
+  for (let index = 0; index < enemyCount; index += 1) {
+    const enemy = {
+      id: reader.str(),
+      type: reader.str(),
+      name: reader.str(),
+      attackStyle: reader.str(),
+      combatState: reader.str(),
+      attackTargetId: reader.str() || null,
+    };
+    const flags = reader.u8();
+    enemy.elite = (flags & 1) !== 0;
+    enemy.boss = (flags & 2) !== 0;
+    enemy.alive = (flags & 4) !== 0;
+    enemy.x = reader.f32();
+    enemy.y = reader.f32();
+    enemy.hp = reader.f32();
+    enemy.maxHp = reader.f32();
+    enemy.damage = reader.f32();
+    enemy.speed = reader.f32();
+    enemy.attackRemaining = reader.f32();
+    enemy.attackWindup = reader.f32();
+    enemy.radius = reader.u16();
+    enemy.level = reader.u16();
+    enemy.defense = reader.u16();
+    enemies.push(enemy);
+  }
+
+  const projectiles = [];
+  const projectileCount = reader.u16();
+  for (let index = 0; index < projectileCount; index += 1) {
+    projectiles.push({
+      id: reader.str(),
+      ownerId: reader.str(),
+      team: reader.str(),
+      color: reader.str(),
+      x: reader.f32(),
+      y: reader.f32(),
+      fromX: reader.f32(),
+      fromY: reader.f32(),
+      radius: reader.u16(),
+    });
+  }
+
+  const drops = [];
+  const dropCount = reader.u16();
+  for (let index = 0; index < dropCount; index += 1) {
+    drops.push({
+      id: reader.str(),
+      slot: reader.str(),
+      rarity: reader.str(),
+      dropClass: reader.str() || null,
+      name: reader.str(),
+      x: reader.f32(),
+      y: reader.f32(),
+    });
+  }
+
+  return {
+    type: "snapshot",
+    tick: meta.tick,
+    serverTime: meta.serverTime,
+    selfId: meta.selfId,
+    mapId: meta.mapId,
+    online: meta.online,
+    world: meta.world,
+    safeZone: meta.safeZone,
+    players,
+    enemies,
+    projectiles,
+    drops,
+  };
+}
