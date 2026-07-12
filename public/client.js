@@ -2965,11 +2965,8 @@
 
     ctx.translate(0, bob - 12);
     ctx.scale(flip ? -1 : 1, 1);
-    const portraitDrawn = drawHeroPortrait(key, player, time);
-    if (!portraitDrawn) {
-      ctx.scale(1.6, 1.6);
-      drawHumanoid(key, player, legSwing, time);
-    }
+    ctx.scale(1.6, 1.6);
+    drawHumanoid(key, player, legSwing, time);
     ctx.restore();
 
     if (!isSelf) {
@@ -3861,7 +3858,7 @@
 
     const portrait = document.createElement("img");
     portrait.className = "hero-detail-portrait";
-    portrait.src = `/assets/heroes/${id}.png`;
+    portrait.src = `/assets/heroes/${HERO_SPRITES[id] || `${id}.png`}?v=5`;
     portrait.alt = hero.label;
 
     const info = document.createElement("div");
