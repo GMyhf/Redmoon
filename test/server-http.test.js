@@ -24,6 +24,12 @@ test("HTTP serves the client and health status", async (t) => {
   assert.equal(healthBody.players, 0);
   assert.equal(healthBody.enemies, 1);
   assert.ok(Number.isSafeInteger(healthBody.tick));
+  assert.deepEqual(healthBody.persistence, {
+    enabled: false,
+    ok: true,
+    lastSavedAt: null,
+    lastErrorAt: null,
+  });
 
   const index = await fetch(`http://127.0.0.1:${port}/`);
   assert.equal(index.status, 200);

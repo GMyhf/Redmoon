@@ -110,6 +110,7 @@ var pending_move_to = null            # Vector2 set by a ground click
 var pulses := {"primary": false, "q": false, "e": false, "r": false, "c": false, "f": false}
 
 var textures := {}                    # url path -> Texture2D (absent = not requested, null = loading)
+var texture_retry_at := {}            # url path -> next retry time after a failed request
 var camera := Camera2D.new()
 var ui := {}
 var shops: Array = []
@@ -655,8 +656,13 @@ func _http_base() -> String:
 # Returns the texture for a server asset path, or null while it downloads.
 func _server_texture(path: String) -> Texture2D:
 	if textures.has(path):
-		return textures[path]
+		var cached = textures[path]
+		if cached != null:
+			return cached
+		if Time.get_ticks_msec() < int(texture_retry_at.get(path, 0)):
+			return null
 	textures[path] = null
+	texture_retry_at[path] = Time.get_ticks_msec() + 5000
 	var request := HTTPRequest.new()
 	add_child(request)
 	request.request_completed.connect(func(_result: int, code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
@@ -664,6 +670,7 @@ func _server_texture(path: String) -> Texture2D:
 			var image := Image.new()
 			if image.load_webp_from_buffer(body) == OK:
 				textures[path] = ImageTexture.create_from_image(image)
+				texture_retry_at.erase(path)
 		request.queue_free()
 	)
 	if request.request(_http_base() + path) != OK:

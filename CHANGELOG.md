@@ -2,6 +2,13 @@
 
 本文件记录 CRIMSON RELAY 每轮迭代的玩法与架构改进。协议层面的字段变化见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
+## 2026-07-13 · 持久化部署与客户端检查完善
+
+- systemd 使用 `StateDirectory=crimson-relay` 和 `/var/lib/crimson-relay/accounts.json`，账号存档不再尝试写入受保护的项目目录。
+- `/health` 增加账号持久化启用、最近成功保存和最近失败时间，便于发现存档写入故障。
+- README、架构文档和开发说明统一为“战斗状态内存、账号进度 JSON 持久化”，补充 `npm run check:godot`。
+- Godot HTTP 资源加载失败后支持延迟重试，不会永久停留在失败缓存状态。
+
 ## 2026-07-12 · Godot 客户端精致化：加色发光、UI 主题与实体动态
 
 - **加色发光层**（新 `glow.gd`，`BLEND_MODE_ADD`）：角色光池、传送门光柱、信标光束、路灯光晕、投射物光晕、特殊掉落光柱、环境光尘、命中火花全部迁入——发光终于"发光"而不是平涂半透明，对应浏览器的 `lighter` 合成模式。

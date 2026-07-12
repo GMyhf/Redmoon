@@ -6,11 +6,13 @@ Wants=network-online.target
 [Service]
 Type=simple
 DynamicUser=yes
+StateDirectory=crimson-relay
 WorkingDirectory=/opt/crimson-relay
 ExecStart=/usr/bin/node /opt/crimson-relay/src/server/server.js
 Environment=NODE_ENV=production
 Environment=HOST=127.0.0.1
 Environment=PORT=8080
+Environment=PERSIST_PATH=/var/lib/crimson-relay/accounts.json
 EnvironmentFile=-/etc/crimson-relay.env
 Restart=on-failure
 RestartSec=3s

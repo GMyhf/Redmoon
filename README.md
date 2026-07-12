@@ -42,7 +42,9 @@ HOST=0.0.0.0 PORT=3000 npm start
 
 操作：左键点击地面移动（可按住拖动），左键点击敌人锁定并自动攻击，右键朝准星方向手动攻击（空格亦可），`WASD`/方向键手动移动（会取消点击指令），`Q`/`E` 使用技能。属性、技能升级、重生和转生（10 级解锁，重置等级换取永久强化）使用界面按钮。
 
-这是架构验证版本：世界状态保存在内存中，服务重启后不会保留角色进度。
+世界战斗状态保存在内存中；账号进度默认保存到 `data/accounts.json`，可通过
+`PERSIST_PATH` 改为其他路径或设置为空串禁用。生产 systemd 部署使用独立的
+`/var/lib/crimson-relay/accounts.json` 状态文件。
 
 ## 常用命令
 
@@ -51,6 +53,7 @@ npm start       # 启动服务器
 npm run dev     # 文件变更后自动重启
 npm test        # 运行测试
 npm run check   # 检查服务器与浏览器脚本语法
+npm run check:godot  # 需要 Godot 4.3+，检查原生客户端项目
 ```
 
 代码分为 `src/server/`（Linux 服务端）、`public/`（浏览器客户端）、`test/`（自动化测试）和 `deploy/`（部署样例）。协议与演进方案见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，历次改进见 [CHANGELOG.md](CHANGELOG.md)。
@@ -68,7 +71,10 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now crimson-relay
 ```
 
-端口和监听地址可通过 `/etc/crimson-relay.env` 覆盖，例如 `HOST=127.0.0.1`、`PORT=8080`。服务使用临时动态用户且不写项目目录；未来持久化数据应放入 PostgreSQL 或显式配置的 systemd 状态目录。
+端口和监听地址可通过 `/etc/crimson-relay.env` 覆盖，例如 `HOST=127.0.0.1`、`PORT=8080`。
+服务使用临时动态用户，账号存档由 systemd `StateDirectory` 放在
+`/var/lib/crimson-relay/accounts.json`，不写项目目录。健康检查还会报告最近一次
+持久化是否成功。当前 JSON 存档适合原型和单实例部署，后续再迁移到 PostgreSQL。
 
 ## 路线图
 

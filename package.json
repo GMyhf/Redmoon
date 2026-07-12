@@ -11,7 +11,8 @@
     "start": "node src/server/server.js",
     "dev": "node --watch src/server/server.js",
     "test": "node --test --test-concurrency=2",
-    "check": "node --check src/server/server.js && node --check src/server/definitions.js && node --check src/server/world.js && node --check public/client.js"
+    "check": "node --check src/server/server.js && node --check src/server/definitions.js && node --check src/server/world.js && node --check public/client.js",
+    "check:godot": "godot --headless --path clients/godot --editor --quit"
   },
   "dependencies": {
     "ws": "8.21.0"

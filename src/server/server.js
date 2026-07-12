@@ -60,6 +60,8 @@ export class GameServer {
     this.world = options.world ?? new World({ ...options.worldOptions, accountStore });
     this._persistTimer = null;
     this._savePromise = Promise.resolve();
+    this._lastPersistError = null;
+    this._lastPersistAt = null;
     this.httpServer = createHttpServer((request, response) => {
       this._handleHttp(request, response).catch((error) => {
         console.error("HTTP request failed", error);
@@ -128,7 +130,13 @@ export class GameServer {
     if (!this.persistPath) return;
     // Serialize writers so the timer, disconnect flushes, and close cannot
     // interleave on the same temp file.
-    this._savePromise = this._savePromise.catch(() => {}).then(() => this._writeAccounts());
+    this._savePromise = this._savePromise.catch(() => {}).then(() => this._writeAccounts()).catch((error) => {
+      this._lastPersistError = {
+        message: error instanceof Error ? error.message : String(error),
+        at: new Date().toISOString(),
+      };
+      throw error;
+    });
     return this._savePromise;
   }
 
@@ -143,6 +151,8 @@ export class GameServer {
       await copyFile(this.persistPath, `${this.persistPath}.bak`);
     }
     await rename(tempPath, this.persistPath);
+    this._lastPersistError = null;
+    this._lastPersistAt = new Date().toISOString();
   }
 
   address() {
@@ -361,6 +371,12 @@ export class GameServer {
         tick: this.world.tick,
         players: this.world.players.size,
         enemies: this.world.mobs.size,
+        persistence: {
+          enabled: Boolean(this.persistPath),
+          ok: !this.persistPath || !this._lastPersistError,
+          lastSavedAt: this._lastPersistAt,
+          lastErrorAt: this._lastPersistError?.at ?? null,
+        },
       }, method === "HEAD");
       return;
     }

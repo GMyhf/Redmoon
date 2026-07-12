@@ -70,3 +70,19 @@ test("closing the server flushes accounts to disk", async (t) => {
   await server.close();
   assert.equal(JSON.parse(readFileSync(persistPath, "utf8")).alpha.gold, 42);
 });
+
+test("a persistence failure is visible to health diagnostics", async (t) => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "crimson-accounts-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const blockedParent = path.join(dir, "blocked");
+  writeFileSync(blockedParent, "not a directory", "utf8");
+  const server = new GameServer({
+    persistPath: path.join(blockedParent, "accounts.json"),
+    worldOptions,
+  });
+
+  await assert.rejects(server._saveAccounts());
+  assert.equal(server._lastPersistError !== null, true);
+  assert.equal(typeof server._lastPersistError.at, "string");
+  assert.equal(server._lastPersistAt, null);
+});
