@@ -141,6 +141,48 @@ test("the gateway rejects out-of-order, unknown, binary, and oversized traffic",
   assert.equal(server.world.players.size, 0, "the closed player is removed from the world");
 });
 
+test("leave returns to the lobby and lobby sockets receive the roster", async (t) => {
+  const server = createGameServer({
+    host: "127.0.0.1",
+    port: 0,
+    persistPath: "",
+    tickRate: 20,
+    snapshotRate: 20,
+    world: new World({ rng: () => 0.5, mobTargetCount: 0, spawnMobs: false }),
+  });
+  await server.listen();
+  t.after(() => server.close());
+
+  const alice = new WebSocket(`ws://127.0.0.1:${server.address().port}/ws`);
+  t.after(() => alice.terminate());
+  const aliceMessages = messageQueue(alice);
+  await aliceMessages.next("welcome");
+  alice.send(JSON.stringify({ type: "join", protocol: 2, name: "Alice", archetype: "vanguard" }));
+  const session = await aliceMessages.next("session");
+  await aliceMessages.next("snapshot");
+
+  // A lobby-only socket sees Alice in the welcome roster and gets updates.
+  const lobby = new WebSocket(`ws://127.0.0.1:${server.address().port}/ws`);
+  t.after(() => lobby.terminate());
+  const lobbyMessages = messageQueue(lobby);
+  const welcome = await lobbyMessages.next("welcome");
+  assert.equal(welcome.roster.length, 1);
+  assert.equal(welcome.roster[0].name, "Alice");
+  assert.equal(welcome.roster[0].mapId, "town");
+  assert.ok(welcome.roster[0].level >= 1);
+  const broadcast = await lobbyMessages.next("roster", 3000);
+  assert.equal(broadcast.players.length, 1, "lobby sockets receive periodic rosters");
+
+  // Leaving frees the seat and the same connection can join again.
+  alice.send(JSON.stringify({ type: "leave" }));
+  const afterLeave = await aliceMessages.next("roster");
+  assert.equal(afterLeave.players.length, 0);
+  assert.equal(server.world.players.size, 0);
+  alice.send(JSON.stringify({ type: "join", protocol: 2, name: "Alice", archetype: "vanguard", token: session.token }));
+  const rejoined = await aliceMessages.next("snapshot");
+  assert.equal(rejoined.players[0].name, "Alice");
+});
+
 test("a flooding connection is rate limited without stalling the world", async (t) => {
   const server = createGameServer({
     host: "127.0.0.1",

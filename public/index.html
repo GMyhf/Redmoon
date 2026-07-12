@@ -24,6 +24,7 @@
         </div>
         <div class="server-readout">
           <span id="population" class="population" hidden>0 在线</span>
+          <button id="leave-button" class="leave-button" type="button" hidden>返回主画面</button>
           <span id="connection" class="connection is-connecting" role="status">
             <i aria-hidden="true"></i>
             <b>连接中</b>
@@ -51,6 +52,11 @@
           </div>
           <p id="join-error" class="form-error" role="alert" hidden></p>
         </form>
+
+        <div id="lobby-roster" class="lobby-roster" hidden>
+          <h2>在线操作员</h2>
+          <ul id="lobby-roster-list"></ul>
+        </div>
       </section>
 
       <section id="hud" class="hud" aria-label="操作员状态" hidden>

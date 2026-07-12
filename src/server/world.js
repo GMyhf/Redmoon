@@ -358,6 +358,11 @@ export class World {
     switch (type) {
       case "input":
         return this.setInput(id, message);
+      case "leave":
+        // Back to the character screen: the account is saved and the seat
+        // freed so the same connection can join again.
+        this.removePlayer(id);
+        return null;
       case "allocate":
         return this.allocateStat(id, message.stat);
       case "upgrade":
@@ -1101,6 +1106,17 @@ export class World {
       drops,
       onlineNames,
     };
+  }
+
+  // Lobby roster: who is online, at what level, and where — shown on the
+  // character screen before joining.
+  getRoster() {
+    return [...this.players.values()].map((player) => ({
+      name: player.name,
+      archetype: player.archetype,
+      level: player.level,
+      mapId: player.mapId,
+    }));
   }
 
   _onlineNames() {

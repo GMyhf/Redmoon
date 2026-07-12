@@ -206,6 +206,9 @@ button {
   top: calc(var(--top-safe) + 88px);
   left: clamp(20px, 6vw, 86px);
   width: min(650px, calc(100vw - 40px));
+  /* Short viewports scroll inside the panel so the roster stays reachable. */
+  max-height: calc(100vh - var(--top-safe) - 108px);
+  overflow-y: auto;
   padding: 26px;
   border: 1px solid var(--line-strong);
   border-left: 3px solid var(--crimson);
@@ -1636,4 +1639,53 @@ button {
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
   }
+}
+
+/* Back-to-lobby button in the top bar, matching the readout styling. */
+.leave-button {
+  padding: 5px 12px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.05);
+  color: #d8ccb8;
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+.leave-button:hover {
+  border-color: rgba(226, 75, 92, 0.6);
+  background: rgba(226, 75, 92, 0.18);
+}
+
+/* Online roster on the character screen. */
+.lobby-roster {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.lobby-roster h2 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: var(--muted);
+}
+
+.lobby-roster ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  max-height: 130px;
+  overflow-y: auto;
+}
+
+.lobby-roster li {
+  padding: 5px 8px;
+  border: 1px solid rgba(230, 218, 198, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 11px;
+  color: #ccd3d1;
 }

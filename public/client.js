@@ -32,6 +32,9 @@ import {
     connection: document.querySelector("#connection"),
     sector: document.querySelector("#sector-label"),
     population: document.querySelector("#population"),
+    leaveButton: document.querySelector("#leave-button"),
+    lobbyRoster: document.querySelector("#lobby-roster"),
+    lobbyRosterList: document.querySelector("#lobby-roster-list"),
     name: document.querySelector("#operator-display-name"),
     className: document.querySelector("#operator-class"),
     sigil: document.querySelector("#operator-sigil"),
@@ -443,6 +446,12 @@ import {
       if (message.archetypes && typeof message.archetypes === "object") {
         mergeArchetypes(message.archetypes);
       }
+      if (Array.isArray(message.roster)) renderLobbyRoster(message.roster);
+      return;
+    }
+
+    if (type === "roster") {
+      if (Array.isArray(message.players)) renderLobbyRoster(message.players);
       return;
     }
 
@@ -467,6 +476,19 @@ import {
     if (type === "error") {
       handleError(message);
     }
+  }
+
+  // The character screen lists everyone online with level and location.
+  function renderLobbyRoster(roster) {
+    if (!ui.lobbyRoster || !ui.lobbyRosterList) return;
+    ui.lobbyRoster.hidden = roster.length === 0;
+    ui.lobbyRosterList.replaceChildren(...roster.map((entry) => {
+      const row = document.createElement("li");
+      const hero = ARCHETYPES[String(entry.archetype)];
+      const map = ZONE_LABELS[String(entry.mapId)] || String(entry.mapId || "");
+      row.textContent = `${entry.name} · ${hero?.label ?? entry.archetype} · L${Math.max(1, finite(entry.level, 1))} · ${map}`;
+      return row;
+    }));
   }
 
   // Numeric facts (base stats, skill cooldowns/unlock levels) are server
@@ -546,6 +568,7 @@ import {
       ui.joinPanel.hidden = true;
       ui.hud.hidden = false;
       ui.joinButton.disabled = false;
+      if (ui.leaveButton) ui.leaveButton.hidden = false;
     }
     const quest = first(snapshot.quest, world.quest, local?.quest);
     if (quest) state.quest = quest;
@@ -1205,14 +1228,23 @@ import {
       ui.joinButton.disabled = false;
     }
     if (error.requestType === "join") {
-      state.joined = false;
-      state.pendingJoin = false;
-      ui.titleArt.classList.remove("is-hidden");
-      ui.titleArt.hidden = false;
-      ui.joinPanel.hidden = false;
-      ui.hud.hidden = true;
-      ui.joinButton.disabled = false;
+      showCharacterScreen();
     }
+  }
+
+  // Back to the character screen: clear world state and show the roster.
+  function showCharacterScreen() {
+    state.joined = false;
+    state.pendingJoin = false;
+    for (const store of [state.players, state.enemies, state.projectiles, state.drops]) store.clear();
+    state.effects.length = 0;
+    ui.titleArt.classList.remove("is-hidden");
+    ui.titleArt.hidden = false;
+    ui.joinPanel.hidden = false;
+    ui.hud.hidden = true;
+    ui.joinButton.disabled = false;
+    if (ui.leaveButton) ui.leaveButton.hidden = true;
+    ui.population.hidden = true;
   }
 
   function pushEvent(text, alert = false) {
@@ -3881,6 +3913,11 @@ import {
     state.socialSignature = "";
   });
   ui.rebirthButton?.addEventListener("click", () => send({ type: "rebirth" }));
+  ui.leaveButton?.addEventListener("click", () => {
+    if (!state.joined) return;
+    send({ type: "leave" });
+    showCharacterScreen();
+  });
   ui.autoEquipButton?.addEventListener("click", () => {
     const local = localPlayer();
     if (!local) return;

@@ -72,6 +72,7 @@ export class GameServer {
     this.wss = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE_BYTES });
     this._timer = null;
     this._snapshotCounter = 0;
+    this._rosterCounter = 0;
     this._closed = false;
 
     this.httpServer.on("upgrade", (request, socket, head) => {
@@ -194,6 +195,18 @@ export class GameServer {
             send(socket, this.world.getSnapshot(socket.playerId, sharedCache));
           }
         }
+        // Lobby sockets (connected, not joined) get a light roster once a
+        // second so the character screen shows who is online where.
+        this._rosterCounter += 1;
+        if (this._rosterCounter >= this.tickRate) {
+          this._rosterCounter = 0;
+          let payload = null;
+          for (const socket of this.wss.clients) {
+            if (socket.readyState !== WebSocket.OPEN || this.world.players.has(socket.playerId)) continue;
+            payload ??= JSON.stringify({ type: "roster", players: this.world.getRoster() });
+            socket.send(payload);
+          }
+        }
       } catch (error) {
         console.error("World tick failed", error);
       }
@@ -225,6 +238,7 @@ export class GameServer {
       rebirthLevel: REBIRTH_LEVEL,
       inventoryLimit: INVENTORY_LIMIT,
       archetypes: publicArchetypes(),
+      roster: this.world.getRoster(),
     });
 
     socket.rateBucket = { tokens: this.rateLimit.capacity, refilledAt: Date.now() };
@@ -263,6 +277,13 @@ export class GameServer {
             send(socket, { type: "session", token: result.token, name: result.name });
           }
           send(socket, this.world.getSnapshot(socket.playerId));
+        } else if (message.type === "leave") {
+          // Same flush guarantee as a disconnect, plus an immediate roster
+          // so the character screen fills without waiting for the timer.
+          if (this.persistPath) {
+            this._saveAccounts().catch((error) => console.error("Account save failed", error));
+          }
+          send(socket, { type: "roster", players: this.world.getRoster() });
         }
       } catch (error) {
         if (error instanceof WorldError) {
