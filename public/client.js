@@ -729,8 +729,30 @@
     return true;
   }
 
+  function tokenStorageKey(name) {
+    return `crimson-relay-token:${String(name).trim().toLowerCase()}`;
+  }
+
+  function readAccountToken(name) {
+    try {
+      return localStorage.getItem(tokenStorageKey(name)) || null;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function storeAccountToken(name, token) {
+    try {
+      localStorage.setItem(tokenStorageKey(name), token);
+    } catch (_error) {
+      // Private browsing without storage: the session still works until reload.
+    }
+  }
+
   function sendJoin() {
-    if (!state.profile || !send({ type: "join", ...state.profile })) return;
+    if (!state.profile) return;
+    const token = readAccountToken(state.profile.name);
+    if (!send({ type: "join", ...state.profile, ...(token ? { token } : {}) })) return;
     state.pendingJoin = false;
     applyProfileToHud();
   }
@@ -757,6 +779,14 @@
       if (Number.isFinite(inventoryLimit) && inventoryLimit > 0) state.inventoryLimit = inventoryLimit;
       if (message.archetypes && typeof message.archetypes === "object") {
         mergeArchetypes(message.archetypes);
+      }
+      return;
+    }
+
+    if (type === "session") {
+      const name = String(first(message.name, state.profile?.name, ""));
+      if (name && typeof message.token === "string" && message.token) {
+        storeAccountToken(name, message.token);
       }
       return;
     }
@@ -1467,6 +1497,8 @@
       INVALID_ARCHETYPE: "所选职业不可用",
       ALREADY_JOINED: "操作员已接入中继",
       NOT_JOINED: "操作员尚未接入",
+      NAME_IN_USE: "该呼号已在线，请换一个呼号",
+      INVALID_TOKEN: "该呼号已在其他设备注册，本机凭证不符",
       NO_STAT_POINTS: "没有可用属性点",
       NO_SKILL_POINTS: "没有可用技能点",
       RESPAWN_NOT_READY: "信号尚未恢复",

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { createReadStream, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { stat, writeFile } from "node:fs/promises";
+import { createReadStream, existsSync, mkdirSync, readFileSync, renameSync } from "node:fs";
+import { copyFile, rename, stat, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -48,18 +48,10 @@ export class GameServer {
     this.persistPath = options.persistPath !== undefined
       ? options.persistPath
       : (process.env.PERSIST_PATH ?? path.resolve("data/accounts.json"));
-    let accountStore = {};
-    if (this.persistPath) {
-      try {
-        if (existsSync(this.persistPath)) {
-          accountStore = JSON.parse(readFileSync(this.persistPath, "utf8"));
-        }
-      } catch (error) {
-        console.error("Could not load accounts, starting fresh:", error.message);
-      }
-    }
+    const accountStore = loadAccountStore(this.persistPath);
     this.world = options.world ?? new World({ ...options.worldOptions, accountStore });
     this._persistTimer = null;
+    this._savePromise = Promise.resolve();
     this.httpServer = createHttpServer((request, response) => {
       this._handleHttp(request, response).catch((error) => {
         console.error("HTTP request failed", error);
@@ -125,9 +117,23 @@ export class GameServer {
 
   async _saveAccounts() {
     if (!this.persistPath) return;
-    const store = this.world.syncAccounts();
+    // Serialize writers so the timer, disconnect flushes, and close cannot
+    // interleave on the same temp file.
+    this._savePromise = this._savePromise.catch(() => {}).then(() => this._writeAccounts());
+    return this._savePromise;
+  }
+
+  async _writeAccounts() {
+    const payload = JSON.stringify(this.world.syncAccounts());
     mkdirSync(path.dirname(this.persistPath), { recursive: true });
-    await writeFile(this.persistPath, JSON.stringify(store), "utf8");
+    // Write-then-rename keeps the store intact if the process dies mid-flush;
+    // the previous good copy survives as .bak.
+    const tempPath = `${this.persistPath}.tmp`;
+    await writeFile(tempPath, payload, "utf8");
+    if (existsSync(this.persistPath)) {
+      await copyFile(this.persistPath, `${this.persistPath}.bak`);
+    }
+    await rename(tempPath, this.persistPath);
   }
 
   address() {
@@ -230,8 +236,11 @@ export class GameServer {
       }
 
       try {
-        this.world.handleCommand(socket.playerId, message);
+        const result = this.world.handleCommand(socket.playerId, message);
         if (message.type === "join" || message.type === "start") {
+          if (result?.token) {
+            send(socket, { type: "session", token: result.token, name: result.name });
+          }
           send(socket, this.world.getSnapshot(socket.playerId));
         }
       } catch (error) {
@@ -245,7 +254,11 @@ export class GameServer {
     });
 
     socket.once("close", () => {
-      this.world.removePlayer(socket.playerId);
+      // Flush right away so a crash costs at most the autosave interval of
+      // still-connected players, never a departed one.
+      if (this.world.removePlayer(socket.playerId) && this.persistPath) {
+        this._saveAccounts().catch((error) => console.error("Account save failed", error));
+      }
     });
     socket.on("error", () => {
       // A close event follows; command errors are sent through the protocol.
@@ -337,6 +350,27 @@ async function serveFile(filePath, method, response) {
     stream.pipe(response);
   });
   return true;
+}
+
+function loadAccountStore(persistPath) {
+  if (!persistPath) return {};
+  // Try the live file first, then the last good backup. A corrupt file is
+  // quarantined for manual recovery instead of being overwritten later.
+  for (const candidate of [persistPath, `${persistPath}.bak`]) {
+    if (!existsSync(candidate)) continue;
+    try {
+      return JSON.parse(readFileSync(candidate, "utf8"));
+    } catch (error) {
+      const quarantine = `${candidate}.corrupt`;
+      try {
+        renameSync(candidate, quarantine);
+        console.error(`Account file ${candidate} is corrupt; moved to ${quarantine}:`, error.message);
+      } catch {
+        console.error(`Account file ${candidate} is corrupt and could not be quarantined:`, error.message);
+      }
+    }
+  }
+  return {};
 }
 
 function send(socket, message) {

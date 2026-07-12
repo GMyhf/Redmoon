@@ -1,4 +1,6 @@
-export const PROTOCOL_VERSION = 1;
+// v2: join accepts a session token, the server answers with a `session`
+// message, and protected names reject NAME_IN_USE / INVALID_TOKEN.
+export const PROTOCOL_VERSION = 2;
 export const TICK_RATE = 20;
 export const SNAPSHOT_RATE = 10;
 

@@ -409,7 +409,7 @@ test("heroes begin with four actions and unlock two more skills by level", () =>
   const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
   heroes.forEach((archetype, index) => {
     const id = `hero-${index}`;
-    const player = world.addPlayer(id, { archetype });
+    const player = world.addPlayer(id, { name: `Hero ${index}`, archetype });
     assert.equal(player.archetype, archetype);
     assert.deepEqual(Object.keys(player.skillLevels).sort(), ["c", "e", "f", "q", "r"]);
     assert.throws(
@@ -530,7 +530,7 @@ test("the soul barrier spends MP instead of HP at a configurable ratio", () => {
   assert.ok(Math.abs((hpDrained - player.hp) - 20 * mitigation) < 0.000001);
 
   // Non-eclipse heroes have MP but no active barrier.
-  const other = world.addPlayer("player-2", { archetype: "vanguard" });
+  const other = world.addPlayer("player-2", { name: "Sidekick", archetype: "vanguard" });
   const otherMp = other.mp;
   world._damagePlayer(other, 20, "test");
   assert.equal(other.mp, otherMp);
@@ -867,9 +867,114 @@ test("parties share XP within range and accounts persist across sessions", () =>
   world.removePlayer("host-1");
   assert.ok(store.alpha, "account written on leave");
 
-  const rejoined = world.addPlayer("host-2", { name: "Alpha", archetype: "vanguard" });
+  const rejoined = world.addPlayer("host-2", { name: "Alpha", archetype: "vanguard", token: host.token });
   assert.equal(rejoined.gold, 777, "gold restored");
   assert.deepEqual(rejoined.friends, ["Beta"], "friends restored");
+});
+
+test("party XP and quest credit only reach members on the killer's map", () => {
+  const world = new World({
+    rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, autoLevel: false,
+  });
+  const host = world.addPlayer("host-1", { name: "Alpha", archetype: "vanguard" });
+  const ally = world.addPlayer("ally-1", { name: "Beta", archetype: "strider" });
+  world.handleCommand("host-1", { type: "partyInvite", target: "ally-1" });
+  world.handleCommand("ally-1", { type: "partyAccept", from: "host-1" });
+
+  // Maps share one coordinate plane: the ally is in shared-XP range by
+  // distance but hunting on another map, so nothing may leak across.
+  ally.x = host.x + 100;
+  ally.y = host.y;
+  ally.mapId = "desert";
+  const afar = world.spawnMob({
+    id: "afar", type: "riftling", x: host.x + 200, y: host.y, maxHp: 1, level: 2, xp: 100,
+  });
+  world._damageMob(afar, 10, "host-1");
+  assert.equal(ally.xp, 0, "no XP across maps");
+  assert.equal(ally.quest.progress, 0, "no quest credit across maps");
+
+  // Back on the killer's map the usual share applies.
+  ally.mapId = host.mapId;
+  const nearby = world.spawnMob({
+    id: "nearby", type: "riftling", x: host.x + 200, y: host.y, maxHp: 1, level: 2, xp: 100,
+  });
+  world._damageMob(nearby, 10, "host-1");
+  assert.equal(ally.xp, 60, "same-map share still works");
+  assert.equal(ally.quest.progress, 1);
+});
+
+test("projectiles stay on the map where they were fired", () => {
+  const world = new World({
+    rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, safeZoneRadius: 0,
+  });
+  const player = world.addPlayer("player-1", { archetype: "channeler" });
+  world.setInput("player-1", {
+    seq: 1,
+    aim: { x: player.x + 200, y: player.y },
+    primary: true,
+  });
+  world.update(0.05);
+  const projectile = [...world.projectiles.values()][0];
+  assert.ok(projectile, "primary fire spawned a projectile");
+  assert.equal(projectile.mapId, "town");
+
+  // Stop firing so only the in-flight shot matters from here on.
+  world.setInput("player-1", { seq: 2, primary: false });
+  world.setAutoFight("player-1", false);
+
+  // The owner hops through a portal; the shot must stay behind.
+  player.mapId = "desert";
+  const awaySnapshot = world.getSnapshot("player-1");
+  assert.equal(awaySnapshot.projectiles.length, 0, "shot is not visible on the new map");
+
+  // A mob on the new map sitting right on the projectile's path is safe.
+  const bystander = world.spawnMob({
+    id: "bystander", mapId: "desert", x: projectile.x + 30, y: projectile.y, maxHp: 50,
+  });
+  world.update(0.05);
+  assert.equal(bystander.hp, bystander.maxHp, "no cross-map collision");
+});
+
+test("accounts are claimed by a session token on first join", () => {
+  const store = {};
+  const world = new World({
+    rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, accountStore: store,
+  });
+  const original = world.addPlayer("conn-1", { name: "Alpha", archetype: "vanguard" });
+  assert.ok(original.token, "a token is minted on first join");
+
+  // The same name cannot be online twice, regardless of casing.
+  assert.throws(
+    () => world.addPlayer("conn-2", { name: "alpha", archetype: "vanguard" }),
+    (error) => error instanceof WorldError && error.code === "NAME_IN_USE",
+  );
+
+  original.gold = 555;
+  world.removePlayer("conn-1");
+  assert.equal(store.alpha.token, original.token, "token persists with the account");
+
+  // A missing or wrong token cannot load the protected account.
+  assert.throws(
+    () => world.addPlayer("conn-3", { name: "Alpha", archetype: "vanguard" }),
+    (error) => error instanceof WorldError && error.code === "INVALID_TOKEN",
+  );
+  assert.throws(
+    () => world.addPlayer("conn-3", { name: "Alpha", archetype: "vanguard", token: "wrong" }),
+    (error) => error instanceof WorldError && error.code === "INVALID_TOKEN",
+  );
+
+  // The right token restores progress.
+  const rejoined = world.addPlayer("conn-4", { name: "Alpha", archetype: "vanguard", token: original.token });
+  assert.equal(rejoined.gold, 555, "token holder gets the account back");
+
+  // Legacy records saved before tokens existed stay joinable and get one.
+  world.removePlayer("conn-4");
+  delete store.alpha.token;
+  const migrated = world.addPlayer("conn-5", { name: "Alpha", archetype: "vanguard" });
+  assert.equal(migrated.gold, 555, "legacy account restored without a token");
+  assert.ok(migrated.token, "legacy account is upgraded with a token");
+  world.removePlayer("conn-5");
+  assert.equal(store.alpha.token, migrated.token);
 });
 
 test("every biome has a boss with rising level and experience", () => {

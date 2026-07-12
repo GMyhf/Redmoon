@@ -42,7 +42,7 @@ WebSocket 使用 UTF-8 JSON 对象，单条消息上限为 16 KiB。每条命令
 
 | `type` | 主要字段 | 用途 |
 | --- | --- | --- |
-| `join` | `name`, `archetype` | 创建会话角色 |
+| `join` | `name`, `archetype`, `token?` | 创建会话角色。首次使用某个名字会为该账号铸造会话令牌并通过 `session` 消息下发；此后同名进入必须携带该令牌，否则返回 `INVALID_TOKEN`。同名角色在线时返回 `NAME_IN_USE`。令牌之前的旧存档仍可直接进入并就地补发令牌 |
 | `input` | `seq`, `move`, `aim`, `sprint`, `moveTo?`, `target?`, `primary`, `q`, `e`, `r`, `c`, `f` | 提交有序移动、Shift 奔跑和五个技能意图（`f` 为大招）。`moveTo`（点坐标）下达点击移动指令，`target`（敌人 id）下达锁定自动攻击指令；两者缺省表示保持现有指令，显式 `null` 表示取消，键盘移动会取消所有指令 |
 | `allocate` | `stat` | 消耗属性点 |
 | `upgrade` | `skill` | 消耗技能点 |
@@ -66,6 +66,7 @@ WebSocket 使用 UTF-8 JSON 对象，单条消息上限为 16 KiB。每条命令
 | `type` | 主要字段 | 语义 |
 | --- | --- | --- |
 | `welcome` | `protocol`, `id`, `tickRate`, `snapshotRate`, `world`（含 `safeZone`、`portals`）, `rebirthLevel`, `archetypes` | 建立身份并下发初始配置。传送门成对出现：站上任一门约 0.6 秒后传送到配对门旁（步行穿过不触发），落点带 2.5 秒锁避免弹回 |
+| `session` | `token`, `name` | `join` 成功后仅发给本连接：账号会话令牌。客户端存入 `localStorage`，重连与后续进入同名角色时随 `join` 一并提交 |
 | `snapshot` | `tick`, `serverTime`, `selfId`, `mapId`, `world`, `safeZone`, `players`, `enemies`, `projectiles`, `drops` | 当前地图状态；玩家条目含 `mapId`、`running`、`moveTarget`、`targetId`、`rebirths`、`equipment`、`inventory`、`gearStats`，实体只包含当前地图内容 |
 | `enemyAttack` | `enemyId`, `playerId`, `fromX/fromY`, `toX/toY`, `damage`, `boss` | 服务端确认近战命中时广播，客户端据此绘制挥击轨迹和命中冲击；伤害仍由世界模拟结算 |
 
@@ -85,7 +86,7 @@ WebSocket 使用 UTF-8 JSON 对象，单条消息上限为 16 KiB。每条命令
 | `event` | `event`, `tick`, `serverTime`, 事件载荷 | 短时表现或离散结果 |
 | `error` | `code`, `message`, `requestType?` | 可处理的协议错误 |
 
-当前欢迎消息携带 `protocol: 1`。发生破坏性字段变化时必须递增协议版本；进入滚动升级阶段后至少兼容相邻版本。
+当前欢迎消息携带 `protocol: 2`（v2 引入账号会话令牌：`join.token`、`session` 消息与 `NAME_IN_USE`/`INVALID_TOKEN` 错误）。发生破坏性字段变化时必须递增协议版本；进入滚动升级阶段后至少兼容相邻版本。
 
 ## 数据流与安全
 

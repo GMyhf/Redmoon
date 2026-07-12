@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import {
   ALLOC_WEIGHTS,
   ARCHETYPES,
@@ -186,11 +188,30 @@ export class World {
       );
     }
 
+    const name = sanitizeName(options.name);
+    const accountKey = this._accountKey(name);
+    for (const other of this.players.values()) {
+      if (this._accountKey(other.name) === accountKey) {
+        throw new WorldError("NAME_IN_USE", "A player with this name is already online.");
+      }
+    }
+    // Accounts are claimed by the first join: it mints a session token the
+    // client must present to reuse the name. Legacy records without a token
+    // stay joinable and are upgraded on the spot.
+    const record = this.accountStore[accountKey];
+    const offeredToken = typeof options.token === "string" && options.token.length <= 128
+      ? options.token
+      : null;
+    if (record?.token && record.token !== offeredToken) {
+      throw new WorldError("INVALID_TOKEN", "This name is registered to another session token.");
+    }
+
     const spawn = this._playerSpawn();
     const stats = { ...BASE_STATS[archetype] };
     const player = {
       id: playerId,
-      name: sanitizeName(options.name),
+      name,
+      token: record?.token ?? randomUUID(),
       archetype,
       mapId: "town",
       x: spawn.x,
@@ -283,7 +304,7 @@ export class World {
   }
 
   _saveAccount(player) {
-    const record = { savedAt: round(this.time) };
+    const record = { savedAt: round(this.time), token: player.token };
     for (const field of ACCOUNT_FIELDS) record[field] = structuredClone(player[field]);
     this.accountStore[this._accountKey(player.name)] = record;
   }
@@ -969,7 +990,7 @@ export class World {
 
     const projectiles = [...this.projectiles.values()].filter((projectile) => {
       if (!mapId) return true;
-      return this.players.get(projectile.ownerId)?.mapId === mapId;
+      return projectile.mapId === mapId;
     }).map((projectile) => ({
       id: projectile.id,
       ownerId: projectile.ownerId,
@@ -1290,7 +1311,7 @@ export class World {
 
       if (projectile.team === "players") {
         for (const mob of [...this.mobs.values()]) {
-          if (mob.mapId !== this.players.get(projectile.ownerId)?.mapId) continue;
+          if (mob.mapId !== projectile.mapId) continue;
           if (projectile.hitIds.has(mob.id)) continue;
           if (!segmentHitsCircle(oldX, oldY, projectile.x, projectile.y, mob.x, mob.y, mob.radius + projectile.radius)) {
             continue;
@@ -1680,6 +1701,8 @@ export class World {
       id,
       ownerId: player.id,
       team: "players",
+      // Pinned at launch so portalling away does not drag shots along.
+      mapId: player.mapId,
       x,
       y,
       fromX: x,
@@ -1764,6 +1787,8 @@ export class World {
           if (memberId === ownerId) continue;
           const member = this.players.get(memberId);
           if (!member || !member.alive) continue;
+          // All maps share one coordinate plane, so range alone is not enough.
+          if (member.mapId !== mob.mapId) continue;
           if (Math.hypot(member.x - mob.x, member.y - mob.y) > PARTY_XP_RANGE) continue;
           this._grantXp(member, Math.round(mob.xp * PARTY_XP_SHARE));
           this._advanceQuest(member, mob);
