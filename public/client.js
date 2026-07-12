@@ -1033,9 +1033,13 @@
     }
     document.querySelectorAll("[data-upgrade]").forEach((button) => {
       const skill = skills[button.dataset.upgrade];
-      button.disabled = skill?.unlocked === false;
+      const unlocked = skill?.unlocked !== false;
+      const maxed = Number.isFinite(skill?.level) && Number.isFinite(skill?.maxLevel)
+        && skill.level >= skill.maxLevel;
+      button.disabled = !unlocked || maxed;
       button.hidden = skill?.unlocked === false;
-      if (skill?.unlocked === false) button.title = `${finite(skill.unlockLevel, 1)} 级解锁`;
+      if (!unlocked) button.title = `${finite(skill.unlockLevel, 1)} 级解锁`;
+      else if (maxed) button.title = "技能已达等级上限";
     });
 
     updateQuest();

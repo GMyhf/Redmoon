@@ -745,7 +745,7 @@ button {
 }
 
 .stats-panel {
-  top: 151px;
+  top: 292px;
   left: max(18px, env(safe-area-inset-left));
   width: 214px;
   padding: 10px 12px 8px;
@@ -854,7 +854,7 @@ button {
 }
 
 .gear-panel {
-  top: 345px;
+  top: 454px;
   left: max(18px, env(safe-area-inset-left));
   width: 214px;
   padding: 10px 12px 11px;
@@ -1251,8 +1251,9 @@ button {
 
 .skill-upgrades {
   position: absolute;
-  left: calc(100% + 7px);
-  bottom: 0;
+  left: 50%;
+  bottom: calc(100% + 9px);
+  transform: translateX(-50%);
   height: 70px;
   padding: 5px;
   display: grid;
@@ -1262,6 +1263,7 @@ button {
   border: 1px solid var(--line-strong);
   border-radius: 3px;
   background: rgba(8, 10, 13, 0.9);
+  z-index: 3;
 }
 
 .skill-upgrades span {
@@ -1472,8 +1474,10 @@ button {
   }
 
   .skill-upgrades {
-    left: auto;
-    right: calc(100% + 6px);
+    left: 50%;
+    right: auto;
+    bottom: calc(100% + 7px);
+    transform: translateX(-50%);
     height: 62px;
   }
 }
@@ -1527,8 +1531,7 @@ button {
   }
 
   .skill-upgrades {
-    bottom: 65px;
-    right: 0;
+    bottom: calc(100% + 7px);
   }
 }
 
