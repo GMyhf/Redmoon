@@ -42,6 +42,29 @@ const RARITY_COLORS := {
 	"relic": Color(0.92, 0.78, 0.35),
 }
 
+# Terrain colour ramps, both ends (mirrors BIOME_RAMPS in public/data.js);
+# ground tiles blend between them on value noise like the browser client.
+const BIOME_RAMPS := {
+	"town": ["3d312c", "4c3d35"], "grass": ["24401f", "3f6132"],
+	"mountain": ["2e3540", "4d5868"], "scrapyard": ["3a2b1f", "5c4433"],
+	"spaceport": ["232a3c", "3c4763"], "wastes": ["33222b", "502f3e"],
+	"lake": ["1c3a50", "2e5f7d"], "residential": ["3a332e", "544a3e"],
+	"downtown": ["26242e", "403c50"], "desert": ["5c4a2e", "8a7048"],
+	"snow": ["5a6878", "93a7b8"], "castle": ["3a363c", "5a5460"],
+	"skycity": ["33415e", "57698f"],
+}
+
+const ZONE_LABELS := {
+	"town": "城镇", "grass": "草原", "grassland": "草原", "mountain": "后山",
+	"backhill": "后山", "scrapyard": "废车场", "spaceport": "宇宙船",
+	"starship": "宇宙船", "wastes": "水晶荒原", "residential": "住宅区",
+	"downtown": "闹区", "desert": "沙漠", "snowmountain": "雪山", "snow": "雪山",
+	"castle": "城堡", "skycity": "天空之城", "lake": "湖泊",
+}
+
+const WORLD_CELL := 48.0              # ground tile edge in world units
+const MOTE_COUNT := 30
+
 # One body colour per species; the silhouettes live in _draw_enemy.
 const SPECIES_COLORS := {
 	"riftling": Color(0.74, 0.3, 0.35), "duskfang": Color(0.56, 0.36, 0.3),
@@ -80,6 +103,10 @@ var pulses := {"primary": false, "q": false, "e": false, "r": false, "c": false,
 var textures := {}                    # url path -> Texture2D (absent = not requested, null = loading)
 var camera := Camera2D.new()
 var ui := {}
+var shops: Array = []
+var shade_cache := {}
+var motes: Array = []
+var light_texture: GradientTexture2D
 var bag_signature := ""
 var smoke_timer := -1.0               # CRIMSON_SMOKE=<seconds>: headless verification run
 
@@ -96,6 +123,16 @@ func _ready() -> void:
 	if override != "":
 		server_url = override
 	texture_repeat = CanvasItem.TEXTURE_REPEAT_ENABLED
+	light_texture = GradientTexture2D.new()
+	light_texture.width = 256
+	light_texture.height = 256
+	light_texture.fill = GradientTexture2D.FILL_RADIAL
+	light_texture.fill_from = Vector2(0.5, 0.5)
+	light_texture.fill_to = Vector2(0.5, 1.0)
+	var gradient := Gradient.new()
+	gradient.colors = PackedColorArray([Color(1, 1, 1, 1), Color(1, 1, 1, 0)])
+	gradient.offsets = PackedFloat32Array([0.0, 1.0])
+	light_texture.gradient = gradient
 	add_child(camera)
 	camera.position = iso(world_size / 2)
 	camera.make_current()
@@ -124,6 +161,7 @@ func _process(delta: float) -> void:
 	if joined:
 		_interpolate(delta)
 		_send_input(delta)
+		_update_motes(delta)
 		var me = players.get(self_id)
 		if me:
 			camera.position = iso(me.pos)
@@ -365,8 +403,14 @@ func _leave() -> void:
 
 func _apply_world(world: Dictionary) -> void:
 	map_name = str(world.get("name", map_name))
-	map_theme = str(world.get("theme", map_theme))
+	var theme := str(world.get("theme", map_theme))
+	if theme != map_theme:
+		map_theme = theme
+		shade_cache.clear()
 	portals = world.get("portals", portals)
+	var shop_list = world.get("shops")
+	if shop_list is Array and not shop_list.is_empty():
+		shops = shop_list
 	var zone = world.get("safeZone")
 	safe_zone = zone if zone is Dictionary else {}
 
@@ -540,6 +584,46 @@ func _draw() -> void:
 			"player": _draw_player(item.entity)
 	for projectile in projectiles.values():
 		_draw_projectile(projectile)
+	_draw_motes()
+
+# Deterministic per-tile hash and coarse value noise, ported from the
+# browser's tileHash/smoothNoise so the two clients share terrain character.
+func _tile_hash(x: int, y: int) -> float:
+	var value := (x * 374761393 + y * 668265263) ^ (x * y * 69069)
+	value = ((value ^ (value >> 13)) * 1274126177) & 0xFFFFFFFF
+	return float((value ^ (value >> 16)) & 0x7FFFFFFF) / 2147483647.0
+
+func _smooth_noise(x: float, y: float) -> float:
+	var cx := x / 5.0
+	var cy := y / 5.0
+	var x0 := floori(cx)
+	var y0 := floori(cy)
+	var sx := cx - x0
+	var sy := cy - y0
+	var top := lerpf(_tile_hash(x0, y0), _tile_hash(x0 + 1, y0), sx)
+	var bottom := lerpf(_tile_hash(x0, y0 + 1), _tile_hash(x0 + 1, y0 + 1), sx)
+	return lerpf(top, bottom, sy)
+
+func _tile_shade(tx: int, ty: int) -> Color:
+	var key := ty * 100000 + tx
+	if shade_cache.has(key):
+		return shade_cache[key]
+	var color: Color
+	if map_theme == "town" and safe_zone.has("radius"):
+		# Concentric paving bands around the relay plaza, like the browser.
+		var world_point := Vector2((tx + 0.5) * WORLD_CELL, (ty + 0.5) * WORLD_CELL)
+		var centre := Vector2(float(safe_zone.x), float(safe_zone.y))
+		var distance := world_point.distance_to(centre) / float(safe_zone.radius)
+		if distance < 0.14:
+			color = Color("5a463c")
+		else:
+			color = Color("48392f") if int(distance * 6.0) % 2 == 0 else Color("3f322a")
+	else:
+		var ramp: Array = BIOME_RAMPS.get(map_theme, BIOME_RAMPS["wastes"])
+		var value := clampf(_smooth_noise(tx, ty) * 0.78 + _tile_hash(tx, ty) * 0.22, 0.0, 1.0)
+		color = Color(ramp[0]).lerp(Color(ramp[1]), value)
+	shade_cache[key] = color
+	return color
 
 func _draw_ground() -> void:
 	var corners := PackedVector2Array([
@@ -550,14 +634,41 @@ func _draw_ground() -> void:
 	])
 	var base: Color = THEME_COLORS.get(map_theme, Color(0.16, 0.15, 0.17))
 	draw_colored_polygon(corners, base)
+
+	# Noise-shaded diamond tiles over the visible area only.
+	var view_size := get_viewport_rect().size
+	var view_origin: Vector2 = camera.position - view_size / 2.0
+	var min_world := Vector2.INF
+	var max_world := -Vector2.INF
+	for corner in [view_origin, view_origin + Vector2(view_size.x, 0),
+			view_origin + view_size, view_origin + Vector2(0, view_size.y)]:
+		var world_point := from_iso(corner)
+		min_world = min_world.min(world_point)
+		max_world = max_world.max(world_point)
+	var tx0 := maxi(0, floori(min_world.x / WORLD_CELL) - 1)
+	var ty0 := maxi(0, floori(min_world.y / WORLD_CELL) - 1)
+	var tx1 := mini(int(world_size.x / WORLD_CELL) - 1, ceili(max_world.x / WORLD_CELL) + 1)
+	var ty1 := mini(int(world_size.y / WORLD_CELL) - 1, ceili(max_world.y / WORLD_CELL) + 1)
+	var half_w := WORLD_CELL + 1.0
+	var half_h := WORLD_CELL * 0.5 + 0.5
+	for ty in range(ty0, ty1 + 1):
+		for tx in range(tx0, tx1 + 1):
+			var p := iso(Vector2((tx + 0.5) * WORLD_CELL, (ty + 0.5) * WORLD_CELL))
+			draw_colored_polygon(PackedVector2Array([
+				p + Vector2(0, -half_h), p + Vector2(half_w, 0),
+				p + Vector2(0, half_h), p + Vector2(-half_w, 0),
+			]), _tile_shade(tx, ty))
+
 	var ground := _ground_texture()
 	if ground:
 		var repeats := world_size / GROUND_REPEAT
 		var uvs := PackedVector2Array([
 			Vector2.ZERO, Vector2(repeats.x, 0), repeats, Vector2(0, repeats.y),
 		])
-		# The affine world→iso map carries the texture onto the ground plane.
-		draw_colored_polygon(corners, Color(0.62, 0.62, 0.66, 0.85), uvs, ground)
+		# The affine world→iso map carries the texture onto the ground plane;
+		# lower alpha lets the noise shading breathe through, like the
+		# browser's per-tile texture pass.
+		draw_colored_polygon(corners, Color(0.72, 0.72, 0.76, 0.42), uvs, ground)
 	# World edge.
 	var outline := corners.duplicate()
 	outline.append(corners[0])
@@ -571,19 +682,77 @@ func _iso_ring(centre: Vector2, radius: float, segments := 48) -> PackedVector2A
 		points.append(iso(centre + Vector2(cos(angle), sin(angle)) * radius))
 	return points
 
+func _label(at: Vector2, text: String, size := 12, color := Color.WHITE) -> void:
+	var font := ThemeDB.fallback_font
+	draw_string_outline(font, at + Vector2(-90, 0), text, HORIZONTAL_ALIGNMENT_CENTER, 180, size, 4, Color(0, 0, 0, 0.8))
+	draw_string(font, at + Vector2(-90, 0), text, HORIZONTAL_ALIGNMENT_CENTER, 180, size, color)
+
 func _draw_zone_markers() -> void:
+	var pulse := 0.5 + 0.5 * sin(Time.get_ticks_msec() / 320.0)
 	if safe_zone.has("radius"):
 		var centre := Vector2(float(safe_zone.x), float(safe_zone.y))
 		var ring := _iso_ring(centre, float(safe_zone.radius))
 		draw_colored_polygon(ring, Color(0.9, 0.75, 0.4, 0.05))
-		draw_polyline(ring, Color(0.9, 0.75, 0.4, 0.55), 2.0)
+		draw_polyline(ring, Color(0.9, 0.75, 0.4, 0.4 + pulse * 0.25), 2.0)
+		if map_theme == "town":
+			_draw_beacon(iso(centre), pulse)
 	for portal in portals:
 		if not (portal is Dictionary):
 			continue
 		var portal_pos := Vector2(float(portal.get("x", 0)), float(portal.get("y", 0)))
 		draw_polyline(_iso_ring(portal_pos, 26, 24), Color(0.3, 0.8, 0.85), 2.0)
 		var beam_base := iso(portal_pos)
-		draw_line(beam_base, beam_base - Vector2(0, 60), Color(0.3, 0.8, 0.85, 0.35), 6.0)
+		draw_line(beam_base, beam_base - Vector2(0, 60), Color(0.3, 0.8, 0.85, 0.2 + pulse * 0.25), 6.0)
+		var zone := str(portal.get("zone", ""))
+		_label(beam_base - Vector2(0, 74), "→ %s" % ZONE_LABELS.get(zone, zone), 12, Color(0.75, 0.95, 0.98))
+	for shop in shops:
+		if not (shop is Dictionary):
+			continue
+		var base := iso(Vector2(float(shop.get("x", 0)), float(shop.get("y", 0))))
+		draw_rect(Rect2(base - Vector2(11, 26), Vector2(22, 24)), Color("6a5138"), true)
+		draw_colored_polygon(PackedVector2Array([
+			base + Vector2(-15, -26), base + Vector2(15, -26), base + Vector2(0, -40),
+		]), Color("8a6a44"))
+		draw_rect(Rect2(base - Vector2(3, 12), Vector2(6, 10)), Color(1, 0.85, 0.55, 0.85), true)
+		_label(base - Vector2(0, 48), str(shop.get("name", "")), 12, Color(0.98, 0.85, 0.6))
+
+# The relay beacon anchoring the town plaza: truss silhouette, platform,
+# and a pulsing crimson signal — a miniature of the browser landmark.
+func _draw_beacon(base: Vector2, pulse: float) -> void:
+	var height := 110.0
+	draw_colored_polygon(PackedVector2Array([
+		base + Vector2(-16, 0), base + Vector2(16, 0),
+		base + Vector2(6, -height), base + Vector2(-6, -height),
+	]), Color(0.16, 0.14, 0.15))
+	draw_line(base + Vector2(-16, 0), base + Vector2(6, -height), Color(0.35, 0.3, 0.28), 2.0)
+	draw_line(base + Vector2(16, 0), base + Vector2(-6, -height), Color(0.35, 0.3, 0.28), 2.0)
+	draw_rect(Rect2(base + Vector2(-10, -height - 6), Vector2(20, 6)), Color(0.3, 0.26, 0.25), true)
+	draw_line(base + Vector2(0, -height - 8), base + Vector2(0, -height - 70), Color(0.9, 0.25, 0.3, 0.10 + pulse * 0.12), 10.0)
+	draw_circle(base + Vector2(0, -height - 10), 6.0 + pulse * 2.5, Color(0.92, 0.22, 0.3, 0.55 + pulse * 0.45))
+
+func _update_motes(delta: float) -> void:
+	var anchor := from_iso(camera.position)
+	while motes.size() < MOTE_COUNT:
+		motes.append({
+			"pos": anchor + Vector2(randf_range(-1500, 1500), randf_range(-1000, 1000)),
+			"vel": Vector2(randf_range(-8, 8), randf_range(-8, 8)),
+			"z": randf_range(4, 40),
+			"life": randf_range(4.0, 8.0),
+			"age": 0.0,
+		})
+	for mote in motes:
+		mote.age += delta
+		mote.pos += mote.vel * delta
+		mote.z += 6.0 * delta
+	motes = motes.filter(func(mote) -> bool: return mote.age < mote.life)
+
+func _draw_motes() -> void:
+	var ramp: Array = BIOME_RAMPS.get(map_theme, BIOME_RAMPS["wastes"])
+	var color := Color(ramp[1]).lightened(0.45)
+	for mote in motes:
+		var fade: float = clampf(mote.age / 1.2, 0.0, 1.0) * clampf((mote.life - mote.age) / 1.6, 0.0, 1.0)
+		var p: Vector2 = iso(mote.pos) - Vector2(0, mote.z)
+		draw_circle(p, 2.0, Color(color, 0.35 * fade))
 
 func _draw_shadow(at: Vector2, size: float) -> void:
 	draw_colored_polygon(_iso_ring(from_iso(at), size, 20), Color(0, 0, 0, 0.28))
@@ -681,26 +850,31 @@ func _draw_enemy(enemy: Dictionary) -> void:
 func _draw_player(player: Dictionary) -> void:
 	var p := iso(player.pos)
 	var radius := float(player.data.get("radius", 18))
+	var is_self := str(player.data.get("id", "")) == self_id
+	if is_self and light_texture:
+		# Warm light pool anchoring the hero.
+		draw_texture_rect(light_texture, Rect2(p - Vector2(190, 120), Vector2(380, 240)),
+			false, Color(1.0, 0.84, 0.62, 0.16))
 	_draw_shadow(p, radius)
+	var level := int(player.data.get("level", 1))
+	var stage := 1.18 if level >= 20 else (1.08 if level >= 10 else 1.0)
+	var sprite_size := HERO_SIZE * stage
 	var texture := _hero_texture(str(player.data.get("archetype", "vanguard")))
 	if texture:
 		var facing: Dictionary = player.data.get("facing", {})
 		var facing_left := float(facing.get("x", 1)) < 0.0
 		if facing_left:
 			draw_set_transform(Vector2(2.0 * p.x, 0), 0.0, Vector2(-1, 1))
-		draw_texture_rect(texture, Rect2(p - Vector2(HERO_SIZE.x * 0.5, HERO_SIZE.y), HERO_SIZE), false)
+		draw_texture_rect(texture, Rect2(p - Vector2(sprite_size.x * 0.5, sprite_size.y), sprite_size), false)
 		if facing_left:
 			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	else:
 		var body := Color.from_string(str(player.data.get("color", "#54d3c2")), Color(0.3, 0.8, 0.75))
 		draw_circle(p - Vector2(0, radius), radius, body)
-	if str(player.data.get("id", "")) == self_id:
+	if is_self:
 		draw_polyline(_iso_ring(player.pos, radius + 6, 28), Color(1, 1, 1, 0.7), 1.5)
-	var font := ThemeDB.fallback_font
-	var label := "%s L%d" % [str(player.data.get("name", "?")), int(player.data.get("level", 1))]
-	draw_string(font, p + Vector2(-60, -HERO_SIZE.y - 14), label,
-		HORIZONTAL_ALIGNMENT_CENTER, 120, 13, Color.WHITE)
-	_draw_health_bar(p - Vector2(0, HERO_SIZE.y + 8), player.data)
+	_label(p - Vector2(0, sprite_size.y + 24), "%s L%d" % [str(player.data.get("name", "?")), level], 13)
+	_draw_health_bar(p - Vector2(0, sprite_size.y + 8), player.data)
 
 func _draw_projectile(projectile: Dictionary) -> void:
 	var lift := Vector2(0, 14)
@@ -712,8 +886,10 @@ func _draw_projectile(projectile: Dictionary) -> void:
 	var color := Color.from_string(str(projectile.data.get("color", "#ffffff")), Color.WHITE)
 	if from_point.distance_to(p) > 1.0:
 		draw_line(from_point, p, Color(color, 0.4), 3.0)
-	draw_circle(p, float(projectile.data.get("radius", 6)) * 0.7, color)
-	draw_circle(p, float(projectile.data.get("radius", 6)) * 0.3, Color(1, 1, 1, 0.9))
+	var radius := float(projectile.data.get("radius", 6))
+	draw_circle(p, radius * 1.7, Color(color, 0.18))
+	draw_circle(p, radius * 0.7, color)
+	draw_circle(p, radius * 0.3, Color(1, 1, 1, 0.9))
 
 func _draw_health_bar(at: Vector2, data: Dictionary) -> void:
 	var max_hp := maxf(1.0, float(data.get("maxHp", 1)))
@@ -825,6 +1001,36 @@ func _build_ui() -> void:
 	var bag_list := VBoxContainer.new()
 	bag_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	bag_scroll.add_child(bag_list)
+
+	# Soft vignette for depth, and the bottom-right minimap.
+	var vignette := TextureRect.new()
+	var vignette_texture := GradientTexture2D.new()
+	vignette_texture.width = 512
+	vignette_texture.height = 320
+	vignette_texture.fill = GradientTexture2D.FILL_RADIAL
+	vignette_texture.fill_from = Vector2(0.5, 0.5)
+	vignette_texture.fill_to = Vector2(0.5, 1.0)
+	var vignette_gradient := Gradient.new()
+	vignette_gradient.colors = PackedColorArray([Color(0, 0, 0, 0), Color(0, 0, 0, 0), Color(0, 0, 0, 0.42)])
+	vignette_gradient.offsets = PackedFloat32Array([0.0, 0.58, 1.0])
+	vignette_texture.gradient = vignette_gradient
+	vignette.texture = vignette_texture
+	vignette.stretch_mode = TextureRect.STRETCH_SCALE
+	vignette.set_anchors_preset(Control.PRESET_FULL_RECT)
+	vignette.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(vignette)
+	root.move_child(vignette, 0)
+
+	var minimap := Control.new()
+	minimap.set_script(load("res://scripts/minimap.gd"))
+	minimap.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	minimap.offset_left = -206.0
+	minimap.offset_top = -124.0
+	minimap.offset_right = -14.0
+	minimap.offset_bottom = -16.0
+	minimap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	minimap.main = self
+	root.add_child(minimap)
 
 	ui = {
 		"join_panel": panel,
