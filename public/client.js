@@ -369,6 +369,17 @@
 
   const zoneTextureImages = new Map();
   const zoneTexturePatterns = new Map();
+  const heroSpriteImages = new Map();
+  const HERO_SPRITES = Object.freeze({
+    vanguard: "vanguard-3d.png",
+    channeler: "channeler-3d.png",
+    strider: "strider-3d.png",
+    bulwark: "bulwark-3d.png",
+    longshot: "longshot-3d.png",
+    pyre: "pyre-3d.png",
+    eclipse: "eclipse-3d.png",
+    moonblade: "moonblade-3d.png",
+  });
 
   // Themed regions of the alien world, resolved purely from world position.
   // Each biome is a colour ramp; the ground blends smoothly between the
@@ -727,7 +738,7 @@
     ui.name.textContent = state.profile.name.toUpperCase();
     ui.className.textContent = `${archetype.label} · ${archetype.role}`;
     ui.sigil.textContent = "";
-    ui.sigil.style.backgroundImage = `url(/assets/heroes/${state.profile.archetype}.png)`;
+    ui.sigil.style.backgroundImage = `url(/assets/heroes/${HERO_SPRITES[state.profile.archetype] || `${state.profile.archetype}.png`}?v=5)`;
     ui.skillQ.textContent = archetype.q;
     ui.skillE.textContent = archetype.e;
   }
@@ -2953,13 +2964,82 @@
     }
 
     ctx.translate(0, bob - 12);
-    ctx.scale(flip ? -1.6 : 1.6, 1.6);
-    drawHumanoid(key, player, legSwing, time);
+    ctx.scale(flip ? -1 : 1, 1);
+    const portraitDrawn = drawHeroPortrait(key, player, time);
+    if (!portraitDrawn) {
+      ctx.scale(1.6, 1.6);
+      drawHumanoid(key, player, legSwing, time);
+    }
     ctx.restore();
 
     if (!isSelf) {
       drawEntityLabel(point.x, point.y - 86 + bob, String(first(player.name, "操作员")), player, "#d7dddb");
     }
+  }
+
+  function drawHeroPortrait(key, player, time) {
+    let image = heroSpriteImages.get(key);
+    if (!image) {
+      image = new Image();
+      image.src = `/assets/heroes/${HERO_SPRITES[key] || `${key}.png`}?v=5`;
+      heroSpriteImages.set(key, image);
+    }
+    if (!image.complete || !image.naturalWidth) return false;
+    const level = Math.max(1, finite(player.level, 1));
+    const stage = level >= 20 ? 1.18 : level >= 10 ? 1.08 : 1;
+    const equipment = player.equipment && typeof player.equipment === "object" ? player.equipment : {};
+    const weapon = equipment.weapon;
+    const weaponColor = weapon ? rarityInfo(weapon.rarity).color : (ARCHETYPES[key]?.accent || "#54d3c2");
+    const portraitWidth = 58 * stage;
+    const portraitHeight = 84 * stage;
+    const cx = 0;
+    const cy = -29 * stage;
+    ctx.save();
+    // Follow a loose full-body silhouette rather than a portrait circle or
+    // rectangular card. This keeps the dimensional render while discarding
+    // most of its studio backdrop at the sprite boundary.
+    ctx.globalAlpha = 0.94;
+    ctx.beginPath();
+    ctx.moveTo(-5 * stage, -72 * stage);
+    ctx.lineTo(12 * stage, -67 * stage);
+    ctx.lineTo(25 * stage, -48 * stage);
+    ctx.lineTo(26 * stage, -18 * stage);
+    ctx.lineTo(32 * stage, 8 * stage);
+    ctx.lineTo(24 * stage, 30 * stage);
+    ctx.lineTo(31 * stage, 55 * stage);
+    ctx.lineTo(23 * stage, 67 * stage);
+    ctx.lineTo(8 * stage, 48 * stage);
+    ctx.lineTo(0, 72 * stage);
+    ctx.lineTo(-13 * stage, 68 * stage);
+    ctx.lineTo(-18 * stage, 45 * stage);
+    ctx.lineTo(-28 * stage, 65 * stage);
+    ctx.lineTo(-34 * stage, 55 * stage);
+    ctx.lineTo(-23 * stage, 25 * stage);
+    ctx.lineTo(-30 * stage, 2 * stage);
+    ctx.lineTo(-24 * stage, -30 * stage);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(image, cx - portraitWidth * 0.5, cy - portraitHeight * 0.5, portraitWidth, portraitHeight);
+    ctx.restore();
+
+    if (weapon) {
+      ctx.save();
+      ctx.translate(18 * stage, -18 * stage);
+      ctx.scale(0.72 * stage, 0.72 * stage);
+      drawHeldWeapon(WEAPON_SHAPES[weapon.name] || ARCHETYPES[key]?.defaultWeapon || "blade", weaponColor, ARCHETYPES[key]?.accent || "#fff");
+      ctx.restore();
+    }
+    if (level >= 10) {
+      ctx.save();
+      ctx.globalAlpha = 0.25 + Math.sin(time * 0.004) * 0.08;
+      ctx.strokeStyle = level >= 20 ? "#ffd479" : weaponColor;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(0, 24 * stage, 25 * stage, 6 * stage, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+    return true;
   }
 
   function drawHumanoid(key, player, legSwing, time) {
@@ -3142,6 +3222,7 @@
       ctx.ellipse(0, 2, 19 * scale, 8.5 * scale, 0, 0, Math.PI * 2);
       ctx.stroke();
     }
+    drawMonsterSignature(enemy, time, scale);
     if (species.includes("warden")) {
       ctx.translate(0, -20);
       ctx.scale(pulse * scale, pulse * scale);
@@ -3191,6 +3272,39 @@
       enemy.boss ? "#ff5f70" : enemy.elite ? "#f0c15e" : "#f18a95",
       enemy.boss ? 96 : 58,
     );
+  }
+
+  function drawMonsterSignature(enemy, time, scale) {
+    const colors = {
+      claw: "#ff755f", bite: "#ffb15f", ember: "#ff6b35", spike: "#8fd66f",
+      charge: "#e6d18b", frost: "#86d9ff", slam: "#8fc0c8", lightning: "#b8d7ff", void: "#b875ff",
+    };
+    const color = colors[enemy.attackStyle] || "#ff755f";
+    ctx.save();
+    ctx.globalAlpha = 0.42 + Math.sin(time * 0.004 + finite(enemy.x)) * 0.1;
+    ctx.strokeStyle = color;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = enemy.boss ? 16 : 8;
+    ctx.lineWidth = enemy.boss ? 2.5 : 1.2;
+    if (["ember", "frost", "lightning", "void"].includes(enemy.attackStyle)) {
+      ctx.beginPath();
+      ctx.arc(0, -8 * scale, (14 + Math.sin(time * 0.006) * 2) * scale, 0, Math.PI * 2);
+      ctx.stroke();
+    } else if (["charge", "slam"].includes(enemy.attackStyle)) {
+      ctx.beginPath();
+      ctx.moveTo(-18 * scale, 5 * scale);
+      ctx.lineTo(0, -18 * scale);
+      ctx.lineTo(18 * scale, 5 * scale);
+      ctx.stroke();
+    } else {
+      for (let index = 0; index < 3; index += 1) {
+        const angle = time * 0.001 + index * Math.PI * 2 / 3;
+        ctx.beginPath();
+        ctx.arc(Math.cos(angle) * 17 * scale, Math.sin(angle) * 6 * scale, 3 * scale, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
   }
 
   function drawEnemyWindup(enemy, point, time) {
