@@ -8,7 +8,8 @@ extends Node2D
 # join codec field; see src/server/codec.js for the layout). The protocol
 # contract lives in src/server/protocol.js.
 
-const SERVER_URL := "ws://127.0.0.1:3000/ws"
+# Override with CRIMSON_SERVER=ws://host:port/ws (no code edit needed).
+var server_url := "ws://127.0.0.1:3000/ws"
 const CLIENT_PROTOCOL := 2
 const SNAPSHOT_CODEC := "binary1"
 const INPUT_INTERVAL := 0.05          # 20 Hz, same as the browser client
@@ -91,6 +92,9 @@ func from_iso(iso_point: Vector2) -> Vector2:
 	return Vector2(iso_point.y + iso_point.x * 0.5, iso_point.y - iso_point.x * 0.5)
 
 func _ready() -> void:
+	var override := OS.get_environment("CRIMSON_SERVER")
+	if override != "":
+		server_url = override
 	texture_repeat = CanvasItem.TEXTURE_REPEAT_ENABLED
 	add_child(camera)
 	camera.position = iso(world_size / 2)
@@ -103,9 +107,9 @@ func _ready() -> void:
 
 func _connect_socket() -> void:
 	socket = WebSocketPeer.new()
-	var err := socket.connect_to_url(SERVER_URL)
+	var err := socket.connect_to_url(server_url)
 	socket_active = err == OK
-	_set_status("连接中 %s" % SERVER_URL if socket_active else "连接失败：%s" % error_string(err))
+	_set_status("连接中 %s" % server_url if socket_active else "连接失败：%s" % error_string(err))
 
 # ---- Main loop ---------------------------------------------------------
 
@@ -486,7 +490,7 @@ func _unhandled_input(event: InputEvent) -> void:
 # ---- Art fetched from the game server -----------------------------------
 
 func _http_base() -> String:
-	return SERVER_URL.replace("ws://", "http://").replace("wss://", "https://").trim_suffix("/ws")
+	return server_url.replace("ws://", "http://").replace("wss://", "https://").trim_suffix("/ws")
 
 # Returns the texture for a server asset path, or null while it downloads.
 func _server_texture(path: String) -> Texture2D:

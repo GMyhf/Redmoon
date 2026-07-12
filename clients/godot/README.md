@@ -27,7 +27,8 @@ npm start                      # 先启动服务器（默认 127.0.0.1:3000）
 godot --path clients/godot     # Godot 4.3+
 ```
 
-服务器地址在 `scripts/main.gd` 顶部的 `SERVER_URL` 修改。
+服务器地址默认 `ws://127.0.0.1:3000/ws`，可用环境变量覆盖：
+`CRIMSON_SERVER=ws://<主机>:<端口>/ws godot --path clients/godot`。
 
 ## 无头验证
 
