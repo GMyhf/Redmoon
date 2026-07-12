@@ -298,7 +298,9 @@ test("special drops auto-equip on pickup and preserve their visible class", () =
 
 test("mob level rises with distance from town, the boss respawns, and potions heal", () => {
   const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
-  const near = world.spawnMob({ id: "near", x: world.width / 2 + 320, y: world.height / 2 });
+  // Straight below town centre avoids every themed district ellipse, so
+  // this exercises the town map's own distance curve.
+  const near = world.spawnMob({ id: "near", x: world.width / 2, y: world.height / 2 + 320 });
   const far = world.spawnMob({ id: "far", x: world.width - 100, y: 100 });
   assert.ok(near.level <= 3);
   assert.ok(far.level >= 9);
@@ -671,7 +673,7 @@ test("full bags swap the weakest item for a stronger find; drops magnetise", () 
   player.inventory.length = 0;
 
   // Fill the bag with worthless rings, then drop something excellent.
-  for (let index = 0; index < 48; index += 1) {
+  for (let index = 0; index < INVENTORY_LIMIT; index += 1) {
     world.giveItem("player-1", {
       slot: "ring",
       bonuses: { power: 0, agility: 0, spirit: 0, vitality: 0 },
@@ -680,12 +682,12 @@ test("full bags swap the weakest item for a stronger find; drops magnetise", () 
       speedBonus: 0,
     });
   }
-  assert.equal(player.inventory.length, 48);
+  assert.equal(player.inventory.length, INVENTORY_LIMIT);
   const prize = world._rollItem(9, 4);
   world._placeDrop(player.x, player.y, prize);
   world.update(0.05);
 
-  assert.equal(player.inventory.length, 48, "bag stays at capacity");
+  assert.equal(player.inventory.length, INVENTORY_LIMIT, "bag stays at capacity");
   assert.ok(player.inventory.some((item) => item.id === prize.id), "stronger find replaces the weakest");
   assert.ok(world.drainEvents().some((event) => event.event === "itemDiscarded"));
 
@@ -761,13 +763,14 @@ test("districts spawn mobs inside their own level band and gear scales up", () =
   const skyMob = world.spawnMob({ id: "sky", x: skycity.x, y: skycity.y });
   assert.ok(skyMob.level >= skycity.minLevel && skyMob.level <= skycity.maxLevel);
   const homeMob = world.spawnMob({ id: "home", x: resident.x, y: resident.y });
-  assert.ok(homeMob.level >= 1 && homeMob.level <= 3);
+  assert.ok(homeMob.level >= resident.minLevel && homeMob.level <= resident.maxLevel);
+  assert.ok(skyMob.level > homeMob.level, "the ladder rises across maps");
 
   // High-level gear carries a real stat budget and level to match.
   const relic = world._rollItem(18, 4);
-  assert.equal(relic.level, 20, "item level tracks mob level plus rarity, capped at 20");
+  assert.equal(relic.level, 21, "item level tracks mob level plus rarity tier");
   const statTotal = Object.values(relic.bonuses).reduce((sum, value) => sum + value, 0);
-  assert.equal(statTotal, 4 * 2 + 20, "stat budget grows with item level");
+  assert.equal(statTotal, 4 * 2 + 21, "stat budget grows with item level");
 });
 
 test("kills pay gold, dew revives in place, and shops trade goods", () => {
@@ -1078,8 +1081,8 @@ test("every biome has a boss with rising level and experience", () => {
   const levels = bosses.map((boss) => boss.level);
   assert.deepEqual(levels, [...levels].sort((a, b) => a - b), "boss levels rise across biomes");
   const warden = bosses.find((boss) => boss.id === "boss-warden");
-  assert.equal(warden.level, 20);
-  assert.equal(warden.xp, 2600);
+  assert.equal(warden.level, 1000);
+  assert.equal(warden.xp, 400000);
 
   const player = world.addPlayer("player-1", { archetype: "vanguard" });
   const thornmaw = bosses.find((boss) => boss.id === "boss-thornmaw");

@@ -192,7 +192,7 @@ export const SPECIAL_DROPS = Object.freeze({
   }),
 });
 
-export const INVENTORY_LIMIT = 48;
+export const INVENTORY_LIMIT = 240;
 export const DROP_TTL = 60;
 export const DROP_PICKUP_RADIUS = 26;
 // Drops within this range drift toward the nearest player on their own.
@@ -202,15 +202,17 @@ export const DROP_MAGNET_SPEED = 320;
 // Themed districts layered over the base terrain. Positions and radii are
 // fractions of the map size; mobs inside spawn within the level range.
 export const ZONES = Object.freeze([
-  Object.freeze({ id: "residential", theme: "residential", x: 0.4, y: 0.42, rx: 0.09, ry: 0.1, minLevel: 1, maxLevel: 3 }),
-  Object.freeze({ id: "downtown", theme: "downtown", x: 0.615, y: 0.44, rx: 0.09, ry: 0.1, minLevel: 2, maxLevel: 4 }),
-  Object.freeze({ id: "backhill", theme: "mountain", x: 0.5, y: 0.14, rx: 0.14, ry: 0.12, minLevel: 4, maxLevel: 7 }),
-  Object.freeze({ id: "scrapyard", theme: "scrapyard", x: 0.87, y: 0.5, rx: 0.12, ry: 0.14, minLevel: 6, maxLevel: 9 }),
-  Object.freeze({ id: "desert", theme: "desert", x: 0.26, y: 0.78, rx: 0.17, ry: 0.17, minLevel: 8, maxLevel: 11 }),
-  Object.freeze({ id: "snowmountain", theme: "snow", x: 0.19, y: 0.19, rx: 0.16, ry: 0.16, minLevel: 10, maxLevel: 13 }),
-  Object.freeze({ id: "castle", theme: "castle", x: 0.09, y: 0.52, rx: 0.085, ry: 0.11, minLevel: 12, maxLevel: 14 }),
-  Object.freeze({ id: "starship", theme: "spaceport", x: 0.445, y: 0.85, rx: 0.14, ry: 0.12, minLevel: 12, maxLevel: 16 }),
-  Object.freeze({ id: "skycity", theme: "skycity", x: 0.875, y: 0.14, rx: 0.135, ry: 0.13, minLevel: 14, maxLevel: 18 }),
+  // Level bands ladder the nine hunting grounds across the full 1-1000
+  // journey; the town map keeps its own low-level distance curve.
+  Object.freeze({ id: "residential", theme: "residential", x: 0.4, y: 0.42, rx: 0.09, ry: 0.1, minLevel: 1, maxLevel: 25 }),
+  Object.freeze({ id: "downtown", theme: "downtown", x: 0.615, y: 0.44, rx: 0.09, ry: 0.1, minLevel: 15, maxLevel: 45 }),
+  Object.freeze({ id: "backhill", theme: "mountain", x: 0.5, y: 0.14, rx: 0.14, ry: 0.12, minLevel: 40, maxLevel: 110 }),
+  Object.freeze({ id: "scrapyard", theme: "scrapyard", x: 0.87, y: 0.5, rx: 0.12, ry: 0.14, minLevel: 90, maxLevel: 210 }),
+  Object.freeze({ id: "desert", theme: "desert", x: 0.26, y: 0.78, rx: 0.17, ry: 0.17, minLevel: 180, maxLevel: 360 }),
+  Object.freeze({ id: "snowmountain", theme: "snow", x: 0.19, y: 0.19, rx: 0.16, ry: 0.16, minLevel: 330, maxLevel: 520 }),
+  Object.freeze({ id: "castle", theme: "castle", x: 0.09, y: 0.52, rx: 0.085, ry: 0.11, minLevel: 480, maxLevel: 680 }),
+  Object.freeze({ id: "starship", theme: "spaceport", x: 0.445, y: 0.85, rx: 0.14, ry: 0.12, minLevel: 650, maxLevel: 860 }),
+  Object.freeze({ id: "skycity", theme: "skycity", x: 0.875, y: 0.14, rx: 0.135, ry: 0.13, minLevel: 820, maxLevel: 1000 }),
 ]);
 
 // Gate ring around town: one portal per hunting ground, paired with a
@@ -228,15 +230,18 @@ export const PORTAL_DESTINATIONS = Object.freeze([
 ]);
 
 // One boss per hunting ground, in rising order of level and experience.
+// Boss levels track the 1-1000 map ladder and stay monotonic along the
+// quest chain (thornmaw → sandmaw → warden). HP ≈ (26+16×level)×7.5,
+// damage ≈ (5+2.5×level)×0.8, XP ≈ 400×level.
 export const BOSSES = Object.freeze([
-  Object.freeze({ id: "boss-thornmaw", type: "thornmaw", name: "Thornmaw", level: 7, maxHp: 900, damage: 20, speed: 96, xp: 400, radius: 24, x: 0.13, y: 0.5 }),
-  Object.freeze({ id: "boss-cragfather", type: "cragfather", name: "Cragfather", level: 9, maxHp: 1300, damage: 26, speed: 80, xp: 600, radius: 27, x: 0.5, y: 0.12 }),
-  Object.freeze({ id: "boss-sandmaw", type: "sandmaw", name: "Sandmaw", level: 11, maxHp: 1700, damage: 30, speed: 84, xp: 900, radius: 28, x: 0.26, y: 0.78 }),
-  Object.freeze({ id: "boss-rustking", type: "rustking", name: "Rustking", level: 12, maxHp: 1900, damage: 32, speed: 70, xp: 1100, radius: 30, x: 0.9, y: 0.5 }),
-  Object.freeze({ id: "boss-rimehorn", type: "rimehorn", name: "Rimehorn", level: 14, maxHp: 2300, damage: 34, speed: 78, xp: 1400, radius: 29, x: 0.19, y: 0.19 }),
-  Object.freeze({ id: "boss-gravemarch", type: "gravemarch", name: "Gravemarch", level: 15, maxHp: 2600, damage: 36, speed: 74, xp: 1700, radius: 30, x: 0.09, y: 0.52 }),
-  Object.freeze({ id: "boss-hullwraith", type: "hullwraith", name: "Hullwraith", level: 17, maxHp: 3000, damage: 38, speed: 100, xp: 2000, radius: 28, x: 0.42, y: 0.86 }),
-  Object.freeze({ id: "boss-warden", type: "warden", name: "Crimson Warden", level: 20, maxHp: 3600, damage: 44, speed: 92, xp: 2600, radius: 30, x: 0.9, y: 0.14 }),
+  Object.freeze({ id: "boss-cragfather", type: "cragfather", name: "Cragfather", level: 130, maxHp: 16000, damage: 270, speed: 80, xp: 52000, radius: 27, x: 0.5, y: 0.12 }),
+  Object.freeze({ id: "boss-rustking", type: "rustking", name: "Rustking", level: 240, maxHp: 29000, damage: 490, speed: 70, xp: 96000, radius: 30, x: 0.9, y: 0.5 }),
+  Object.freeze({ id: "boss-thornmaw", type: "thornmaw", name: "Thornmaw", level: 260, maxHp: 32000, damage: 530, speed: 96, xp: 104000, radius: 24, x: 0.2, y: 0.68 }),
+  Object.freeze({ id: "boss-sandmaw", type: "sandmaw", name: "Sandmaw", level: 380, maxHp: 46000, damage: 770, speed: 84, xp: 152000, radius: 28, x: 0.31, y: 0.86 }),
+  Object.freeze({ id: "boss-rimehorn", type: "rimehorn", name: "Rimehorn", level: 550, maxHp: 66000, damage: 1110, speed: 78, xp: 220000, radius: 29, x: 0.19, y: 0.19 }),
+  Object.freeze({ id: "boss-gravemarch", type: "gravemarch", name: "Gravemarch", level: 700, maxHp: 84000, damage: 1400, speed: 74, xp: 280000, radius: 30, x: 0.09, y: 0.52 }),
+  Object.freeze({ id: "boss-hullwraith", type: "hullwraith", name: "Hullwraith", level: 870, maxHp: 105000, damage: 1750, speed: 100, xp: 348000, radius: 28, x: 0.42, y: 0.86 }),
+  Object.freeze({ id: "boss-warden", type: "warden", name: "Crimson Warden", level: 1000, maxHp: 120000, damage: 2000, speed: 92, xp: 400000, radius: 30, x: 0.9, y: 0.14 }),
 ]);
 
 // Auto point-allocation weights per hero: stats are filled so that
@@ -383,7 +388,7 @@ export function skillDefinition(archetype, slot) {
     name: names[slot === "r" ? 0 : 1],
     description: slot === "r" ? "Concentrate power into a heavy five-point assault." : "Reposition and release a defensive ring.",
     cooldown: slot === "r" ? 8.5 : 10,
-    maxLevel: 15,
+    maxLevel: 75,
     unlockLevel: slot === "r" ? 5 : 10,
   });
 }
@@ -410,21 +415,21 @@ export const ARCHETYPES = Object.freeze({
         name: "Ram Drive",
         description: "Surge forward and launch a heavy kinetic wave.",
         cooldown: 4.5,
-        maxLevel: 20,
+        maxLevel: 100,
       }),
       e: Object.freeze({
         id: "resonant-ring",
         name: "Resonant Ring",
         description: "Release a ring of short-range force projectiles.",
         cooldown: 7,
-        maxLevel: 20,
+        maxLevel: 100,
       }),
       f: Object.freeze({
         id: "skybreaker",
         name: "Skybreaker",
         description: "Bring the blade down hard enough to crack the field itself.",
         cooldown: 16,
-        maxLevel: 10,
+        maxLevel: 50,
       }),
     }),
   }),
@@ -449,21 +454,21 @@ export const ARCHETYPES = Object.freeze({
         name: "Arc Lance",
         description: "Fire a piercing lance that crosses the battlefield.",
         cooldown: 3.8,
-        maxLevel: 20,
+        maxLevel: 100,
       }),
       e: Object.freeze({
         id: "orbit-bloom",
         name: "Orbit Bloom",
         description: "Cast stellar bolts in every direction.",
         cooldown: 7.5,
-        maxLevel: 20,
+        maxLevel: 100,
       }),
       f: Object.freeze({
         id: "startide",
         name: "Startide",
         description: "Release a colossal orb of starfire that rolls through everything.",
         cooldown: 18,
-        maxLevel: 10,
+        maxLevel: 50,
       }),
     }),
   }),
@@ -488,21 +493,21 @@ export const ARCHETYPES = Object.freeze({
         name: "Split Volley",
         description: "Fire three precision darts in a narrow fan.",
         cooldown: 3.4,
-        maxLevel: 20,
+        maxLevel: 100,
       }),
       e: Object.freeze({
         id: "phase-vault",
         name: "Phase Vault",
         description: "Vault forward and fire a wake of energy.",
         cooldown: 6,
-        maxLevel: 20,
+        maxLevel: 100,
       }),
       f: Object.freeze({
         id: "storm-of-edges",
         name: "Storm of Edges",
         description: "Dash through the fray inside a storm of spinning blades.",
         cooldown: 15,
-        maxLevel: 10,
+        maxLevel: 50,
       }),
     }),
   }),
@@ -527,21 +532,21 @@ export const ARCHETYPES = Object.freeze({
         name: "Quake Ring",
         description: "Slam the ground and shatter everything nearby.",
         cooldown: 5,
-        maxLevel: 20,
+        maxLevel: 100,
       }),
       e: Object.freeze({
         id: "iron-charge",
         name: "Iron Charge",
         description: "Charge forward behind a crushing ram wave.",
         cooldown: 6.5,
-        maxLevel: 20,
+        maxLevel: 100,
       }),
       f: Object.freeze({
         id: "mountainfall",
         name: "Mountainfall",
         description: "Shatter the ground in a devastating full-circle quake.",
         cooldown: 20,
-        maxLevel: 10,
+        maxLevel: 50,
       }),
     }),
   }),
@@ -566,21 +571,21 @@ export const ARCHETYPES = Object.freeze({
         name: "Rail Lance",
         description: "A piercing shot that crosses half the field.",
         cooldown: 4.2,
-        maxLevel: 20,
+        maxLevel: 100,
       }),
       e: Object.freeze({
         id: "disengage-volley",
         name: "Disengage Volley",
         description: "Leap back while loosing a spread of bolts.",
         cooldown: 6,
-        maxLevel: 20,
+        maxLevel: 100,
       }),
       f: Object.freeze({
         id: "meteor-volley",
         name: "Meteor Volley",
         description: "Loose five piercing lances that cross the entire field.",
         cooldown: 17,
-        maxLevel: 10,
+        maxLevel: 50,
       }),
     }),
   }),
@@ -605,21 +610,21 @@ export const ARCHETYPES = Object.freeze({
         name: "Flame Nova",
         description: "Erupt in a ring of fire.",
         cooldown: 5.5,
-        maxLevel: 20,
+        maxLevel: 100,
       }),
       e: Object.freeze({
         id: "ember-fan",
         name: "Ember Fan",
         description: "Sweep a wide fan of embers forward.",
         cooldown: 4.4,
-        maxLevel: 20,
+        maxLevel: 100,
       }),
       f: Object.freeze({
         id: "skyfire",
         name: "Skyfire",
         description: "Ignite the air itself in a vast double ring of flame.",
         cooldown: 19,
-        maxLevel: 10,
+        maxLevel: 50,
       }),
     }),
   }),
@@ -644,21 +649,21 @@ export const ARCHETYPES = Object.freeze({
         name: "Rift of Two Lights",
         description: "A radiant lance — or a fan of frost-dark bolts. Reputation decides.",
         cooldown: 4,
-        maxLevel: 20,
+        maxLevel: 100,
       }),
       e: Object.freeze({
         id: "soulguard-surge",
         name: "Soulguard Surge",
         description: "Mend and harden the soul barrier, or vent a ring of deep frost.",
         cooldown: 7,
-        maxLevel: 20,
+        maxLevel: 100,
       }),
       f: Object.freeze({
         id: "zenith-and-nadir",
         name: "Zenith and Nadir",
         description: "The full weight of dawn, or the deepest cold of night.",
         cooldown: 17,
-        maxLevel: 10,
+        maxLevel: 50,
       }),
     }),
   }),
@@ -683,21 +688,21 @@ export const ARCHETYPES = Object.freeze({
         name: "Moon Whirl",
         description: "Spin with blades out, shredding all around.",
         cooldown: 3.6,
-        maxLevel: 20,
+        maxLevel: 100,
       }),
       e: Object.freeze({
         id: "lunar-rush",
         name: "Lunar Rush",
         description: "Dash through and cut twice on the way.",
         cooldown: 5.2,
-        maxLevel: 20,
+        maxLevel: 100,
       }),
       f: Object.freeze({
         id: "eclipse-waltz",
         name: "Eclipse Waltz",
         description: "Dance through the enemy line in a whirl of crescent light.",
         cooldown: 15,
-        maxLevel: 10,
+        maxLevel: 50,
       }),
     }),
   }),

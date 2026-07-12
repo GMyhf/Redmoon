@@ -906,7 +906,8 @@ button {
 .gear-panel {
   top: 394px;
   left: max(18px, env(safe-area-inset-left));
-  width: 214px;
+  /* Wide enough for full item names in the bag rows. */
+  width: 306px;
   padding: 10px 12px 11px;
 }
 
@@ -985,7 +986,7 @@ button {
   margin-top: 6px;
   display: grid;
   gap: 3px;
-  max-height: 170px;
+  max-height: 230px;
   overflow-y: auto;
 }
 

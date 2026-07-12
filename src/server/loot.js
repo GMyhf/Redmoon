@@ -12,7 +12,8 @@ import {
   STAT_KEYS,
 } from "./definitions.js";
 
-export const MAX_ITEM_LEVEL = 20;
+// Items track mob levels across the whole 1-1000 ladder.
+export const MAX_ITEM_LEVEL = 1000;
 
 function roll01(rng) {
   return Math.min(0.999999, Math.max(0, rng()));

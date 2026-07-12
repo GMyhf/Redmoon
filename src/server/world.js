@@ -757,7 +757,7 @@ export class World {
     if (good.heal) {
       item = { ...this._rollPotion(1), heal: good.heal, name: "Mending Vial" };
     } else if (good.key === "forge-gear") {
-      item = this._rollItem(clamp(player.level, 1, 18), 2);
+      item = this._rollItem(clamp(player.level, 1, LEVEL_CAP), 2);
     } else {
       item = this._rollRelic(Math.min(player.level, 20));
     }
@@ -973,6 +973,8 @@ export class World {
       projectiles: shared.projectiles,
       drops: shared.drops,
       mapId,
+      // Server-wide head count: the players array only covers this map.
+      online: this.players.size,
     };
   }
 
@@ -1086,7 +1088,12 @@ export class World {
       : clamp(this._levelForPoint(point) + Math.floor(roll * 2), 1, MAX_MOB_LEVEL);
     const level = Math.max(1, nonNegativeInteger(overrides.level, rolledLevel));
     const elite = overrides.elite ?? (overrides.level === undefined && this.rng() < ELITE_CHANCE);
-    const band = Math.min(MOB_TYPES.length - 1, Math.floor((level - 1) / 2));
+    // Themed maps spread the nine species across the 1-1000 ladder on a
+    // square-root curve; the low-level town map keeps its classic
+    // two-levels-per-species gradient so the frontier still shows giants.
+    const band = zone
+      ? Math.min(MOB_TYPES.length - 1, Math.floor(Math.sqrt(level / LEVEL_CAP) * MOB_TYPES.length))
+      : Math.min(MOB_TYPES.length - 1, Math.floor((level - 1) / 2));
     const species = MOB_TYPES.find((entry) => entry.type === overrides.type) ?? MOB_TYPES[band];
     const power = elite ? 1.6 : 1;
     const maxHp = positiveNumber(
@@ -2033,7 +2040,7 @@ export class World {
   _dropBossHoard(mob) {
     const pieces = 3 + Math.floor(mob.level / 8);
     for (let index = 0; index < pieces; index += 1) {
-      const item = this._rollItem(Math.min(mob.level, MAX_MOB_LEVEL), 3);
+      const item = this._rollItem(mob.level, 3);
       this._placeDrop(
         mob.x + (this.rng() - 0.5) * 90,
         mob.y + (this.rng() - 0.5) * 90,

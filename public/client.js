@@ -1,3 +1,20 @@
+import {
+  ARCHETYPES,
+  BIOME_RAMPS,
+  CLASS_LOOKS,
+  DOLL_SLOTS,
+  HERO_SPRITES,
+  ITEM_NAMES,
+  MOB_NAMES,
+  RARITY_INFO,
+  RENDER_AS,
+  SLOT_LABELS,
+  STAT_LABELS,
+  WEAPON_SHAPES,
+  ZONE_LABELS,
+  ZONE_TEXTURE,
+} from "./data.js";
+
 (() => {
   "use strict";
 
@@ -78,228 +95,11 @@
   // src/server/definitions.js.
   const CLIENT_PROTOCOL = 2;
 
-  // Seven original named heroes (names, lore, and designs are this project's own).
-  const ARCHETYPES = {
-    vanguard: {
-      label: "绯岚",
-      role: "重刃突击",
-      trait: "高韧性",
-      sigil: "绯",
-      body: "#d74d5e",
-      accent: "#f0c15e",
-      q: "震荡环",
-      e: "壁垒冲锋",
-      lore: "中继站陷落那夜独自扛住城门的老兵，刀刃上至今留着裂隙的灼痕。",
-      primaryName: "脉冲斩",
-      primaryDesc: "中距离重击，出手稳、伤害厚",
-      qDesc: "向四周轰出一圈震荡波，清开近身之敌",
-      eDesc: "向前突进并撞出巨大的冲击波",
-      f: "绯岚断空",
-      fDesc: "倾尽全力的一击，震荡波席卷四面八方",
-      stats: { power: 6, agility: 3, spirit: 2, vitality: 7 },
-    },
-    channeler: {
-      label: "汀兰",
-      role: "星能术师",
-      trait: "场域控制",
-      sigil: "汀",
-      body: "#52c9bd",
-      accent: "#83d4ff",
-      q: "中继爆发",
-      e: "相位结界",
-      lore: "能听见星能潮汐的年轻术师，坚信红月背后藏着一段未被应答的讯号。",
-      primaryName: "星火束",
-      primaryDesc: "远程速射星能弹",
-      qDesc: "射出贯穿一切的星能长枪",
-      eDesc: "向所有方向绽放星能弹幕",
-      f: "星潮涌落",
-      fDesc: "放出缓慢滚动的巨型星能球，碾过沿途一切",
-      stats: { power: 2, agility: 4, spirit: 7, vitality: 4 },
-    },
-    strider: {
-      label: "疾风",
-      role: "游侠",
-      trait: "高机动",
-      sigil: "疾",
-      body: "#e2a64f",
-      accent: "#e86969",
-      q: "裂光飞刃",
-      e: "相位疾步",
-      lore: "荒原信使出身，比任何人都清楚哪条路能活着回来。",
-      primaryName: "针芒镖",
-      primaryDesc: "极快的远程飞镖连射",
-      qDesc: "以窄扇面掷出三枚裂光飞刃",
-      eDesc: "向前疾步位移并留下追击弹幕",
-      f: "风暴刃舞",
-      fDesc: "长距突进并在身周掀起刀刃风暴",
-      stats: { power: 4, agility: 7, spirit: 3, vitality: 4 },
-    },
-    bulwark: {
-      label: "铁岳",
-      role: "壁垒守卫",
-      trait: "极限生存",
-      sigil: "铁",
-      body: "#9aa7b8",
-      accent: "#c3d0e2",
-      q: "崩地环",
-      e: "铁壁冲撞",
-      lore: "前采掘队护卫，习惯把队友挡在身后、把伤痕留给自己。",
-      primaryName: "破垒击",
-      primaryDesc: "近距重锤，一击一击都砸得结实",
-      qDesc: "砸碎脚下大地，震荡波席卷周身",
-      eDesc: "顶着铁壁向前冲撞，撞出巨型冲击弹",
-      f: "山崩",
-      fDesc: "砸碎大地，全方位的毁灭性震荡",
-      stats: { power: 7, agility: 2, spirit: 2, vitality: 8 },
-    },
-    longshot: {
-      label: "星眸",
-      role: "狙击手",
-      trait: "超远射程",
-      sigil: "星",
-      body: "#7fb4e6",
-      accent: "#a9d0f5",
-      q: "贯星长矢",
-      e: "撤离连射",
-      lore: "哨塔上的守望者，一矢贯星，从不浪费第二发。",
-      primaryName: "长风矢",
-      primaryDesc: "全场最远的普攻射程",
-      qDesc: "射出可贯穿多个目标的狙击长矢",
-      eDesc: "向后跳离危险，同时扇形回射三矢",
-      f: "贯界连矢",
-      fDesc: "五道贯穿全场的狙击长矢",
-      stats: { power: 4, agility: 8, spirit: 3, vitality: 3 },
-    },
-    pyre: {
-      label: "焰蝶",
-      role: "烈焰术士",
-      trait: "范围爆发",
-      sigil: "焰",
-      body: "#e07a4f",
-      accent: "#ffab72",
-      q: "烈焰新星",
-      e: "烬火扇击",
-      lore: "以焰为墨的流浪术士，笑称自己只是提前点亮了黑夜。",
-      primaryName: "烬火弹",
-      primaryDesc: "快节奏的火焰速射",
-      qDesc: "以自身为中心炸开一圈烈焰新星",
-      eDesc: "向前方泼洒一大片烬火",
-      f: "焚天",
-      fDesc: "内外两圈烈焰同时炸开，焚尽周身",
-      stats: { power: 2, agility: 3, spirit: 8, vitality: 5 },
-    },
-    eclipse: {
-      label: "玄晓",
-      role: "明暗行者",
-      trait: "双线成长",
-      sigil: "晓",
-      body: "#9d8fe0",
-      accent: "#ffe9b0",
-      q: "两光裂隙",
-      e: "魂障涌流",
-      f: "昼夜两极",
-      lore: "红月之下诞生的双魂者，晨光与深渊在他体内此消彼长；他的每一次出手都在为其中一方投票。",
-      primaryName: "双络弹",
-      primaryDesc: "光暗交替的速射星弹",
-      qDesc: "光辉线：贯穿圣枪；深渊线：三向蚀寒弹",
-      eDesc: "光辉线：治愈并强化魂力护障；深渊线：寒霜环爆",
-      fDesc: "光辉线：黎明环爆并回复魂力；深渊线：双重永夜冰环",
-      stats: { power: 3, agility: 4, spirit: 7, vitality: 4 },
-    },
-    moonblade: {
-      label: "月绫",
-      role: "月刃舞者",
-      trait: "贴身连击",
-      sigil: "月",
-      body: "#cfd8ec",
-      accent: "#e8eefc",
-      q: "月轮回旋",
-      e: "追月突刺",
-      lore: "月下起舞的剑士，刀光起落之间胜负已分。",
-      primaryName: "新月斩",
-      primaryDesc: "全场最快的攻击节奏，贴身收割",
-      qDesc: "旋身挥出月轮，绞碎周身敌人",
-      eDesc: "化作月光突进，沿途连斩两刀",
-      f: "月蚀乱舞",
-      fDesc: "化作月光穿阵，刃光与月轮齐出",
-      stats: { power: 5, agility: 7, spirit: 3, vitality: 3 },
-    },
-  };
 
-  const STAT_LABELS = {
-    power: "力量",
-    agility: "敏捷",
-    spirit: "精神",
-    vitality: "体魄",
-  };
 
-  const RARITY_INFO = {
-    common: { label: "普通", prefix: "", color: "#c3cbcd" },
-    fine: { label: "精制", prefix: "精制·", color: "#79d99b" },
-    rare: { label: "谐振", prefix: "谐振·", color: "#63aef0" },
-    epic: { label: "赤月", prefix: "赤月·", color: "#e0596d" },
-    relic: { label: "遗物", prefix: "", color: "#ffd479" },
-    unique: { label: "唯一", prefix: "唯一·", color: "#e7a7ff" },
-    sunset: { label: "日落", prefix: "日落·", color: "#ff9a5c" },
-  };
 
-  const ITEM_NAMES = {
-    "Pulse Edge": "脉冲刃",
-    "Starrift Bow": "裂星弓",
-    "Resonant Staff": "谐振杖",
-    "Weave Plate": "织钢甲",
-    "Phase Guard": "相位护盾",
-    "Moonthread Robe": "月纹罩袍",
-    "Ridge Helm": "棱脊盔",
-    "Duskwatch Hood": "暮哨兜帽",
-    "Lunar Circlet": "月环冠",
-    "Signal Torque": "信标项环",
-    "Emberbead Chain": "烬珠链",
-    "Tidebound Pendant": "潮缚坠",
-    "Orbit Band": "轨环戒",
-    "Rift Seal": "裂隙印戒",
-    "Dawnspark Ring": "晨火戒",
-    "Skimmer Boots": "掠地靴",
-    "Duneswift Greaves": "沙迅胫甲",
-    "Nightpath Treads": "夜路靴",
-    "Aegis Plate": "御星盾",
-    "Wardwall": "壁垒盾",
-    "Echo Buckler": "回响盾",
-    "Relay Girdle": "中继束带",
-    "Duneclasp Belt": "沙扣腰带",
-    "Thornloop Sash": "棘环腰带",
-    "Embergrip Gloves": "烬握手套",
-    "Weaver Mitts": "织流手套",
-    "Stonefist Gauntlets": "岩拳手套",
-    "Trail Greaves": "行路护腿",
-    "Duskweave Pants": "暮纹裤",
-    "Plated Leggings": "覆甲护腿",
-    "Mending Vial": "修复药剂",
-  };
 
-  const SLOT_LABELS = {
-    weapon: "武器",
-    shield: "护盾",
-    helm: "头盔",
-    necklace: "项链",
-    chest: "胸甲",
-    belt: "腰带",
-    gloves: "手套",
-    pants: "裤子",
-    boots: "靴子",
-    ring: "戒指",
-    ring1: "戒指Ⅰ",
-    ring2: "戒指Ⅱ",
-    ring3: "戒指Ⅲ",
-    potion: "药剂",
-  };
 
-  const DOLL_SLOTS = [
-    "helm", "necklace", "ring1",
-    "weapon", "chest", "ring2",
-    "shield", "belt", "ring3",
-    "gloves", "pants", "boots",
-  ];
 
   function gearIcon(slot) {
     const icon = document.createElement("i");
@@ -308,104 +108,14 @@
     return icon;
   }
 
-  const MOB_NAMES = {
-    riftling: "裂隙体",
-    duskfang: "暮牙兽",
-    ashwing: "烬翼",
-    thorncrawler: "棘甲爬兽",
-    stonehorn: "岩角兽",
-    frostseer: "霜眼祭兽",
-    scraphulk: "废钢巨兽",
-    stormeye: "风暴浮眼",
-    voidmaw: "虚空吞喉",
-    warden: "深红督军",
-    thornmaw: "棘颚兽",
-    cragfather: "岩父",
-    rustking: "锈王",
-    hullwraith: "舰魂",
-    sandmaw: "沙喉",
-    rimehorn: "霜角",
-    gravemarch: "墓行者",
-  };
 
-  // Biome bosses reuse the closest species body at boss scale.
-  const RENDER_AS = {
-    thorncrawler: "riftling",
-    frostseer: "voidmaw",
-    stormeye: "ashwing",
-    thornmaw: "duskfang",
-    cragfather: "stonehorn",
-    rustking: "scraphulk",
-    hullwraith: "ashwing",
-    sandmaw: "voidmaw",
-    rimehorn: "stonehorn",
-    gravemarch: "scraphulk",
-  };
 
-  const ZONE_LABELS = {
-    town: "城镇",
-    grass: "草原",
-    grassland: "草原",
-    mountain: "后山",
-    backhill: "后山",
-    scrapyard: "废车场",
-    spaceport: "宇宙船",
-    starship: "宇宙船",
-    wastes: "水晶荒原",
-    residential: "住宅区",
-    downtown: "闹区",
-    desert: "沙漠",
-    snowmountain: "雪山",
-    snow: "雪山",
-    castle: "城堡",
-    skycity: "天空之城",
-    lake: "湖泊",
-  };
 
-  const ZONE_TEXTURE = Object.freeze({
-    residential: "residential",
-    downtown: "downtown",
-    mountain: "mountain",
-    scrapyard: "scrapyard",
-    desert: "desert",
-    snow: "snow",
-    castle: "castle",
-    spaceport: "spaceport",
-    skycity: "skycity",
-  });
 
   const zoneTextureImages = new Map();
   const zoneTexturePatterns = new Map();
   const heroSpriteImages = new Map();
-  const HERO_SPRITES = Object.freeze({
-    vanguard: "vanguard-3d.webp",
-    channeler: "channeler-3d.webp",
-    strider: "strider-3d.webp",
-    bulwark: "bulwark-3d.webp",
-    longshot: "longshot-3d.webp",
-    pyre: "pyre-3d.webp",
-    eclipse: "eclipse-3d.webp",
-    moonblade: "moonblade-3d.webp",
-  });
 
-  // Themed regions of the alien world, resolved purely from world position.
-  // Each biome is a colour ramp; the ground blends smoothly between the
-  // two ends so terrain reads as rolling fields, not a checkerboard.
-  const BIOME_RAMPS = {
-    town: ["#3d312c", "#4c3d35"],
-    grass: ["#24401f", "#3f6132"],
-    mountain: ["#2e3540", "#4d5868"],
-    scrapyard: ["#3a2b1f", "#5c4433"],
-    spaceport: ["#232a3c", "#3c4763"],
-    wastes: ["#33222b", "#502f3e"],
-    lake: ["#1c3a50", "#2e5f7d"],
-    residential: ["#3a332e", "#544a3e"],
-    downtown: ["#26242e", "#403c50"],
-    desert: ["#5c4a2e", "#8a7048"],
-    snow: ["#5a6878", "#93a7b8"],
-    castle: ["#3a363c", "#5a5460"],
-    skycity: ["#33415e", "#57698f"],
-  };
 
   const hexToRgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
   const BIOME_RGB = Object.fromEntries(
@@ -443,6 +153,9 @@
     return (n00 * (1 - sx) + n10 * sx) * (1 - sy) + (n01 * (1 - sx) + n11 * sx) * sy;
   }
 
+  // Resolved purely from server data: the safe zone, any district ellipses
+  // the server sent, and the map's own theme. The old hardcoded lake and
+  // quadrant layout is gone — the server owns the world's shape.
   function biomeAt(worldX, worldY) {
     const zone = state.map.safeZone;
     if (zone) {
@@ -450,75 +163,15 @@
       const dy = worldY - zone.y;
       if (dx * dx + dy * dy <= zone.radius * zone.radius) return "town";
     }
-    // A shallow lake glitters in the western grassland.
-    {
-      const lx = (worldX - state.map.width * 0.2) / 340;
-      const ly = (worldY - state.map.height * 0.62) / 230;
-      if (lx * lx + ly * ly <= 1) return "lake";
-    }
-    // Themed districts from the server override the base terrain.
     for (const district of state.map.zones || []) {
       const dx = (worldX - district.x) / district.rx;
       const dy = (worldY - district.y) / district.ry;
       if (dx * dx + dy * dy <= 1) return district.theme;
     }
-    // Boss quadrant: the crystal wastes in the far north-east.
-    if (worldX > state.map.width * 0.68 && worldY < state.map.height * 0.36) return "wastes";
-    const dx = worldX - state.map.width / 2;
-    const dy = (worldY - state.map.height / 2) * (state.map.width / state.map.height);
-    if (dy < -Math.abs(dx) * 0.55) return "mountain";
-    if (dy > Math.abs(dx) * 0.55) return "spaceport";
-    if (dx >= 0) return "scrapyard";
-    return "grass";
+    return state.map.theme || state.activeTheme || "town";
   }
 
-  // Original pixel-figure looks for each archetype (skin/hair/outfit palettes).
-  const CLASS_LOOKS = {
-    vanguard: {
-      skin: "#e9b98d", hair: "#43302a", torso: "#b6404e", torsoShade: "#8e3140",
-      legs: "#2c3138", accent: "#f0c15e", defaultWeapon: "blade", weaponColor: "#ccd5da",
-    },
-    channeler: {
-      skin: "#ecc79d", hair: "#2b4a46", torso: "#2f7d74", torsoShade: "#25635c",
-      legs: "#233a37", accent: "#83d4ff", robe: true, hood: true,
-      defaultWeapon: "staff", weaponColor: "#69e0cf",
-    },
-    strider: {
-      skin: "#e5b287", hair: "#c9873f", torso: "#a3742f", torsoShade: "#7f5a24",
-      legs: "#3c3830", accent: "#e86969", ponytail: true,
-      defaultWeapon: "bow", weaponColor: "#caa25c",
-    },
-    bulwark: {
-      skin: "#d9a97f", hair: "#2e2a28", torso: "#6f7d8f", torsoShade: "#59667a",
-      legs: "#2c3138", accent: "#c3d0e2", defaultWeapon: "blade", weaponColor: "#cfd8e2",
-    },
-    longshot: {
-      skin: "#ecc9a4", hair: "#9fc0e2", torso: "#35577c", torsoShade: "#2a4462",
-      legs: "#22303f", accent: "#a9d0f5", ponytail: true,
-      defaultWeapon: "bow", weaponColor: "#a9d0f5",
-    },
-    pyre: {
-      skin: "#eec3a0", hair: "#d96b3a", torso: "#8f3b2a", torsoShade: "#732e21",
-      legs: "#3a2622", accent: "#ffab72", robe: true,
-      defaultWeapon: "staff", weaponColor: "#ffab72",
-    },
-    moonblade: {
-      skin: "#f0d6bd", hair: "#dfe6f2", torso: "#7c86a0", torsoShade: "#646e88",
-      legs: "#2f3442", accent: "#e8eefc", ponytail: true,
-      defaultWeapon: "blade", weaponColor: "#e8eefc",
-    },
-    eclipse: {
-      skin: "#e8cdb2", hair: "#d8d4e8", torso: "#5a5382", torsoShade: "#474070",
-      legs: "#2c2a3c", accent: "#ffe9b0", robe: true,
-      defaultWeapon: "staff", weaponColor: "#cbbcf5",
-    },
-  };
 
-  const WEAPON_SHAPES = {
-    "Pulse Edge": "blade",
-    "Starrift Bow": "bow",
-    "Resonant Staff": "staff",
-  };
 
   function rarityInfo(rarity) {
     return RARITY_INFO[String(rarity || "common").toLowerCase()] || RARITY_INFO.common;
@@ -610,7 +263,7 @@
     orders: { moveTo: undefined, target: undefined },
     dragMove: false,
     rebirthLevel: 10,
-    inventoryLimit: 48,
+    inventoryLimit: 240,
     shopId: null,
     socialSignature: "",
     inputSeq: 0,
@@ -898,7 +551,8 @@
     if (quest) state.quest = quest;
     updateHud(local);
 
-    ui.population.textContent = `${state.players.size} 在线`;
+    // The players array only carries this map; the server counts everyone.
+    ui.population.textContent = `${Math.max(state.players.size, Math.round(finite(snapshot.online, 0)))} 在线`;
     ui.population.hidden = false;
   }
 
