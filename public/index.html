@@ -55,13 +55,14 @@
 
       <section id="hud" class="hud" aria-label="操作员状态" hidden>
         <aside class="operator-panel" aria-label="操作员">
-          <div class="operator-heading">
+          <div class="operator-heading" data-drag-handle>
             <div id="operator-sigil" class="operator-sigil">V</div>
             <div>
               <span id="operator-class">先锋</span>
               <strong id="operator-display-name">RELAY-07</strong>
             </div>
             <b id="operator-level">L01</b>
+            <button class="panel-collapse" type="button" data-panel-toggle title="折叠窗口" aria-label="折叠操作员窗口">−</button>
           </div>
           <div class="meter health-meter">
             <div id="health-fill" class="meter-fill"></div>
@@ -92,9 +93,10 @@
         </aside>
 
         <aside class="stats-panel" aria-label="属性">
-          <div class="panel-title">
+          <div class="panel-title" data-drag-handle>
             <span>属性</span>
             <b id="stat-points">0 点</b>
+            <button class="panel-collapse" type="button" data-panel-toggle title="折叠窗口" aria-label="折叠属性窗口">−</button>
           </div>
           <div class="stat-grid">
             <div class="stat-row" data-stat="power">
@@ -121,36 +123,43 @@
         </aside>
 
         <aside class="gear-panel" aria-label="装备与背包">
-          <div class="panel-title">
+          <div class="panel-title" data-drag-handle>
             <span>装备</span>
             <span class="panel-title-actions">
               <button id="auto-equip-button" class="mini-command" type="button" title="自动穿上每个部位最强的装备">自动</button>
               <b id="bag-count">0/24</b>
             </span>
+            <button class="panel-collapse" type="button" data-panel-toggle title="折叠窗口" aria-label="折叠装备窗口">−</button>
           </div>
           <div id="equipment-doll" class="equipment-doll" aria-label="穿戴部位"></div>
           <div id="inventory-list" class="inventory-list"></div>
         </aside>
 
         <aside class="quest-panel" aria-label="当前目标">
-          <span class="eyebrow">活跃信号</span>
-          <strong id="quest-title">守住中继站</strong>
-          <p id="quest-summary">已清除入侵单位</p>
-          <div class="quest-progress">
-            <i id="quest-fill"></i>
+          <div class="panel-title" data-drag-handle>
+            <span>任务</span>
+            <button class="panel-collapse" type="button" data-panel-toggle title="折叠窗口" aria-label="折叠任务窗口">−</button>
           </div>
-          <div class="quest-count"><span id="quest-current">0</span> / <span id="quest-target">8</span></div>
+          <div class="quest-content">
+            <span class="eyebrow">活跃信号</span>
+            <strong id="quest-title">守住中继站</strong>
+            <p id="quest-summary">已清除入侵单位</p>
+            <div class="quest-progress">
+              <i id="quest-fill"></i>
+            </div>
+            <div class="quest-count"><span id="quest-current">0</span> / <span id="quest-target">8</span></div>
+          </div>
         </aside>
 
         <div id="event-feed" class="event-feed" aria-live="polite"></div>
 
         <aside id="shop-panel" class="shop-panel" hidden>
-          <div class="panel-title"><span id="shop-name">商店</span></div>
+          <div class="panel-title" data-drag-handle><span id="shop-name">商店</span><button class="panel-collapse" type="button" data-panel-toggle title="折叠窗口" aria-label="折叠商店窗口">−</button></div>
           <div id="shop-goods" class="shop-goods"></div>
         </aside>
 
         <aside id="social-panel" class="social-panel" hidden>
-          <div class="panel-title"><span>社交</span><b id="party-state"></b></div>
+          <div class="panel-title" data-drag-handle><span>社交</span><b id="party-state"></b><button class="panel-collapse" type="button" data-panel-toggle title="折叠窗口" aria-label="折叠社交窗口">−</button></div>
           <div id="social-list" class="social-list"></div>
         </aside>
 

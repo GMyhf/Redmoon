@@ -533,7 +533,7 @@ button {
 
 .operator-heading {
   display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) auto;
+  grid-template-columns: 36px minmax(0, 1fr) auto 22px;
   gap: 9px;
   align-items: center;
   margin-bottom: 10px;
@@ -759,7 +759,7 @@ button {
 }
 
 .stats-panel {
-  top: 292px;
+  top: 242px;
   left: max(18px, env(safe-area-inset-left));
   width: 214px;
   padding: 10px 12px 8px;
@@ -770,6 +770,42 @@ button {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 5px;
+  cursor: grab;
+}
+
+.panel-title:active,
+.operator-heading:active {
+  cursor: grabbing;
+}
+
+.panel-collapse {
+  flex: none;
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--gold);
+  font: inherit;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.panel-collapse:hover {
+  background: rgba(231, 186, 91, 0.18);
+}
+
+.operator-heading .panel-collapse {
+  align-self: start;
+}
+
+.operator-panel.is-collapsed > :not(.operator-heading),
+.stats-panel.is-collapsed > .stat-grid,
+.gear-panel.is-collapsed > :not(.panel-title),
+.quest-panel.is-collapsed > .quest-content,
+.shop-panel.is-collapsed > .shop-goods,
+.social-panel.is-collapsed > .social-list {
+  display: none;
 }
 
 .panel-title b {
@@ -868,7 +904,7 @@ button {
 }
 
 .gear-panel {
-  top: 454px;
+  top: 394px;
   left: max(18px, env(safe-area-inset-left));
   width: 214px;
   padding: 10px 12px 11px;
@@ -949,7 +985,7 @@ button {
   margin-top: 6px;
   display: grid;
   gap: 3px;
-  max-height: 214px;
+  max-height: 170px;
   overflow-y: auto;
 }
 
@@ -1522,7 +1558,7 @@ button {
   }
 
   .operator-heading {
-    grid-template-columns: 30px minmax(0, 1fr) auto;
+    grid-template-columns: 30px minmax(0, 1fr) auto 20px;
   }
 
   .operator-sigil {

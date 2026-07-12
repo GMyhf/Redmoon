@@ -4036,6 +4036,50 @@
     send({ type: "unequip", slot: box.dataset.slot });
   });
 
+  // HUD panels can be rearranged for different screen sizes and collapsed
+  // without changing the underlying game layout.
+  let draggedPanel = null;
+  let dragOffsetX = 0;
+  let dragOffsetY = 0;
+  document.querySelectorAll(".hud > aside").forEach((panel) => {
+    const handle = panel.querySelector("[data-drag-handle]");
+    const toggle = panel.querySelector("[data-panel-toggle]");
+    if (toggle) {
+      toggle.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const collapsed = panel.classList.toggle("is-collapsed");
+        toggle.textContent = collapsed ? "+" : "−";
+        toggle.title = collapsed ? "展开窗口" : "折叠窗口";
+      });
+    }
+    if (!handle) return;
+    handle.addEventListener("pointerdown", (event) => {
+      if (event.target.closest("button")) return;
+      const rect = panel.getBoundingClientRect();
+      panel.style.left = `${rect.left}px`;
+      panel.style.top = `${rect.top}px`;
+      panel.style.right = "auto";
+      panel.style.bottom = "auto";
+      panel.style.zIndex = "30";
+      draggedPanel = panel;
+      dragOffsetX = event.clientX - rect.left;
+      dragOffsetY = event.clientY - rect.top;
+      handle.setPointerCapture?.(event.pointerId);
+      event.preventDefault();
+    });
+  });
+  window.addEventListener("pointermove", (event) => {
+    if (!draggedPanel) return;
+    const maxX = Math.max(0, window.innerWidth - draggedPanel.offsetWidth);
+    const maxY = Math.max(0, window.innerHeight - 36);
+    draggedPanel.style.left = `${clamp(event.clientX - dragOffsetX, 0, maxX)}px`;
+    draggedPanel.style.top = `${clamp(event.clientY - dragOffsetY, 0, maxY)}px`;
+  });
+  window.addEventListener("pointerup", () => {
+    if (draggedPanel) draggedPanel.style.zIndex = "";
+    draggedPanel = null;
+  });
+
   window.addEventListener("keydown", (event) => {
     if (event.target instanceof HTMLInputElement) return;
     if (["KeyW", "KeyA", "KeyS", "KeyD", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "ShiftLeft", "ShiftRight"].includes(event.code)) {
