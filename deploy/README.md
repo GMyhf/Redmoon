@@ -1,8 +1,9 @@
 # 生产部署（systemd）
 
-`crimson-relay.service` 使用 DynamicUser + `StateDirectory=crimson-relay`，
-存档固定在 `/var/lib/crimson-relay/accounts.json`（含 `.bak` 与
-`accounts.json.backups/` 轮转备份）。
+`crimson-relay.service` 使用 DynamicUser + `StateDirectory=crimson-relay`
+（`StateDirectoryMode=0700`），存档固定在 `/var/lib/crimson-relay/accounts.json`
+（含 `.bak` 与 `accounts.json.backups/` 轮转备份）。存档含会话令牌，
+服务器每次落盘都会把文件权限收紧为 0600、目录 0700。
 
 ## 安装 / 更新（root）
 
@@ -19,8 +20,8 @@ systemctl enable --now crimson-relay
 
 ```bash
 systemctl stop crimson-relay
-install -d -m 750 /var/lib/crimson-relay
-install -m 640 <旧仓库>/data/accounts.json /var/lib/crimson-relay/accounts.json
+install -d -m 700 /var/lib/crimson-relay
+install -m 600 <旧仓库>/data/accounts.json /var/lib/crimson-relay/accounts.json
 systemctl start crimson-relay
 ```
 

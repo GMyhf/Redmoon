@@ -2,6 +2,14 @@
 
 本文件记录 CRIMSON RELAY 每轮迭代的玩法与架构改进。协议层面的字段变化见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
+## 2026-07-13 · 存档加固：物品 ID、跨图商店、schema 版本与文件权限
+
+- 修复重启后物品 ID 冲突：`item-N` 序号进程重启归零，而存档角色的背包/装备仍持有旧 ID，新掉落会铸出重复 ID（按 ID 出售/装备/使用会命中错误物品）。现在世界启动时扫描账号存档，序号从已用最大值之后继续。
+- 修复跨图买商店货：`buy` 只校验了 x/y 距离，不校验地图——站在其他地图上与城镇商人坐标重合处即可远程购买。现在商人携带所属地图，买家必须站在同一张图上（否则同样返回 `TOO_FAR`），协议不变。
+- 存档文件引入 schema 版本信封：`{ "schema": 1, "savedAt": …, "accounts": { … } }`。旧的无版本平铺文件加载时自动迁移、下次保存原地升级；遇到比服务器更新的 schema 直接拒绝启动（不隔离、不改写），防止降级部署静默重写新格式；JSON 合法但结构错误的文件按损坏隔离并回退 `.bak`。
+- 存档权限收紧：`accounts.json`、`.tmp`、`.bak` 与轮转备份统一 0600，数据目录与 `accounts.json.backups/` 统一 0700（每次落盘 chmod 固定，不受 umask 影响）；systemd 单元加 `StateDirectoryMode=0700`，部署文档的迁移命令同步改为 600/700。
+- 回归测试：商店跨图拒绝、物品序号跨重启不冲突（含装备栏扫描）、schema 信封写入/旧档迁移/新 schema 拒启/坏结构隔离、全链路文件与目录权限断言。
+
 ## 2026-07-13 · 持久化部署与客户端检查完善
 
 - systemd 使用 `StateDirectory=crimson-relay` 和 `/var/lib/crimson-relay/accounts.json`，账号存档不再尝试写入受保护的项目目录。

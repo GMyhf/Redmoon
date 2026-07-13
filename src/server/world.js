@@ -94,6 +94,22 @@ const MAP_NAMES = Object.freeze({
   skycity: "悬空天城",
 });
 
+// Highest numeric suffix among persisted "item-N" ids (inventory and
+// equipped gear), so a restarted world never re-mints an id in use.
+function highestItemSequence(accountStore) {
+  let highest = 0;
+  const consider = (item) => {
+    const match = /^item-(\d+)$/.exec(item?.id ?? "");
+    if (match) highest = Math.max(highest, Number(match[1]));
+  };
+  for (const record of Object.values(accountStore ?? {})) {
+    if (!record || typeof record !== "object") continue;
+    if (Array.isArray(record.inventory)) record.inventory.forEach(consider);
+    for (const item of Object.values(record.equipment ?? {})) consider(item);
+  }
+  return highest;
+}
+
 export class WorldError extends Error {
   constructor(code, message) {
     super(message);
@@ -134,17 +150,20 @@ export class World {
     this._projectileSequence = 0;
     this._dropSequence = 0;
     this.specialDropActive = { uniq: 0, sunset: 0 };
-    this._itemSequence = 0;
     this._bossRespawns = new Map();
     this.autoLevelDefault = options.autoLevel !== false;
     // Account store: plain object keyed by lowercase name; the host loads
     // it from disk and writes it back, the world reads/updates entries.
     this.accountStore = options.accountStore ?? {};
+    // Persisted items keep their ids across restarts; the sequence must
+    // resume past them or fresh drops would mint duplicate ids.
+    this._itemSequence = highestItemSequence(this.accountStore);
     this.parties = new Map();
     this._partyInvites = new Map();
     this._partySequence = 0;
     this.shops = SHOPS.map((shop) => ({
       ...shop,
+      mapId: "town",
       x: this.width / 2 + shop.dx,
       y: this.height / 2 + shop.dy,
     }));
@@ -787,7 +806,10 @@ export class World {
     const player = this._requirePlayer(id);
     const shop = this.shops.find((entry) => entry.id === shopId);
     if (!shop) throw new WorldError("INVALID_SHOP", "No such shopkeeper.");
-    if (Math.hypot(player.x - shop.x, player.y - shop.y) > SHOP_RANGE) {
+    // Coordinates alone are not enough: another map can overlap the town
+    // shop's x/y, so the buyer must be standing on the shop's map too.
+    if (player.mapId !== shop.mapId
+      || Math.hypot(player.x - shop.x, player.y - shop.y) > SHOP_RANGE) {
       throw new WorldError("TOO_FAR", "Walk up to the shopkeeper first.");
     }
     const good = shop.goods.find((entry) => entry.key === goodKey);

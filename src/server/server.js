@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createReadStream, existsSync, mkdirSync, readFileSync, renameSync } from "node:fs";
-import { copyFile, readdir, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { chmod, copyFile, readdir, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -20,6 +20,12 @@ import { World, WorldError } from "./world.js";
 
 const DEFAULT_PUBLIC_DIR = fileURLToPath(new URL("../../public/", import.meta.url));
 const MAX_MESSAGE_BYTES = 16 * 1024;
+// accounts.json format version. Bump on any breaking layout change and
+// teach migrateAccountStore() how to read the previous shape.
+const ACCOUNT_SCHEMA = 1;
+// Account files hold session tokens; keep them owner-only.
+const STORE_FILE_MODE = 0o600;
+const STORE_DIR_MODE = 0o700;
 
 const CONTENT_TYPES = Object.freeze({
   ".css": "text/css; charset=utf-8",
@@ -161,14 +167,23 @@ export class GameServer {
   }
 
   async _writeAccounts() {
-    const payload = JSON.stringify(this.world.syncAccounts());
-    mkdirSync(path.dirname(this.persistPath), { recursive: true });
+    const payload = JSON.stringify({
+      schema: ACCOUNT_SCHEMA,
+      savedAt: new Date().toISOString(),
+      accounts: this.world.syncAccounts(),
+    });
+    mkdirSync(path.dirname(this.persistPath), { recursive: true, mode: STORE_DIR_MODE });
     // Write-then-rename keeps the store intact if the process dies mid-flush;
     // the previous good copy survives as .bak.
     const tempPath = `${this.persistPath}.tmp`;
-    await writeFile(tempPath, payload, "utf8");
+    await writeFile(tempPath, payload, { encoding: "utf8", mode: STORE_FILE_MODE });
+    // mkdir/writeFile modes only apply on creation and pass through umask;
+    // chmod pins pre-existing files to the expected permissions too.
+    await chmod(tempPath, STORE_FILE_MODE);
     if (existsSync(this.persistPath)) {
-      await copyFile(this.persistPath, `${this.persistPath}.bak`);
+      const bakPath = `${this.persistPath}.bak`;
+      await copyFile(this.persistPath, bakPath);
+      await chmod(bakPath, STORE_FILE_MODE);
     }
     await rename(tempPath, this.persistPath);
     this._lastPersistError = null;
@@ -182,9 +197,11 @@ export class GameServer {
     if (now - this._lastBackupAt < this.backup.intervalMs) return;
     this._lastBackupAt = now;
     const directory = `${this.persistPath}.backups`;
-    mkdirSync(directory, { recursive: true });
+    mkdirSync(directory, { recursive: true, mode: STORE_DIR_MODE });
     const stamp = new Date(now).toISOString().replace(/[:.]/g, "-");
-    await copyFile(this.persistPath, path.join(directory, `accounts-${stamp}.json`));
+    const backupPath = path.join(directory, `accounts-${stamp}.json`);
+    await copyFile(this.persistPath, backupPath);
+    await chmod(backupPath, STORE_FILE_MODE);
     const entries = (await readdir(directory))
       .filter((name) => name.startsWith("accounts-") && name.endsWith(".json"))
       .sort();
@@ -529,6 +546,10 @@ async function serveFile(filePath, method, response) {
   return true;
 }
 
+// A store written by a newer server version must stop the boot instead of
+// being quarantined or silently rewritten in the old format.
+class UnsupportedSchemaError extends Error {}
+
 function loadAccountStore(persistPath) {
   if (!persistPath) return {};
   // Try the live file first, then the last good backup. A corrupt file is
@@ -536,8 +557,9 @@ function loadAccountStore(persistPath) {
   for (const candidate of [persistPath, `${persistPath}.bak`]) {
     if (!existsSync(candidate)) continue;
     try {
-      return JSON.parse(readFileSync(candidate, "utf8"));
+      return migrateAccountStore(JSON.parse(readFileSync(candidate, "utf8")), candidate);
     } catch (error) {
+      if (error instanceof UnsupportedSchemaError) throw error;
       const quarantine = `${candidate}.corrupt`;
       try {
         renameSync(candidate, quarantine);
@@ -548,6 +570,26 @@ function loadAccountStore(persistPath) {
     }
   }
   return {};
+}
+
+function migrateAccountStore(parsed, source) {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new TypeError("account store must be a JSON object");
+  }
+  // Schema 0 (pre-envelope) files are the bare name→record map; a literal
+  // "schema" account name would be an object here, never a number.
+  if (typeof parsed.schema !== "number") return parsed;
+  if (parsed.schema > ACCOUNT_SCHEMA) {
+    throw new UnsupportedSchemaError(
+      `${source} uses account schema ${parsed.schema}, but this server only knows `
+      + `schema ${ACCOUNT_SCHEMA}. Upgrade the server or restore an older store.`,
+    );
+  }
+  const accounts = parsed.accounts;
+  if (!accounts || typeof accounts !== "object" || Array.isArray(accounts)) {
+    throw new TypeError("account store envelope is missing its accounts map");
+  }
+  return accounts;
 }
 
 function send(socket, message) {

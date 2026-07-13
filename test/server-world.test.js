@@ -1418,3 +1418,70 @@ test("shop potions scale price and healing with the buyer's level", () => {
   player.gold = 100;
   throwsCode(() => world.buyGood("p-1", "grocer", "potion-s"), "NO_GOLD");
 });
+
+test("shops refuse buyers standing on another map", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, autoLevel: false });
+  const player = world.addPlayer("p-1", { name: "Buyer", archetype: "vanguard" });
+  const grocer = world.shops.find((shop) => shop.id === "grocer");
+  player.x = grocer.x;
+  player.y = grocer.y;
+  player.gold = 10000;
+
+  // Same coordinates, different map: map coordinates overlap across zones.
+  player.mapId = "residential";
+  throwsCode(() => world.buyGood("p-1", "grocer", "potion-s"), "TOO_FAR");
+  assert.equal(player.gold, 10000, "no gold is taken");
+  assert.equal(player.inventory.length, 0);
+
+  player.mapId = "town";
+  world.buyGood("p-1", "grocer", "potion-s");
+  assert.equal(player.inventory.length, 1, "the same spot works on the shop's own map");
+});
+
+test("the item id sequence resumes past persisted inventory and equipment", () => {
+  const world = new World({
+    rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, autoLevel: false,
+    accountStore: {
+      ghost: {
+        archetype: "vanguard",
+        inventory: [{ id: "item-7" }],
+        equipment: { weapon: { id: "item-31" } },
+      },
+    },
+  });
+  assert.equal(world._nextItemId(), "item-32", "the sequence starts past the highest persisted id");
+});
+
+test("a restarted world never re-mints ids held by restored items", () => {
+  const options = { rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, autoLevel: false };
+  const first = new World(options);
+  const alpha = first.addPlayer("p-1", { name: "Keeper", archetype: "vanguard" });
+  const token = alpha.token;
+  const grocer = first.shops.find((shop) => shop.id === "grocer");
+  const smith = first.shops.find((shop) => shop.id === "smith");
+  alpha.gold = 1_000_000;
+  alpha.x = smith.x;
+  alpha.y = smith.y;
+  first.buyGood("p-1", "smith", "forge-gear");
+  alpha.level = 100; // forged gear rolls slightly above the buyer's level
+  first.equipItem("p-1", alpha.inventory[0].id);
+  alpha.x = grocer.x;
+  alpha.y = grocer.y;
+  first.buyGood("p-1", "grocer", "potion-s");
+  first.removePlayer("p-1");
+
+  // Simulate a restart: a fresh world loads the same store from "disk".
+  const second = new World({ ...options, accountStore: structuredClone(first.syncAccounts()) });
+  const restored = second.addPlayer("p-2", { name: "Keeper", archetype: "vanguard", token });
+  const held = new Set([
+    ...restored.inventory.map((item) => item.id),
+    ...Object.values(restored.equipment).filter(Boolean).map((item) => item.id),
+  ]);
+  assert.ok(held.size >= 2, "the restored character kept its items");
+
+  restored.x = grocer.x;
+  restored.y = grocer.y;
+  second.buyGood("p-2", "grocer", "potion-s");
+  const fresh = restored.inventory.at(-1);
+  assert.equal(held.has(fresh.id), false, "a fresh drop does not collide with restored items");
+});
