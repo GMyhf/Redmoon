@@ -1548,6 +1548,73 @@ button {
     transform: translateX(-50%);
     height: 62px;
   }
+
+  /* Docked mobile layout: below this breakpoint the CSS owns every panel
+     anchor — the client ignores stored desktop drag positions and disables
+     dragging, so phones keep a working layout regardless of what the same
+     account rearranged on desktop. */
+  .chat-panel {
+    top: 236px;
+    bottom: auto;
+    left: 10px;
+    width: min(220px, calc(100vw - 20px));
+  }
+
+  .chat-feed {
+    max-height: 84px;
+  }
+
+  /* 16px inputs stop mobile Safari from zooming the page on focus. */
+  .chat-form select,
+  .chat-form input {
+    font-size: 16px;
+  }
+
+  .gear-panel {
+    top: 180px;
+    left: auto;
+    right: 10px;
+    width: min(236px, calc(100vw - 20px));
+  }
+
+  .inventory-list {
+    max-height: 130px;
+  }
+
+  .shop-panel {
+    top: 64px;
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    width: min(250px, calc(100vw - 20px));
+  }
+
+  .social-panel {
+    right: 10px;
+    bottom: calc(var(--bottom-safe) + 150px);
+    width: min(210px, calc(100vw - 20px));
+  }
+
+  .event-feed {
+    top: 118px;
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    width: min(300px, calc(100vw - 20px));
+    justify-items: center;
+  }
+
+  /* Finger-sized controls for the buttons that matter in play. */
+  .panel-collapse {
+    width: 26px;
+    height: 26px;
+  }
+
+  .gear-row button,
+  .allocate-button,
+  .mini-command {
+    min-height: 26px;
+  }
 }
 
 @media (max-width: 520px) {

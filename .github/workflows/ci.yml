@@ -1,4 +1,5 @@
 # Every push and PR must prove: the server suite passes, all scripts parse,
+# the browser client survives real headless-Chrome interaction tests,
 # the Godot project imports and its client can join a live server headlessly,
 # and the systemd unit stays valid. Pair with branch protection on main so
 # unverified protocol/GDScript/deploy changes cannot land.
@@ -25,6 +26,21 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm test
+
+  browser:
+    name: Browser interaction tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Playwright drives the preinstalled system Chrome (channel: "chrome");
+      # this only tops it up if the runner image ever drops it.
+      - run: npx playwright install --with-deps chrome || true
+      - run: npm run test:browser
 
   godot:
     name: Godot import & live smoke

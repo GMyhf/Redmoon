@@ -37,6 +37,7 @@ import {
     chatChannel: document.querySelector("#chat-channel"),
     chatInput: document.querySelector("#chat-input"),
     leaveButton: document.querySelector("#leave-button"),
+    resetHudButton: document.querySelector("#reset-hud-button"),
     lobbyRoster: document.querySelector("#lobby-roster"),
     lobbyRosterList: document.querySelector("#lobby-roster-list"),
     name: document.querySelector("#operator-display-name"),
@@ -573,6 +574,7 @@ import {
       ui.hud.hidden = false;
       ui.joinButton.disabled = false;
       if (ui.leaveButton) ui.leaveButton.hidden = false;
+      if (ui.resetHudButton) ui.resetHudButton.hidden = false;
     }
     const quest = first(snapshot.quest, world.quest, local?.quest);
     if (quest) state.quest = quest;
@@ -1257,6 +1259,7 @@ import {
     ui.hud.hidden = true;
     ui.joinButton.disabled = false;
     if (ui.leaveButton) ui.leaveButton.hidden = true;
+    if (ui.resetHudButton) ui.resetHudButton.hidden = true;
     ui.population.hidden = true;
   }
 
@@ -4010,6 +4013,40 @@ import {
     panel.style.top = `${clamp(parseFloat(panel.style.top) || 0, 0, maxY)}px`;
   }
 
+  // Below the breakpoint the CSS media queries own the layout: stored
+  // desktop drag positions never apply and dragging is disabled, so phones
+  // keep their docked layout independent of what desktop rearranged.
+  const mobileLayout = window.matchMedia("(max-width: 760px)");
+
+  function applyStoredPanelPositions() {
+    document.querySelectorAll(".hud > aside").forEach((panel) => {
+      const stored = hudLayout[panelKey(panel)];
+      if (mobileLayout.matches
+        || !stored || !Number.isFinite(stored.left) || !Number.isFinite(stored.top)) return;
+      panel.style.left = `${stored.left}px`;
+      panel.style.top = `${stored.top}px`;
+      panel.style.right = "auto";
+      panel.style.bottom = "auto";
+      clampPanel(panel);
+    });
+  }
+
+  function clearPanelPositions() {
+    document.querySelectorAll(".hud > aside").forEach((panel) => {
+      panel.style.left = "";
+      panel.style.top = "";
+      panel.style.right = "";
+      panel.style.bottom = "";
+      panel.style.zIndex = "";
+    });
+  }
+
+  const handleLayoutModeChange = () => {
+    if (mobileLayout.matches) clearPanelPositions();
+    else applyStoredPanelPositions();
+  };
+  mobileLayout.addEventListener?.("change", handleLayoutModeChange);
+
   let draggedPanel = null;
   let dragOffsetX = 0;
   let dragOffsetY = 0;
@@ -4017,13 +4054,6 @@ import {
     const handle = panel.querySelector("[data-drag-handle]");
     const toggle = panel.querySelector("[data-panel-toggle]");
     const stored = hudLayout[panelKey(panel)];
-    if (stored && Number.isFinite(stored.left) && Number.isFinite(stored.top)) {
-      panel.style.left = `${stored.left}px`;
-      panel.style.top = `${stored.top}px`;
-      panel.style.right = "auto";
-      panel.style.bottom = "auto";
-      clampPanel(panel);
-    }
     if (toggle) {
       if (stored?.collapsed) {
         panel.classList.add("is-collapsed");
@@ -4041,6 +4071,7 @@ import {
     }
     if (!handle) return;
     handle.addEventListener("pointerdown", (event) => {
+      if (mobileLayout.matches) return;
       if (event.target.closest("button")) return;
       const rect = panel.getBoundingClientRect();
       panel.style.left = `${rect.left}px`;
@@ -4053,6 +4084,25 @@ import {
       dragOffsetY = event.clientY - rect.top;
       handle.setPointerCapture?.(event.pointerId);
       event.preventDefault();
+    });
+  });
+  applyStoredPanelPositions();
+
+  ui.resetHudButton?.addEventListener("click", () => {
+    for (const key of Object.keys(hudLayout)) delete hudLayout[key];
+    try {
+      localStorage.removeItem(HUD_LAYOUT_KEY);
+    } catch (_error) {
+      // Storage unavailable: the in-memory layout is cleared anyway.
+    }
+    clearPanelPositions();
+    document.querySelectorAll(".hud > aside").forEach((panel) => {
+      panel.classList.remove("is-collapsed");
+      const toggle = panel.querySelector("[data-panel-toggle]");
+      if (toggle) {
+        toggle.textContent = "−";
+        toggle.title = "折叠窗口";
+      }
     });
   });
   window.addEventListener("pointermove", (event) => {

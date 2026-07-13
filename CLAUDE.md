@@ -11,13 +11,14 @@ CRIMSON RELAY — a server-authoritative online action RPG prototype. Node.js 20
 ```bash
 npm start                          # run the server (HOST/PORT env vars, default 127.0.0.1:3000)
 npm run dev                        # run with auto-restart on file changes
-npm test                           # run all tests (node:test runner)
+npm test                           # run the fast server suite (node:test runner)
+npm run test:browser               # browser interaction tests (Playwright + system Chrome)
 node --test test/server-world.test.js                 # run one test file
 node --test --test-name-pattern="respawn"             # run tests matching a name
 npm run check                      # syntax-check server and client scripts
 ```
 
-There is no lint, build, or bundler step. The only dependency is `ws`. ESM throughout (`"type": "module"`).
+There is no lint, build, or bundler step. The only runtime dependency is `ws`; `playwright` is a devDependency used solely by `test:browser` (drives the system Chrome via `channel: "chrome"`, no browser download). ESM throughout (`"type": "module"`).
 
 ## Architecture
 
@@ -34,3 +35,5 @@ Server→client messages: `welcome` (carries `protocol: 1`), `snapshot` (full re
 ## Testing conventions
 
 Tests use `node:test` + `node:assert/strict` and drive the `World` directly — no network, no real timers. Construct deterministic worlds via options: `new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 })`, place entities with `addPlayer`/`spawnMob`, feed input with `setInput`, and step time manually with `world.update(dt)`. Follow this pattern; don't add tests that depend on real time or network latency.
+
+Browser interaction tests live in `test/browser/*.test.mjs` (excluded from `npm test` so the fast suite never needs a browser). Each test boots a real `GameServer` on port 0 via `startServer(t)` from `helpers.mjs` and drives the production client in headless Chrome; arrange server-side state directly on `server.world`, but let every outcome flow through the real protocol.

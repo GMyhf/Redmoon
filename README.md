@@ -51,7 +51,8 @@ HOST=0.0.0.0 PORT=3000 npm start
 ```bash
 npm start       # 启动服务器
 npm run dev     # 文件变更后自动重启
-npm test        # 运行测试
+npm test        # 运行服务器测试（快速，无浏览器）
+npm run test:browser  # 浏览器真实交互测试（Playwright 驱动系统 Chrome）
 npm run check   # 检查服务器与浏览器脚本语法
 npm run check:godot  # 需要 Godot 4.3+，检查原生客户端项目
 ```
