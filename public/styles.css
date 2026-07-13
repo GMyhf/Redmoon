@@ -1845,7 +1845,10 @@ button {
     bottom: auto;
     left: 10px;
     width: calc(100vw - 20px);
-    max-height: max(56px, calc(100dvh - var(--top-safe) - 496px));
+    /* Budget: HUD offset (66) + panel top (314) above, chat dock (66) +
+       chat form (38) below, plus both safe insets — otherwise the panel's
+       bottom edge lands on the chat input on short viewports. */
+    max-height: max(56px, calc(100dvh - var(--top-safe) - var(--bottom-safe) - 484px));
     overflow-y: auto;
     transform: none;
   }
@@ -1856,7 +1859,10 @@ button {
     right: auto;
     left: 10px;
     width: calc(100vw - 20px);
-    max-height: max(56px, calc(100dvh - var(--top-safe) - 496px));
+    /* Budget: HUD offset (66) + panel top (314) above, chat dock (66) +
+       chat form (38) below, plus both safe insets — otherwise the panel's
+       bottom edge lands on the chat input on short viewports. */
+    max-height: max(56px, calc(100dvh - var(--top-safe) - var(--bottom-safe) - 484px));
     overflow-y: auto;
     transform: none;
   }
@@ -1882,6 +1888,17 @@ button {
 @media (max-width: 400px) and (max-height: 680px) {
   .hud .chat-feed {
     max-height: 36px;
+  }
+
+  /* Short phones: the 56px usability floor above would overrun the chat
+     input, so the expanded tab starts higher to keep the floor affordable. */
+  .stats-panel:not(.is-collapsed),
+  .gear-panel:not(.is-collapsed),
+  .quest-panel:not(.is-collapsed),
+  .social-panel:not(.is-collapsed),
+  .shop-panel {
+    top: 306px;
+    max-height: max(56px, calc(100dvh - var(--top-safe) - var(--bottom-safe) - 476px));
   }
 }
 
