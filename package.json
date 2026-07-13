@@ -12,13 +12,13 @@
     "dev": "node --watch src/server/server.js",
     "test": "node --test --test-concurrency=2 test/*.test.js",
     "test:browser": "node --test test/browser/*.test.mjs",
-    "check": "node --check src/server/server.js && node --check src/server/definitions.js && node --check src/server/world.js && node --check public/client.js",
+    "stress": "node tools/stress.mjs",
+    "migrate:postgres": "node tools/migrate-postgres.mjs",
+    "check": "node --check src/server/server.js && node --check src/server/definitions.js && node --check src/server/world.js && node --check src/server/protocol.js && node --check src/server/session.js && node --check src/server/dungeon.js && node --check src/server/postgres-store.js && node --check public/client.js && node --check tools/stress.mjs && node --check tools/stress-lib.js && node --check tools/migrate-postgres.mjs",
     "check:godot": "godot --headless --path clients/godot --editor --quit"
   },
   "dependencies": {
+    "pg": "^8.16.3",
     "ws": "8.21.0"
-  },
-  "devDependencies": {
-    "playwright": "^1.61.1"
   }
 }

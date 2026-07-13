@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { INVENTORY_LIMIT } from "../src/server/definitions.js";
+import { INVENTORY_LIMIT, MAX_ITEM_SEQUENCE } from "../src/server/definitions.js";
+import { hashSecret } from "../src/server/session.js";
 import { World, WorldError, xpRequiredForLevel } from "../src/server/world.js";
 
 function throwsCode(fn, code) {
@@ -906,8 +907,27 @@ test("party XP and quest credit only reach members on the killer's map", () => {
   assert.equal(ally.xp, 0, "no XP across maps");
   assert.equal(ally.quest.progress, 0, "no quest credit across maps");
 
-  // Back on the killer's map the usual share applies.
+  // A grace-period seat and a not-yet-committed auth object are not active
+  // hunters, even if their preserved coordinates remain nearby.
   ally.mapId = host.mapId;
+  world.detachPlayer(ally.id);
+  const detached = world.spawnMob({
+    id: "detached", type: "riftling", x: host.x + 200, y: host.y, maxHp: 1, level: 2, xp: 100,
+  });
+  world._damageMob(detached, 10, "host-1");
+  assert.equal(ally.xp, 0, "detached members do not earn shared XP");
+  assert.equal(ally.quest.progress, 0, "detached members do not earn quest credit");
+
+  ally.connectionDetached = false;
+  ally.pendingAuth = true;
+  const pending = world.spawnMob({
+    id: "pending-auth", type: "riftling", x: host.x + 200, y: host.y, maxHp: 1, level: 2, xp: 100,
+  });
+  world._damageMob(pending, 10, "host-1");
+  assert.equal(ally.xp, 0, "uncommitted sessions do not earn shared XP");
+  delete ally.pendingAuth;
+
+  // Back online on the killer's map, the usual share applies.
   const nearby = world.spawnMob({
     id: "nearby", type: "riftling", x: host.x + 200, y: host.y, maxHp: 1, level: 2, xp: 100,
   });
@@ -1049,7 +1069,8 @@ test("accounts are claimed by a session token on first join", () => {
 
   original.gold = 555;
   world.removePlayer("conn-1");
-  assert.equal(store.alpha.token, original.token, "token persists with the account");
+  assert.equal(store.alpha.token, undefined, "the bearer token is never persisted in plaintext");
+  assert.equal(store.alpha.tokenHash, hashSecret(original.token), "only the token hash persists");
 
   // A missing or wrong token cannot load the protected account.
   assert.throws(
@@ -1067,12 +1088,29 @@ test("accounts are claimed by a session token on first join", () => {
 
   // Legacy records saved before tokens existed stay joinable and get one.
   world.removePlayer("conn-4");
-  delete store.alpha.token;
+  delete store.alpha.tokenHash;
   const migrated = world.addPlayer("conn-5", { name: "Alpha", archetype: "vanguard" });
   assert.equal(migrated.gold, 555, "legacy account restored without a token");
   assert.ok(migrated.token, "legacy account is upgraded with a token");
   world.removePlayer("conn-5");
-  assert.equal(store.alpha.token, migrated.token);
+  assert.equal(store.alpha.tokenHash, hashSecret(migrated.token));
+});
+
+test("account names cannot collide with Object prototype properties", () => {
+  const store = {};
+  const world = new World({
+    rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, accountStore: store,
+  });
+  const proto = world.addPlayer("proto", { name: "__proto__", archetype: "vanguard" });
+  const constructor = world.addPlayer("constructor", { name: "constructor", archetype: "strider" });
+  world.removePlayer(proto.id);
+  world.removePlayer(constructor.id);
+
+  assert.equal(Object.hasOwn(store, "__proto__"), true);
+  assert.equal(Object.hasOwn(store, "constructor"), true);
+  assert.equal(Object.getPrototypeOf(store), Object.prototype);
+  assert.equal(store.__proto__.archetype, "vanguard");
+  assert.equal(store.constructor.archetype, "strider");
 });
 
 test("every biome has a boss with rising level and experience", () => {
@@ -1419,6 +1457,156 @@ test("shop potions scale price and healing with the buyer's level", () => {
   throwsCode(() => world.buyGood("p-1", "grocer", "potion-s"), "NO_GOLD");
 });
 
+test("session rotation and one-time recovery replace the persisted bearer hash", () => {
+  let now = Date.parse("2026-07-13T00:00:00Z");
+  const store = {};
+  const world = new World({
+    rng: () => 0.5, now: () => now, spawnMobs: false, mobTargetCount: 0, accountStore: store,
+  });
+  const original = world.addPlayer("session-1", { name: "Recoverable", archetype: "vanguard" });
+  const firstToken = original.token;
+  const issued = world.issueRecoveryCode("session-1");
+  assert.ok(issued.code.length >= 20);
+  assert.equal(store.recoverable.recovery.expiresAt, issued.expiresAt);
+
+  const rotationToken = "r".repeat(43);
+  const rotated = world.rotateSession("session-1", rotationToken);
+  assert.equal(rotated.token, rotationToken);
+  assert.notEqual(rotated.token, firstToken);
+  assert.equal(store.recoverable.tokenHash, hashSecret(rotated.token));
+  assert.throws(
+    () => world.recoverAccount("session-online", { name: "Recoverable", code: issued.code }),
+    (error) => error instanceof WorldError && error.code === "NAME_IN_USE",
+  );
+  assert.equal(store.recoverable.tokenHash, hashSecret(rotated.token), "failed recovery keeps current credentials");
+  assert.ok(store.recoverable.recovery, "failed recovery does not consume the one-time code");
+  world.removePlayer("session-1");
+
+  assert.throws(
+    () => world.recoverAccount("session-2", { name: "Recoverable", code: "wrong" }),
+    (error) => error instanceof WorldError && error.code === "INVALID_RECOVERY",
+  );
+  const recoveryToken = "s".repeat(43);
+  const recovered = world.recoverAccount("session-2", {
+    name: "Recoverable", code: issued.code, nextToken: recoveryToken,
+  });
+  assert.notEqual(recovered.token, rotated.token);
+  assert.equal(store.recoverable.recovery, undefined, "the recovery code is consumed");
+  world.removePlayer("session-2");
+  const retried = world.recoverAccount("session-retry", {
+    name: "Recoverable", code: issued.code, nextToken: recoveryToken,
+  });
+  assert.equal(retried.token, recoveryToken, "a lost response can replay the client-known credential");
+  world.removePlayer("session-retry");
+  assert.throws(
+    () => world.recoverAccount("session-3", { name: "Recoverable", code: issued.code }),
+    (error) => error instanceof WorldError && error.code === "INVALID_RECOVERY",
+  );
+  assert.ok(world.drainAuditLog().some((entry) => entry.action === "account_recovered"));
+  now += 1000;
+});
+
+test("the in-memory audit queue is bounded while persistence is unavailable", () => {
+  const world = new World({
+    rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, auditLimit: 2,
+  });
+  world.addPlayer("audit", { name: "Audited", archetype: "vanguard" });
+  world.issueRecoveryCode("audit");
+  world.rotateSession("audit");
+  assert.equal(world.auditLog.length, 2);
+  assert.equal(world.auditDropped, 1);
+  assert.deepEqual(world.auditLog.map((entry) => entry.action), ["recovery_issued", "session_rotated"]);
+});
+
+test("a party leader opens one deterministic dungeon and rewards every member once", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
+  const host = world.addPlayer("dungeon-host", { name: "VaultHost", archetype: "vanguard" });
+  const guest = world.addPlayer("dungeon-guest", { name: "VaultGuest", archetype: "strider" });
+  host.level = 40;
+  guest.level = 44;
+  host.xpToNext = xpRequiredForLevel(host.level);
+  guest.xpToNext = xpRequiredForLevel(guest.level);
+  world.inviteParty(host.id, guest.id);
+  world.acceptParty(guest.id, host.id);
+
+  assert.throws(
+    () => world.enterDungeon(guest.id),
+    (error) => error instanceof WorldError && error.code === "DUNGEON_LEADER_ONLY",
+  );
+  const hostGold = host.gold;
+  const guestGold = guest.gold;
+  world.enterDungeon(host.id);
+  assert.equal(host.mapId, guest.mapId);
+  assert.match(host.mapId, /^dungeon:vault-/);
+  const dungeon = [...world.dungeons.values()][0];
+  const dungeonMobs = [...world.mobs.values()].filter((mob) => mob.dungeonId === dungeon.id);
+  assert.equal(dungeonMobs.length, 6);
+
+  for (const mob of dungeonMobs) world._damageMob(mob, 1e12, host.id);
+  assert.equal(dungeon.completed, true);
+  assert.equal(dungeon.rewarded.size, 2);
+  assert.equal(host.gold, hostGold + dungeon.plan.reward.gold);
+  assert.equal(guest.gold, guestGold + dungeon.plan.reward.gold);
+  assert.ok(host.level > 40 || host.xp > 0);
+  assert.ok(guest.level > 44 || guest.xp > 0);
+  assert.equal(
+    world.pendingMobSpawns.some((spawn) => spawn.mapId === dungeon.plan.mapId),
+    false,
+    "completed dungeon enemies never enter the normal respawn queue",
+  );
+  const completionEvents = world.drainEvents().filter((event) => event.event === "dungeonCompleted");
+  assert.equal(completionEvents.length, 1);
+
+  world.leaveDungeon(host.id);
+  world.leaveDungeon(guest.id);
+  assert.equal(world.dungeons.size, 0);
+  assert.equal(host.mapId, "town");
+  assert.equal(guest.mapId, "town");
+});
+
+test("dungeon entry enforces same-map parties, capacity, respawn cleanup, and timeout", () => {
+  const world = new World({
+    rng: () => 0.5,
+    spawnMobs: false,
+    mobTargetCount: 0,
+    maxDungeons: 1,
+    dungeonDuration: 0.2,
+  });
+  const host = world.addPlayer("host", { name: "Host", archetype: "vanguard" });
+  const guest = world.addPlayer("guest", { name: "Guest", archetype: "strider" });
+  world.inviteParty(host.id, guest.id);
+  world.acceptParty(guest.id, host.id);
+  world.detachPlayer(guest.id);
+  throwsCode(() => world.enterDungeon(host.id), "DUNGEON_PARTY_NOT_READY");
+  guest.connectionDetached = false;
+  guest.pendingAuth = true;
+  throwsCode(() => world.enterDungeon(host.id), "DUNGEON_PARTY_NOT_READY");
+  delete guest.pendingAuth;
+  guest.mapId = "desert";
+  throwsCode(() => world.enterDungeon(host.id), "DUNGEON_PARTY_NOT_READY");
+  guest.mapId = "town";
+  world.enterDungeon(host.id);
+
+  const outsider = world.addPlayer("outsider", { name: "Outsider", archetype: "pyre" });
+  throwsCode(() => world.enterDungeon(outsider.id), "DUNGEON_CAPACITY");
+
+  host.alive = false;
+  host.respawnAvailableAt = 0;
+  world.respawnPlayer(host.id);
+  assert.equal(host.mapId, "town", "a normal respawn leaves the instance");
+  assert.equal(world.dungeons.size, 1, "the remaining member keeps the instance alive");
+
+  world.update(0.25);
+  assert.equal(world.dungeons.size, 0, "expired instances are reclaimed");
+  assert.equal(guest.mapId, "town", "remaining members return to town on timeout");
+  assert.equal(
+    [...world.mobs.values()].some((mob) => mob.dungeonId),
+    false,
+    "timeout removes all dungeon enemies",
+  );
+  assert.ok(world.drainEvents().some((event) => event.event === "dungeonFailed"));
+});
+
 test("shops refuse buyers standing on another map", () => {
   const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, autoLevel: false });
   const player = world.addPlayer("p-1", { name: "Buyer", archetype: "vanguard" });
@@ -1450,6 +1638,42 @@ test("the item id sequence resumes past persisted inventory and equipment", () =
     },
   });
   assert.equal(world._nextItemId(), "item-32", "the sequence starts past the highest persisted id");
+});
+
+test("item ids switch to UUIDs before the numeric persistence boundary", () => {
+  const world = new World({
+    rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, autoLevel: false,
+    accountStore: {
+      ghost: {
+        archetype: "vanguard",
+        inventory: [{ id: `item-${MAX_ITEM_SEQUENCE - 1}` }],
+      },
+    },
+  });
+
+  const first = world._nextItemId();
+  const second = world._nextItemId();
+  assert.match(first, /^item-[0-9a-f]{8}-[0-9a-f-]{27}$/);
+  assert.notEqual(second, first, "fallback ids remain unique after numeric exhaustion");
+});
+
+test("a valid official token is not blocked by a corrupt optional pending token", () => {
+  const official = "o".repeat(43);
+  const world = new World({
+    rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, autoLevel: false,
+    accountStore: {
+      protected: { archetype: "vanguard", tokenHash: hashSecret(official) },
+    },
+  });
+
+  const player = world.addPlayer("p-1", {
+    name: "Protected", archetype: "vanguard", token: official, nextToken: "broken",
+  });
+  assert.equal(player.token, official);
+  world.detachPlayer("p-1");
+  assert.equal(world.resumeDetachedPlayer({
+    name: "Protected", token: official, nextToken: "broken", protocol: 2,
+  }), player);
 });
 
 test("a restarted world never re-mints ids held by restored items", () => {

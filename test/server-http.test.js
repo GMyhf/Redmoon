@@ -26,15 +26,36 @@ test("HTTP serves the client and health status", async (t) => {
   assert.ok(Number.isSafeInteger(healthBody.tick));
   assert.deepEqual(healthBody.persistence, {
     enabled: false,
+    backend: "disabled",
     ok: true,
     lastSavedAt: null,
     lastErrorAt: null,
     consecutiveFailures: 0,
+    auditPending: 0,
+    auditDropped: 0,
+    auditErrorAt: null,
+    backupErrorAt: null,
+    durabilityErrorAt: null,
   });
+  assert.equal(healthBody.runtime.tickRate, 20);
+  assert.equal(healthBody.runtime.websocket.connections, 0);
+  assert.ok(healthBody.runtime.tickAgeMs === null || healthBody.runtime.tickAgeMs >= 0);
 
-  const ready = await fetch(`http://127.0.0.1:${port}/ready`);
+  let ready;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    ready = await fetch(`http://127.0.0.1:${port}/ready`);
+    if (ready.status === 200) break;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
   assert.equal(ready.status, 200);
   assert.equal((await ready.json()).ready, true);
+
+  const metrics = await fetch(`http://127.0.0.1:${port}/metrics`);
+  assert.equal(metrics.status, 200);
+  assert.match(metrics.headers.get("content-type"), /^text\/plain; version=0\.0\.4/);
+  const metricText = await metrics.text();
+  assert.match(metricText, /crimson_event_loop_lag_seconds\{quantile="0\.99"\}/);
+  assert.match(metricText, /crimson_audit_pending 0/);
 
   const index = await fetch(`http://127.0.0.1:${port}/`);
   assert.equal(index.status, 200);
@@ -114,6 +135,7 @@ test("the gateway rejects out-of-order, unknown, binary, and oversized traffic",
     host: "127.0.0.1",
     port: 0,
     persistPath: "",
+    reconnectGraceMs: 0,
     world: new World({ rng: () => 0.5, mobTargetCount: 0, spawnMobs: false }),
   });
   await server.listen();
@@ -122,6 +144,13 @@ test("the gateway rejects out-of-order, unknown, binary, and oversized traffic",
   t.after(() => socket.terminate());
   const messages = messageQueue(socket);
   await messages.next("welcome");
+
+  // Valid JSON must still be an object, and a rejected frame must not poison
+  // this connection's command queue.
+  socket.send("null");
+  assert.equal((await messages.next("error")).code, "INVALID_MESSAGE");
+  socket.send(JSON.stringify({ type: { toString: null } }));
+  assert.equal((await messages.next("error")).code, "INVALID_MESSAGE");
 
   // Commands before join are refused.
   socket.send(JSON.stringify({ type: "input", seq: 1, move: { x: 1, y: 0 } }));
@@ -133,6 +162,9 @@ test("the gateway rejects out-of-order, unknown, binary, and oversized traffic",
   // Unknown commands and double joins are refused.
   socket.send(JSON.stringify({ type: "dance" }));
   assert.equal((await messages.next("error")).code, "UNKNOWN_MESSAGE");
+  server.world.players.values().next().value.skillPoints = 0;
+  socket.send(JSON.stringify({ type: "upgradeskill", skill: "q" }));
+  assert.equal((await messages.next("error")).code, "NO_SKILL_POINTS");
   socket.send(JSON.stringify({ type: "join", protocol: 2, name: "Probe2", archetype: "vanguard" }));
   assert.equal((await messages.next("error")).code, "ALREADY_JOINED");
 
@@ -217,6 +249,125 @@ test("a flooding connection is rate limited without stalling the world", async (
   const limited = await messages.next("error");
   assert.equal(limited.code, "RATE_LIMITED");
   assert.equal(server.world.players.size, 1, "the world keeps running for joined players");
+});
+
+test("snapshot backpressure skips serialization and terminates a persistently slow socket", () => {
+  const world = new World({ rng: () => 0.5, mobTargetCount: 0, spawnMobs: false });
+  const server = createGameServer({
+    persistPath: "",
+    world,
+    backpressure: { skipBytes: 100, disconnectBytes: 1_000, maxSkippedFrames: 2 },
+  });
+  let serialized = 0;
+  world.getSnapshotJson = () => {
+    serialized += 1;
+    return "{}";
+  };
+  const socket = {
+    readyState: WebSocket.OPEN,
+    playerId: "slow-player",
+    bufferedAmount: 100,
+    backpressureSkips: 0,
+    send() {
+      throw new Error("a skipped frame must not reach send");
+    },
+    terminate() {
+      this.terminated = true;
+    },
+  };
+
+  assert.equal(server._sendSnapshot(socket), "skipped");
+  assert.equal(serialized, 0, "the expensive snapshot is not built while the socket is backed up");
+  assert.equal(server._sendSnapshot(socket), "disconnected");
+  assert.equal(socket.terminated, true);
+  assert.equal(server._runtime.snapshotsSkipped, 2);
+  assert.equal(server._runtime.backpressureDisconnects, 1);
+});
+
+test("heartbeat terminates a connection that does not answer ping frames", async (t) => {
+  const server = createGameServer({
+    host: "127.0.0.1",
+    port: 0,
+    persistPath: "",
+    heartbeat: { intervalMs: 25 },
+    world: new World({ rng: () => 0.5, mobTargetCount: 0, spawnMobs: false }),
+  });
+  await server.listen();
+  t.after(() => server.close());
+  const socket = new WebSocket(`ws://127.0.0.1:${server.address().port}/ws`, { autoPong: false });
+  t.after(() => socket.terminate());
+  await messageQueue(socket).next("welcome");
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("heartbeat did not close the socket")), 1_000);
+    socket.once("close", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+  assert.equal(server._runtime.heartbeatDisconnects, 1);
+});
+
+test("configured browser origins are enforced without blocking native clients", async (t) => {
+  const server = createGameServer({
+    host: "127.0.0.1",
+    port: 0,
+    persistPath: "",
+    allowedOrigins: ["https://play.example.com"],
+    world: new World({ rng: () => 0.5, mobTargetCount: 0, spawnMobs: false }),
+  });
+  await server.listen();
+  t.after(() => server.close());
+  const url = `ws://127.0.0.1:${server.address().port}/ws`;
+
+  const rejectedStatus = await new Promise((resolve, reject) => {
+    const socket = new WebSocket(url, { origin: "https://evil.example" });
+    socket.once("unexpected-response", (_request, response) => {
+      response.resume();
+      resolve(response.statusCode);
+    });
+    socket.once("open", () => reject(new Error("an unlisted Origin was accepted")));
+    socket.once("error", () => {});
+  });
+  assert.equal(rejectedStatus, 403);
+
+  for (const options of [{ origin: "https://play.example.com" }, {}]) {
+    const socket = new WebSocket(url, options);
+    t.after(() => socket.terminate());
+    assert.equal((await messageQueue(socket).next("welcome")).type, "welcome");
+  }
+});
+
+test("runtime thresholds gate readiness and expose the failing measurements", () => {
+  const server = createGameServer({
+    persistPath: "",
+    readiness: {
+      tickStaleMs: 50,
+      maxConsecutiveTickErrors: 2,
+      eventLoopLagP99Ms: 10,
+      snapshotP99Ms: 20,
+      wsBacklogBytes: 75,
+    },
+    world: new World({ rng: () => 0.5, mobTargetCount: 0, spawnMobs: false }),
+  });
+  assert.equal(server._readinessStatus().checks.tickFresh.ok, false, "boot is unready before its first tick");
+  server._runtime.hasSuccessfulTick = true;
+  server._runtime.lastTickAtMonotonic = performance.now() - 100;
+  server._runtime.consecutiveTickErrors = 2;
+  server._runtime.eventLoopLagMs.add(11);
+  server._runtime.snapshotDurationMs.add(21);
+  const slowSocket = { readyState: WebSocket.OPEN, bufferedAmount: 75 };
+  server.wss.clients.add(slowSocket);
+
+  const status = server._readinessStatus();
+  server.wss.clients.delete(slowSocket);
+  assert.equal(status.ready, false);
+  assert.equal(status.checks.persistence.ok, true);
+  assert.equal(status.checks.tickFresh.ok, false);
+  assert.equal(status.checks.tickErrors.ok, false);
+  assert.equal(status.checks.eventLoopLag.ok, false);
+  assert.equal(status.checks.snapshotDuration.ok, false);
+  assert.equal(status.checks.websocketBacklog.ok, false);
+  assert.match(server._prometheusMetrics(), /crimson_ready 0/);
 });
 
 function messageQueue(socket) {
@@ -308,4 +459,122 @@ test("map chat never leaks outside its scope; global reaches everyone", async (t
   alice.socket.send(JSON.stringify({ type: "chat", channel: "global", text: "hello all" }));
   const bobGlobal = await nextChat(bob.queue);
   assert.equal(bobGlobal.text, "hello all");
+});
+
+test("gateway durably returns recovery and rotated sessions", async (t) => {
+  const commits = [];
+  const repository = {
+    async saveAccounts(accounts, audits) {
+      commits.push({ accounts: structuredClone(accounts), audits: structuredClone(audits) });
+    },
+    async close() {},
+  };
+  const server = createGameServer({
+    host: "127.0.0.1",
+    port: 0,
+    accountRepository: repository,
+    accountStore: {},
+    worldOptions: { rng: () => 0.5, mobTargetCount: 0, spawnMobs: false },
+  });
+  await server.listen();
+  t.after(() => server.close());
+  const socket = new WebSocket(`ws://127.0.0.1:${server.address().port}/ws`);
+  t.after(() => socket.terminate());
+  const messages = messageQueue(socket);
+  await messages.next("welcome");
+
+  socket.send(JSON.stringify({
+    type: "join",
+    protocol: 2,
+    name: "Durable",
+    archetype: "vanguard",
+    nextToken: "a".repeat(43),
+  }));
+  const original = await messages.next("session");
+  await messages.next("snapshot");
+  assert.ok(commits.at(-1).accounts.durable.tokenHash);
+  assert.equal(commits.at(-1).accounts.durable.token, undefined);
+
+  socket.send(JSON.stringify({ type: "recoveryIssue" }));
+  const recovery = await messages.next("recovery");
+  assert.equal(recovery.name, "Durable");
+  assert.ok(recovery.code.length >= 20);
+  assert.ok(commits.at(-1).accounts.durable.recovery.hash);
+
+  socket.send(JSON.stringify({ type: "sessionRotate", nextToken: "b".repeat(43) }));
+  const rotated = await messages.next("session");
+  assert.notEqual(rotated.token, original.token);
+  assert.ok(commits.at(-1).audits.some((entry) => entry.action === "session_rotated"));
+
+  socket.send(JSON.stringify({ type: "leave" }));
+  await messages.next("roster");
+  socket.send(JSON.stringify({
+    type: "recover",
+    protocol: 2,
+    name: "Durable",
+    code: recovery.code,
+    nextToken: "c".repeat(43),
+  }));
+  const recovered = await messages.next("session");
+  await messages.next("snapshot");
+  assert.notEqual(recovered.token, rotated.token);
+  assert.equal(commits.at(-1).accounts.durable.recovery, undefined);
+
+  socket.send(JSON.stringify({ type: "leave" }));
+  await messages.next("roster");
+  socket.send(JSON.stringify({
+    type: "join",
+    protocol: 2,
+    name: "Durable",
+    archetype: "vanguard",
+    token: rotated.token,
+  }));
+  const error = await messages.next("error");
+  assert.equal(error.code, "INVALID_TOKEN", "rotation and recovery both revoke the older bearer");
+});
+
+test("gateway rolls back a credential mutation when durable storage fails", async (t) => {
+  const accountStore = {};
+  let failWrites = false;
+  const repository = {
+    async saveAccounts() {
+      if (failWrites) throw new Error("database offline");
+    },
+    async close() {},
+  };
+  const server = createGameServer({
+    host: "127.0.0.1",
+    port: 0,
+    accountRepository: repository,
+    accountStore,
+    worldOptions: { rng: () => 0.5, mobTargetCount: 0, spawnMobs: false },
+  });
+  await server.listen();
+  failWrites = true;
+  t.after(() => server.close());
+  const socket = new WebSocket(`ws://127.0.0.1:${server.address().port}/ws`);
+  t.after(() => socket.terminate());
+  const messages = messageQueue(socket);
+  await messages.next("welcome");
+
+  socket.send(JSON.stringify({
+    type: "join",
+    protocol: 2,
+    name: "Rollback",
+    archetype: "vanguard",
+    nextToken: "d".repeat(43),
+  }));
+  const error = await messages.next("error");
+  failWrites = false;
+  assert.equal(error.code, "INTERNAL_ERROR");
+  assert.equal(server.world.players.size, 0);
+  assert.equal(Object.hasOwn(accountStore, "rollback"), false);
+  assert.equal(server.world.auditLog.length, 1);
+  const rollbackAudit = server.world.auditLog[0];
+  assert.equal(rollbackAudit.action, "security_persistence_rolled_back");
+  assert.equal(rollbackAudit.accountKey, "rollback");
+  assert.equal(rollbackAudit.detail.command, "join");
+  assert.equal(typeof rollbackAudit.detail.correlationId, "string");
+  assert.equal(JSON.stringify(rollbackAudit).includes("d".repeat(43)), false);
+  assert.equal(server._persistenceStatus().ok, false);
 });

@@ -264,7 +264,8 @@ export const PROTOCOL = Object.freeze({
   // `start`→`join`, `upgradeSkill`→`upgrade`, and accepts all-lowercase
   // spellings of camelCase names.
   clientMessages: {
-    join: { name: "string?", archetype: "string?", token: "string?", protocol: "number?", codec: "string?" },
+    join: { name: "string?", archetype: "string?", token: "string?", nextToken: "string?", protocol: "number?", codec: "string?" },
+    recover: { name: "string", code: "string", nextToken: "string?", protocol: "number?", codec: "string?" },
     input: {
       seq: "number?",
       move: { $optional: POINT },
@@ -301,9 +302,21 @@ export const PROTOCOL = Object.freeze({
     friendRemove: { name: "string" },
     attune: { path: "string" },
     chat: { channel: "string", text: "string" },
+    sessionRotate: { nextToken: "string?" },
+    recoveryIssue: {},
+    dungeonEnter: {},
+    dungeonLeave: {},
     leave: {},
   },
-  commandAliases: { start: "join", upgradeskill: "upgrade" },
+  commandAliases: {
+    start: "join",
+    upgradeSkill: "upgrade",
+    upgradeskill: "upgrade",
+    sessionrotate: "sessionRotate",
+    recoveryissue: "recoveryIssue",
+    dungeonenter: "dungeonEnter",
+    dungeonleave: "dungeonLeave",
+  },
 
   // Server → client messages, validated strictly (undocumented fields fail).
   serverMessages: {
@@ -321,7 +334,8 @@ export const PROTOCOL = Object.freeze({
       archetypes: { $map: ARCHETYPE_PUBLIC },
       roster: { $array: ROSTER_ENTRY },
     },
-    session: { type: "string", token: "string", name: "string" },
+    session: { type: "string", token: "string", name: "string", archetype: "string" },
+    recovery: { type: "string", name: "string", code: "string", expiresAt: "string" },
     roster: { type: "string", players: { $array: ROSTER_ENTRY } },
     snapshot: {
       type: "string",
@@ -356,6 +370,10 @@ export const PROTOCOL = Object.freeze({
     autoLevelChanged: { playerId: "string", enabled: "boolean" },
     barrierSurged: null,
     chatMessage: { playerId: "string", name: "string", channel: "string", text: "string" },
+    dungeonCompleted: null,
+    dungeonFailed: null,
+    dungeonLeft: null,
+    dungeonStarted: null,
     bossSlain: { enemyId: "string", type: "string", name: "string", playerId: "string", x: "number", y: "number" },
     bossSpawned: { enemyId: "string", type: "string", name: "string", level: "number", x: "number", y: "number" },
     enemyAttack: null,
@@ -384,6 +402,7 @@ export const PROTOCOL = Object.freeze({
     playerDefeated: { playerId: "string", sourceId: "string", respawnDelay: "number", x: "number", y: "number" },
     playerJoined: { playerId: "string", name: "string", archetype: "string" },
     playerLeft: { playerId: "string", name: "string" },
+    playerReconnected: { playerId: "string", name: "string" },
     playerReborn: null,
     playerRespawned: null,
     playerRevived: { playerId: "string", x: "number", y: "number" },
@@ -400,11 +419,12 @@ export const PROTOCOL = Object.freeze({
 
   errorCodes: [
     "ALREADY_ALIVE", "ALREADY_IN_PARTY", "ALREADY_JOINED", "CHAT_TOO_FAST",
-    "DUPLICATE_ENTITY", "INVALID_CHANNEL",
+    "DUPLICATE_ENTITY", "DUNGEON_ACTIVE", "DUNGEON_CAPACITY", "DUNGEON_LEADER_ONLY",
+    "DUNGEON_PARTY_NOT_READY", "INVALID_CHANNEL",
     "FRIENDS_FULL", "INTERNAL_ERROR", "INVALID_ARCHETYPE", "INVALID_GOOD",
     "INVALID_ID", "INVALID_ITEM", "INVALID_JSON", "INVALID_MESSAGE",
     "INVALID_SHOP", "INVALID_SKILL", "INVALID_SLOT", "INVALID_STAT",
-    "INVALID_TARGET", "INVALID_TOKEN", "INVENTORY_FULL", "ITEM_LEVEL_TOO_HIGH",
+    "INVALID_RECOVERY", "INVALID_TARGET", "INVALID_TOKEN", "INVENTORY_FULL", "ITEM_LEVEL_TOO_HIGH",
     "MESSAGE_TOO_LARGE", "NAME_IN_USE", "NAME_TAKEN", "NO_DEW", "NO_GOLD",
     "NO_INVITE", "NO_PARTY", "NO_SKILL_POINTS", "NO_STAT_POINTS", "NOT_JOINED",
     "PARTY_FULL", "PLAYER_DEAD", "PROTOCOL_MISMATCH", "RATE_LIMITED",

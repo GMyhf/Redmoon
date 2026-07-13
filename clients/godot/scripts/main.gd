@@ -89,6 +89,7 @@ var socket := WebSocketPeer.new()
 var socket_active := false
 var reconnect_timer := 0.0
 var joined := false
+var entry_requested := false
 var self_id := ""
 var world_size := Vector2(4800, 2700)
 var safe_zone := {}                   # {x, y, radius} or empty
@@ -97,6 +98,7 @@ var map_name := ""
 var map_theme := "town"
 var online_count := 0
 var archetype_meta := {}              # welcome archetypes (primary skill names)
+var rebirth_level := 10
 
 # Entity stores: id -> { pos: Vector2 (smoothed), target: Vector2, data: Dictionary }
 var players := {}
@@ -122,6 +124,12 @@ var glow_layer: Node2D
 var sounds := {}                      # name -> AudioStreamPlayer (procedurally synthesized)
 var light_texture: GradientTexture2D
 var bag_signature := ""
+var shop_signature := ""
+var party_signature := ""
+var account_secret := ""
+var rejoin_name := ""
+var pending_recovery_name := ""
+var pending_recovery_code := ""
 var smoke_timer := -1.0               # CRIMSON_SMOKE=<seconds>: headless verification run
 
 # ---- Isometric projection (matches public/client.js) --------------------
@@ -233,6 +241,8 @@ func _poll_socket(delta: float) -> void:
 			socket_active = false
 			reconnect_timer = RECONNECT_DELAY
 			if joined:
+				var me = players.get(self_id)
+				rejoin_name = str(me.data.get("name", "")) if me else ui.name_input.text.strip_edges()
 				_show_lobby("连接中断，重连中…")
 			else:
 				_set_status("连接中断，重连中…")
@@ -377,25 +387,53 @@ func _handle_message(message: Dictionary) -> void:
 			world_size = Vector2(float(world.get("width", 4800)), float(world.get("height", 2700)))
 			_apply_world(world)
 			archetype_meta = message.get("archetypes", {})
+			rebirth_level = int(message.get("rebirthLevel", rebirth_level))
 			_fill_archetypes(archetype_meta)
 			_render_roster(message.get("roster", []))
 			_set_status("已连接，选择角色进入")
 			print("welcome: protocol v%d, %d archetypes" % [server_protocol, archetype_meta.size()])
 			# Debug affordance for headless runs and CI: auto-join on connect.
 			var autojoin := OS.get_environment("CRIMSON_AUTOJOIN")
-			if autojoin != "" and not joined:
-				ui.name_input.text = autojoin
+			if pending_recovery_name != "" and pending_recovery_code != "":
+				ui.name_input.text = pending_recovery_name
+				ui.recovery_input.text = pending_recovery_code
+				_recover()
+			elif not joined and (rejoin_name != "" or autojoin != ""):
+				ui.name_input.text = rejoin_name if rejoin_name != "" else autojoin
 				_join()
 		"roster":
 			_render_roster(message.get("players", []))
 		"session":
-			_store_token(str(message.get("name", "")), str(message.get("token", "")))
+			var player_name := str(message.get("name", ""))
+			var token := str(message.get("token", ""))
+			var token_changed := _load_token(player_name) != token
+			var pending_promoted := token != "" and _load_pending_token(player_name) == token
+			pending_recovery_name = ""
+			pending_recovery_code = ""
+			ui.name_input.text = player_name
+			_select_archetype(str(message.get("archetype", "")))
+			if _store_token(player_name, token):
+				# Routine resume repeats the already stored bearer; keep that path
+				# quiet so a network hiccup does not open the account panel in play.
+				if token_changed or pending_promoted:
+					_show_account_notice("会话凭据已安全保存")
+			else:
+				_show_account_notice("会话凭据未能安全保存；请手动保管以下令牌：\n%s" % token, token)
+		"recovery":
+			var code := str(message.get("code", ""))
+			_show_account_notice("恢复码（%s 前有效）：\n%s" % [str(message.get("expiresAt", "")), code], code)
 		"snapshot":
 			_apply_snapshot(message)
 		"event":
 			_handle_event(message)
 		"error":
 			var code := str(message.get("code", ""))
+			if code != "INTERNAL_ERROR":
+				if str(message.get("requestType", "")) in ["join", "start", "recover"]:
+					rejoin_name = ""
+				pending_recovery_name = ""
+				pending_recovery_code = ""
+			_set_account_buttons_enabled(true)
 			_set_status("错误 %s：%s" % [code, str(message.get("message", ""))])
 			print("error %s: %s" % [code, str(message.get("message", ""))])
 			if code in ["INVALID_TOKEN", "NAME_IN_USE", "NAME_TAKEN", "PROTOCOL_MISMATCH", "INVALID_ARCHETYPE"]:
@@ -415,14 +453,43 @@ func _join() -> void:
 		"archetype": archetype,
 	}
 	var token := _load_token(player_name)
+	var next_token := _load_pending_token(player_name)
 	if token != "":
 		message["token"] = token
+	if next_token == "" and token == "":
+		next_token = _prepare_pending_token(player_name)
+		if next_token == "":
+			return
+	if next_token != "":
+		message["nextToken"] = next_token
+	rejoin_name = player_name
+	entry_requested = true
+	_set_account_buttons_enabled(false)
 	_send(message)
 	_set_status("接入中…")
 
 func _leave() -> void:
+	rejoin_name = ""
+	entry_requested = false
 	_send({"type": "leave"})
 	_show_lobby("已返回主画面")
+
+func _recover() -> void:
+	var player_name: String = ui.name_input.text.strip_edges()
+	var code: String = ui.recovery_input.text.strip_edges()
+	if player_name.length() < 2 or code == "":
+		_set_status("请输入呼号和一次性恢复码")
+		return
+	var next_token := _prepare_pending_token(player_name)
+	if next_token == "":
+		return
+	pending_recovery_name = player_name
+	pending_recovery_code = code
+	rejoin_name = player_name
+	entry_requested = true
+	_set_account_buttons_enabled(false)
+	_send({"type": "recover", "protocol": CLIENT_PROTOCOL, "codec": SNAPSHOT_CODEC, "name": player_name, "code": code, "nextToken": next_token})
+	_set_status("正在验证恢复码…")
 
 func _apply_world(world: Dictionary) -> void:
 	map_name = str(world.get("name", map_name))
@@ -432,12 +499,14 @@ func _apply_world(world: Dictionary) -> void:
 		shade_cache.clear()
 	portals = world.get("portals", portals)
 	var shop_list = world.get("shops")
-	if shop_list is Array and not shop_list.is_empty():
+	if shop_list is Array:
 		shops = shop_list
 	var zone = world.get("safeZone")
 	safe_zone = zone if zone is Dictionary else {}
 
 func _apply_snapshot(snapshot: Dictionary) -> void:
+	if not joined and not entry_requested:
+		return
 	self_id = str(snapshot.get("selfId", self_id))
 	online_count = int(snapshot.get("online", online_count))
 	_apply_world(snapshot.get("world", {}))
@@ -449,6 +518,8 @@ func _apply_snapshot(snapshot: Dictionary) -> void:
 	_sync_store(projectiles, snapshot.get("projectiles", []))
 	if not joined and players.has(self_id):
 		joined = true
+		entry_requested = false
+		rejoin_name = ""
 		ui.lobby_bg.visible = false
 		ui.join_panel.visible = false
 		ui.hud.visible = true
@@ -456,6 +527,8 @@ func _apply_snapshot(snapshot: Dictionary) -> void:
 		ui.chat_feed.visible = true
 		ui.chat_row.visible = true
 		var me = players[self_id]
+		ui.name_input.text = str(me.data.get("name", ui.name_input.text))
+		_select_archetype(str(me.data.get("archetype", "")))
 		me.pos = me.target
 		camera.position = iso(me.pos)
 		# Warm the art for this hero and ground; headless smoke runs verify
@@ -538,6 +611,17 @@ func _handle_event(event: Dictionary) -> void:
 			if str(event.get("playerId", "")) == self_id:
 				pending_invite = ""
 				_set_status("已加入队伍")
+		"dungeonStarted":
+			_set_status("副本开始：%s（%d 个敌人）" % [str(event.get("name", "")), int(event.get("enemies", 0))])
+		"dungeonCompleted":
+			var reward: Dictionary = event.get("reward", {})
+			_set_status("副本完成：+%d 经验 / +%d 金 / +%d 露" % [
+				int(reward.get("xp", 0)), int(reward.get("gold", 0)), int(reward.get("dew", 0)),
+			])
+		"dungeonFailed":
+			_set_status("副本结束：%s" % str(event.get("reason", "timeout")))
+		"dungeonLeft":
+			_set_status("已离开副本")
 		"lootPickedUp":
 			if str(event.get("playerId", "")) == self_id:
 				_sfx("pickup")
@@ -1347,6 +1431,7 @@ func _build_ui() -> void:
 	var name_input := LineEdit.new()
 	name_input.placeholder_text = "操作员呼号（至少 2 字符）"
 	name_input.text = "Godot-01"
+	name_input.max_length = 20
 	box.add_child(name_input)
 
 	var archetype_select := OptionButton.new()
@@ -1357,6 +1442,13 @@ func _build_ui() -> void:
 	join_button.text = "接入中继"
 	join_button.pressed.connect(_join)
 	box.add_child(join_button)
+	var recovery_input := LineEdit.new()
+	recovery_input.placeholder_text = "一次性恢复码（账号找回时填写）"
+	box.add_child(recovery_input)
+	var recover_button := Button.new()
+	recover_button.text = "使用恢复码找回"
+	recover_button.pressed.connect(_recover)
+	box.add_child(recover_button)
 
 	var status := Label.new()
 	status.text = "未连接"
@@ -1372,6 +1464,17 @@ func _build_ui() -> void:
 	hud.position = Vector2(16, 12)
 	hud.visible = false
 	root.add_child(hud)
+	var game_status := Label.new()
+	game_status.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	game_status.offset_left = -260.0
+	game_status.offset_top = 12.0
+	game_status.offset_right = 260.0
+	game_status.offset_bottom = 52.0
+	game_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	game_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	game_status.add_theme_color_override("font_color", Color(0.95, 0.78, 0.38))
+	game_status.visible = false
+	root.add_child(game_status)
 
 	var leave_button := Button.new()
 	leave_button.text = "返回主画面 (Esc)"
@@ -1386,6 +1489,12 @@ func _build_ui() -> void:
 	bag_button.visible = false
 	bag_button.pressed.connect(_toggle_bag)
 	root.add_child(bag_button)
+
+	var control_button := Button.new()
+	control_button.text = "成长 / 队伍"
+	control_button.position = Vector2(274, 60)
+	control_button.visible = false
+	root.add_child(control_button)
 
 	# Chat: bottom-left feed, channel selector, and input line.
 	var chat_feed := Label.new()
@@ -1463,6 +1572,171 @@ func _build_ui() -> void:
 	bag_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	bag_scroll.add_child(bag_list)
 
+	# Functional progression/social surface. It intentionally stays plain and
+	# dense: every action is an intent, and the next authoritative snapshot
+	# refreshes the values and toggle states.
+	var control_panel := PanelContainer.new()
+	control_panel.set_anchors_preset(Control.PRESET_CENTER_LEFT)
+	control_panel.offset_left = 14.0
+	control_panel.offset_right = 374.0
+	control_panel.offset_top = -260.0
+	control_panel.offset_bottom = 260.0
+	control_panel.visible = false
+	root.add_child(control_panel)
+	control_button.pressed.connect(func() -> void:
+		control_panel.visible = not control_panel.visible)
+
+	var control_scroll := ScrollContainer.new()
+	control_panel.add_child(control_scroll)
+	var control_box := VBoxContainer.new()
+	control_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	control_box.add_theme_constant_override("separation", 7)
+	control_scroll.add_child(control_box)
+
+	var progress_title := Label.new()
+	progress_title.text = "角色成长"
+	progress_title.add_theme_font_size_override("font_size", 18)
+	control_box.add_child(progress_title)
+	var stat_points_label := Label.new()
+	control_box.add_child(stat_points_label)
+	var stat_grid := GridContainer.new()
+	stat_grid.columns = 3
+	control_box.add_child(stat_grid)
+	var stat_labels := {}
+	var stat_buttons := {}
+	for entry in [["power", "力量"], ["agility", "敏捷"], ["spirit", "精神"], ["vitality", "体魄"]]:
+		var stat_key: String = entry[0]
+		var stat_name := Label.new()
+		stat_name.text = entry[1]
+		stat_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		stat_grid.add_child(stat_name)
+		var stat_value := Label.new()
+		stat_value.text = "0"
+		stat_grid.add_child(stat_value)
+		stat_labels[stat_key] = stat_value
+		var stat_add := Button.new()
+		stat_add.text = "+"
+		stat_add.tooltip_text = "强化%s" % entry[1]
+		stat_add.pressed.connect(func() -> void: _send({"type": "allocate", "stat": stat_key}))
+		stat_grid.add_child(stat_add)
+		stat_buttons[stat_key] = stat_add
+
+	var skill_points_label := Label.new()
+	control_box.add_child(skill_points_label)
+	var skill_upgrade_row := HBoxContainer.new()
+	control_box.add_child(skill_upgrade_row)
+	var skill_upgrade_buttons := {}
+	for pair in SKILL_SLOTS.slice(1):
+		var upgrade_slot: String = pair[0]
+		var upgrade_button := Button.new()
+		upgrade_button.text = "%s+" % pair[1]
+		upgrade_button.pressed.connect(func() -> void: _send({"type": "upgrade", "skill": upgrade_slot}))
+		skill_upgrade_row.add_child(upgrade_button)
+		skill_upgrade_buttons[upgrade_slot] = upgrade_button
+
+	var automation_row := HBoxContainer.new()
+	control_box.add_child(automation_row)
+	var auto_buttons := {}
+	for entry in [["autoFight", "自动战斗", "setAuto"], ["autoLevel", "自动加点", "setAutoLevel"], ["autoEquip", "自动装备", "setAutoEquip"]]:
+		var state_key: String = entry[0]
+		var command: String = entry[2]
+		var toggle := CheckButton.new()
+		toggle.text = entry[1]
+		toggle.toggled.connect(func(enabled: bool) -> void: _send({"type": command, "enabled": enabled}))
+		automation_row.add_child(toggle)
+		auto_buttons[state_key] = toggle
+
+	var rebirth_button := Button.new()
+	rebirth_button.text = "转生"
+	rebirth_button.pressed.connect(func() -> void: _send({"type": "rebirth"}))
+	control_box.add_child(rebirth_button)
+	var session_row := HBoxContainer.new()
+	control_box.add_child(session_row)
+	var recovery_issue_button := Button.new()
+	recovery_issue_button.text = "生成恢复码"
+	recovery_issue_button.tooltip_text = "生成新的单次恢复码；旧码立即失效"
+	recovery_issue_button.pressed.connect(func() -> void: _send({"type": "recoveryIssue"}))
+	session_row.add_child(recovery_issue_button)
+	var session_rotate_button := Button.new()
+	session_rotate_button.text = "轮换会话"
+	session_rotate_button.tooltip_text = "立即废止当前令牌并保存新令牌"
+	session_rotate_button.pressed.connect(func() -> void:
+		var me = players.get(self_id)
+		var player_name: String = str(me.data.get("name", "")) if me else ui.name_input.text.strip_edges()
+		var next_token := _prepare_pending_token(player_name, true)
+		if next_token != "":
+			session_rotate_button.disabled = true
+			_send({"type": "sessionRotate", "nextToken": next_token})
+			_set_status("正在轮换会话凭据…"))
+	session_row.add_child(session_rotate_button)
+	var account_notice := Label.new()
+	account_notice.visible = false
+	account_notice.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	account_notice.custom_minimum_size = Vector2(300, 0)
+	account_notice.add_theme_color_override("font_color", Color(0.95, 0.78, 0.38))
+	control_box.add_child(account_notice)
+	var account_copy_button := Button.new()
+	account_copy_button.text = "复制账号密钥"
+	account_copy_button.tooltip_text = "复制当前显示的恢复码或紧急会话令牌"
+	account_copy_button.visible = false
+	account_copy_button.pressed.connect(func() -> void:
+		if account_secret != "":
+			DisplayServer.clipboard_set(account_secret)
+			_set_status("账号密钥已复制"))
+	control_box.add_child(account_copy_button)
+	var dungeon_row := HBoxContainer.new()
+	control_box.add_child(dungeon_row)
+	var dungeon_enter_button := Button.new()
+	dungeon_enter_button.text = "开启组队副本"
+	dungeon_enter_button.pressed.connect(func() -> void: _send({"type": "dungeonEnter"}))
+	dungeon_row.add_child(dungeon_enter_button)
+	var dungeon_leave_button := Button.new()
+	dungeon_leave_button.text = "离开副本"
+	dungeon_leave_button.pressed.connect(func() -> void: _send({"type": "dungeonLeave"}))
+	dungeon_row.add_child(dungeon_leave_button)
+	var quest_label := Label.new()
+	quest_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	control_box.add_child(quest_label)
+
+	var death_row := HBoxContainer.new()
+	death_row.visible = false
+	control_box.add_child(death_row)
+	var respawn_button := Button.new()
+	respawn_button.text = "城镇重生"
+	respawn_button.pressed.connect(func() -> void: _send({"type": "respawn"}))
+	death_row.add_child(respawn_button)
+	var revive_button := Button.new()
+	revive_button.text = "复苏露原地复活"
+	revive_button.pressed.connect(func() -> void: _send({"type": "revive"}))
+	death_row.add_child(revive_button)
+
+	var shop_title := Label.new()
+	shop_title.text = "附近商店"
+	shop_title.add_theme_font_size_override("font_size", 16)
+	control_box.add_child(shop_title)
+	var shop_list := VBoxContainer.new()
+	control_box.add_child(shop_list)
+
+	var party_title := Label.new()
+	party_title.text = "队伍"
+	party_title.add_theme_font_size_override("font_size", 16)
+	control_box.add_child(party_title)
+	var party_state := Label.new()
+	control_box.add_child(party_state)
+	var party_row := HBoxContainer.new()
+	control_box.add_child(party_row)
+	var party_target := OptionButton.new()
+	party_target.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	party_row.add_child(party_target)
+	var party_invite := Button.new()
+	party_invite.text = "邀请"
+	party_invite.pressed.connect(func() -> void: _invite_selected_party_target())
+	party_row.add_child(party_invite)
+	var party_leave := Button.new()
+	party_leave.text = "离队"
+	party_leave.pressed.connect(func() -> void: _send({"type": "partyLeave"}))
+	party_row.add_child(party_leave)
+
 	# Soft vignette for depth, and the bottom-right minimap.
 	var vignette := TextureRect.new()
 	var vignette_texture := GradientTexture2D.new()
@@ -1497,17 +1771,44 @@ func _build_ui() -> void:
 		"lobby_bg": lobby_bg,
 		"join_panel": panel,
 		"name_input": name_input,
+		"recovery_input": recovery_input,
 		"archetype_select": archetype_select,
+		"join_button": join_button,
+		"recover_button": recover_button,
 		"status": status,
 		"roster": roster,
 		"hud": hud,
+		"game_status": game_status,
 		"leave_button": leave_button,
 		"bag_button": bag_button,
+		"control_button": control_button,
 		"skill_bar": skill_bar,
 		"skill_buttons": skill_buttons,
 		"bag_panel": bag_panel,
 		"bag_title": bag_title,
 		"bag_list": bag_list,
+		"control_panel": control_panel,
+		"stat_points_label": stat_points_label,
+		"stat_labels": stat_labels,
+		"stat_buttons": stat_buttons,
+		"skill_points_label": skill_points_label,
+		"skill_upgrade_buttons": skill_upgrade_buttons,
+		"auto_buttons": auto_buttons,
+		"rebirth_button": rebirth_button,
+		"account_notice": account_notice,
+		"account_copy_button": account_copy_button,
+		"session_rotate_button": session_rotate_button,
+		"dungeon_enter_button": dungeon_enter_button,
+		"dungeon_leave_button": dungeon_leave_button,
+		"quest_label": quest_label,
+		"death_row": death_row,
+		"respawn_button": respawn_button,
+		"revive_button": revive_button,
+		"shop_list": shop_list,
+		"party_state": party_state,
+		"party_target": party_target,
+		"party_invite": party_invite,
+		"party_leave": party_leave,
 		"chat_feed": chat_feed,
 		"chat_row": chat_row,
 		"chat_input": chat_input,
@@ -1516,6 +1817,14 @@ func _build_ui() -> void:
 func _toggle_bag() -> void:
 	ui.bag_panel.visible = not ui.bag_panel.visible
 	bag_signature = ""
+
+func _invite_selected_party_target() -> void:
+	var target: OptionButton = ui.party_target
+	if target.item_count == 0 or target.selected < 0:
+		return
+	var target_id := str(target.get_item_metadata(target.selected))
+	if target_id != "":
+		_send({"type": "partyInvite", "target": target_id})
 
 func _fill_archetypes(archetypes: Dictionary) -> void:
 	if archetypes.is_empty():
@@ -1526,6 +1835,14 @@ func _fill_archetypes(archetypes: Dictionary) -> void:
 	for key in keys:
 		ui.archetype_select.add_item(str(key))
 	ui.archetype_select.select(keys.find("vanguard") if keys.has("vanguard") else 0)
+
+func _select_archetype(archetype: String) -> void:
+	if archetype == "":
+		return
+	for index in ui.archetype_select.item_count:
+		if ui.archetype_select.get_item_text(index) == archetype:
+			ui.archetype_select.select(index)
+			return
 
 func _render_roster(entries: Array) -> void:
 	var lines := PackedStringArray()
@@ -1547,9 +1864,103 @@ func _update_hud(data: Dictionary) -> void:
 	ui.hud.visible = true
 	ui.leave_button.visible = true
 	ui.bag_button.visible = true
+	ui.control_button.visible = true
 	_update_skill_bar(data)
+	_update_progress_panel(data)
 	if ui.bag_panel.visible:
 		_update_bag(data)
+
+func _update_progress_panel(data: Dictionary) -> void:
+	var stats: Dictionary = data.get("stats", {})
+	var stat_points := int(data.get("statPoints", 0))
+	ui.stat_points_label.text = "属性点：%d" % stat_points
+	for stat_key in ui.stat_labels:
+		ui.stat_labels[stat_key].text = str(int(stats.get(stat_key, 0)))
+		ui.stat_buttons[stat_key].disabled = stat_points <= 0 or not bool(data.get("alive", true))
+
+	var skill_points := int(data.get("skillPoints", 0))
+	var skills: Dictionary = data.get("skills", {})
+	ui.skill_points_label.text = "技能点：%d" % skill_points
+	for slot in ui.skill_upgrade_buttons:
+		var skill = skills.get(slot, {})
+		var can_upgrade := skill is Dictionary \
+			and bool(skill.get("unlocked", false)) \
+			and int(skill.get("level", 0)) < int(skill.get("maxLevel", 0))
+		ui.skill_upgrade_buttons[slot].disabled = skill_points <= 0 or not can_upgrade
+
+	for state_key in ui.auto_buttons:
+		ui.auto_buttons[state_key].set_pressed_no_signal(bool(data.get(state_key, false)))
+	ui.rebirth_button.disabled = int(data.get("level", 1)) < rebirth_level or not bool(data.get("alive", true))
+	ui.rebirth_button.text = "转生（需要 L%d）" % rebirth_level
+	var in_dungeon := str(data.get("mapId", "")).begins_with("dungeon:")
+	ui.dungeon_enter_button.disabled = in_dungeon or not bool(data.get("alive", true))
+	ui.dungeon_leave_button.disabled = not in_dungeon
+
+	var quest: Dictionary = data.get("quest", {})
+	ui.quest_label.text = "任务：%s\n%s  %d/%d" % [
+		str(quest.get("title", "无")), str(quest.get("description", "")),
+		int(quest.get("progress", 0)), int(quest.get("target", 0)),
+	]
+	ui.death_row.visible = not bool(data.get("alive", true))
+	ui.respawn_button.disabled = float(data.get("respawnIn", 0)) > 0.0
+	ui.revive_button.disabled = int(data.get("dew", 0)) <= 0
+	_update_shop_controls(data)
+	_update_party_controls(data)
+
+func _update_shop_controls(data: Dictionary) -> void:
+	var signature := "%s:%d" % [map_name, int(data.get("level", 1))]
+	for shop in shops:
+		signature += ":" + str(shop.get("id", ""))
+	if signature == shop_signature:
+		return
+	shop_signature = signature
+	for child in ui.shop_list.get_children():
+		child.queue_free()
+	if shops.is_empty():
+		var empty := Label.new()
+		empty.text = "当前地图没有商店"
+		ui.shop_list.add_child(empty)
+		return
+	for shop in shops:
+		var heading := Label.new()
+		heading.text = str(shop.get("name", "商店"))
+		ui.shop_list.add_child(heading)
+		for good in shop.get("goods", []):
+			var row := HBoxContainer.new()
+			var label := Label.new()
+			var gold_price := int(good.get("gold", 0)) + int(good.get("goldPerLevel", 0)) * (int(data.get("level", 1)) - 1)
+			var price_text := "%d露" % int(good.get("dew", 0)) if int(good.get("dew", 0)) > 0 else "%d金" % gold_price
+			label.text = "%s  %s" % [str(good.get("label", good.get("key", "商品"))), price_text]
+			label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			row.add_child(label)
+			var buy := Button.new()
+			buy.text = "购买"
+			var shop_id := str(shop.get("id", ""))
+			var good_key := str(good.get("key", ""))
+			buy.pressed.connect(func() -> void: _send({"type": "buy", "shop": shop_id, "good": good_key}))
+			row.add_child(buy)
+			ui.shop_list.add_child(row)
+
+func _update_party_controls(data: Dictionary) -> void:
+	var party: Array = data.get("party", [])
+	var signature := ",".join(PackedStringArray(party))
+	var candidates: Array = []
+	for player_id in players:
+		if player_id == self_id:
+			continue
+		var entry: Dictionary = players[player_id].data
+		candidates.append([str(player_id), str(entry.get("name", "?"))])
+		signature += ":%s" % player_id
+	if signature == party_signature:
+		return
+	party_signature = signature
+	ui.party_state.text = "未组队" if party.is_empty() else "成员：" + ", ".join(PackedStringArray(party))
+	ui.party_target.clear()
+	for candidate in candidates:
+		ui.party_target.add_item(candidate[1])
+		ui.party_target.set_item_metadata(ui.party_target.item_count - 1, candidate[0])
+	ui.party_invite.disabled = candidates.is_empty()
+	ui.party_leave.disabled = party.is_empty()
 
 func _update_skill_bar(data: Dictionary) -> void:
 	var skills: Dictionary = data.get("skills", {})
@@ -1612,6 +2023,7 @@ func _update_bag(data: Dictionary) -> void:
 
 func _show_lobby(message: String) -> void:
 	joined = false
+	entry_requested = false
 	self_id = ""
 	bag_signature = ""
 	for store in [players, enemies, drops, projectiles]:
@@ -1619,18 +2031,42 @@ func _show_lobby(message: String) -> void:
 	ui.lobby_bg.visible = true
 	ui.join_panel.visible = true
 	ui.hud.visible = false
+	ui.game_status.visible = false
 	ui.leave_button.visible = false
 	ui.bag_button.visible = false
+	ui.control_button.visible = false
 	ui.skill_bar.visible = false
 	ui.bag_panel.visible = false
+	ui.control_panel.visible = false
 	ui.chat_feed.visible = false
 	ui.chat_row.visible = false
 	chat_lines.clear()
+	shop_signature = ""
+	party_signature = ""
 	if message != "":
 		_set_status(message)
 
 func _set_status(text: String) -> void:
 	ui.status.text = text
+	if joined and ui.has("game_status"):
+		ui.game_status.text = text
+		ui.game_status.visible = text != ""
+
+func _show_account_notice(text: String, secret := "") -> void:
+	_set_status(text)
+	if ui.has("account_notice"):
+		account_secret = secret
+		ui.account_notice.text = text
+		ui.account_notice.visible = true
+		ui.account_copy_button.visible = secret != ""
+		ui.control_panel.visible = true
+
+func _set_account_buttons_enabled(enabled: bool) -> void:
+	if ui.has("join_button"):
+		ui.join_button.disabled = not enabled
+		ui.recover_button.disabled = not enabled
+	if ui.has("session_rotate_button"):
+		ui.session_rotate_button.disabled = not enabled
 
 # ---- Session token persistence -----------------------------------------
 
@@ -1643,10 +2079,80 @@ func _load_token(player_name: String) -> String:
 		return ""
 	return str(config.get_value("tokens", _token_key(player_name), ""))
 
-func _store_token(player_name: String, token: String) -> void:
-	if player_name == "" or token == "":
-		return
+func _load_pending_token(player_name: String) -> String:
 	var config := ConfigFile.new()
-	config.load(TOKEN_FILE)
-	config.set_value("tokens", _token_key(player_name), token)
-	config.save(TOKEN_FILE)
+	if config.load(TOKEN_FILE) != OK:
+		return ""
+	var token := str(config.get_value("pending", _token_key(player_name), ""))
+	return token if _is_valid_next_token(token) else ""
+
+func _is_valid_next_token(token: String) -> bool:
+	if token.length() < 43 or token.length() > 128:
+		return false
+	for index in range(token.length()):
+		var code := token.unicode_at(index)
+		var valid := (code >= 48 and code <= 57) or (code >= 65 and code <= 90) \
+			or (code >= 97 and code <= 122) or code == 45 or code == 95
+		if not valid:
+			return false
+	return true
+
+func _new_session_token() -> String:
+	return Crypto.new().generate_random_bytes(32).hex_encode()
+
+func _prepare_pending_token(player_name: String, replace := false) -> String:
+	if player_name == "":
+		return ""
+	var config := ConfigFile.new()
+	var load_error := config.load(TOKEN_FILE)
+	if load_error != OK and load_error != ERR_FILE_NOT_FOUND:
+		_show_account_notice("会话配置已损坏，拒绝覆盖；请先备份或修复 session.cfg")
+		return ""
+	var key := _token_key(player_name)
+	var token := str(config.get_value("pending", key, ""))
+	if token != "" and not _is_valid_next_token(token):
+		config.erase_section_key("pending", key)
+		token = ""
+	if token != "" and not replace:
+		return token
+	token = _new_session_token()
+	config.set_value("pending", key, token)
+	if not _save_session_config(config):
+		_show_account_notice("无法先安全保存候选会话令牌；命令未发送")
+		return ""
+	return token
+
+func _is_desktop_unix() -> bool:
+	return OS.get_name() in ["Linux", "macOS", "FreeBSD", "NetBSD", "OpenBSD"]
+
+func _save_session_config(config: ConfigFile) -> bool:
+	if _is_desktop_unix():
+		if not FileAccess.file_exists(TOKEN_FILE):
+			var token_file := FileAccess.open(TOKEN_FILE, FileAccess.WRITE)
+			if token_file == null:
+				return false
+			token_file.close()
+		if FileAccess.set_unix_permissions(TOKEN_FILE, 384) != OK:
+			return false
+	var save_error := config.save(TOKEN_FILE)
+	if save_error != OK:
+		return false
+	if _is_desktop_unix() and FileAccess.set_unix_permissions(TOKEN_FILE, 384) != OK:
+		return false
+	return true
+
+func _store_token(player_name: String, token: String) -> bool:
+	if player_name == "" or token == "":
+		return false
+	var config := ConfigFile.new()
+	var load_error := config.load(TOKEN_FILE)
+	if load_error != OK and load_error != ERR_FILE_NOT_FOUND:
+		return false
+	var key := _token_key(player_name)
+	config.set_value("tokens", key, token)
+	var pending := str(config.get_value("pending", key, ""))
+	if pending == token or (pending != "" and not _is_valid_next_token(pending)):
+		config.erase_section_key("pending", key)
+	var saved := _save_session_config(config)
+	_set_account_buttons_enabled(true)
+	return saved

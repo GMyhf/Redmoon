@@ -1,0 +1,76 @@
+name: Deterministic stress
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      bots:
+        description: Concurrent bot count
+        required: false
+        default: "30"
+      seconds:
+        description: Measurement duration
+        required: false
+        default: "30"
+      seed:
+        description: Deterministic action seed
+        required: false
+        default: nightly
+
+permissions:
+  contents: read
+
+jobs:
+  stress:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      BOTS: ${{ inputs.bots || '30' }}
+      DURATION_SECONDS: ${{ inputs.seconds || '30' }}
+      SEED: ${{ inputs.seed || 'nightly' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Start isolated server
+        run: |
+          HOST=127.0.0.1 PORT=8080 PERSIST_PATH= node src/server/server.js > /tmp/crimson-server.log 2>&1 &
+          echo "$!" > /tmp/crimson-server.pid
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:8080/ready > /dev/null; then
+              exit 0
+            fi
+            sleep 0.25
+          done
+          cat /tmp/crimson-server.log
+          exit 1
+      - name: Enforce capacity floor
+        run: |
+          npm run stress -- "$BOTS" "$DURATION_SECONDS" ws://127.0.0.1:8080/ws \
+            --seed "$SEED" \
+            --min-join-ratio 1 \
+            --min-tick-ratio 0.9 \
+            --min-active-ratio 1 \
+            --max-p95-ms 400 \
+            --max-p99-ms 600 \
+            --max-errors 0 \
+            --require-ready | tee /tmp/crimson-stress.log
+      - name: Stop server
+        if: always()
+        run: |
+          if test -f /tmp/crimson-server.pid; then
+            kill "$(cat /tmp/crimson-server.pid)" || true
+          fi
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crimson-stress-${{ github.run_id }}
+          path: |
+            /tmp/crimson-server.log
+            /tmp/crimson-stress.log
+          if-no-files-found: ignore

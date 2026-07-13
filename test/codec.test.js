@@ -67,6 +67,24 @@ test("binary1 snapshots survive an encode/decode round trip", () => {
   assert.ok(frame.length < jsonBytes, `binary (${frame.length}) beats JSON (${jsonBytes})`);
 });
 
+test("binary snapshots defensively ignore a non-string equipment drop class", () => {
+  const world = new World({
+    rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, autoLevel: false,
+  });
+  world.addPlayer("self-1", { name: "Codec", archetype: "vanguard" });
+  const other = world.addPlayer("other-1", { name: "Rival", archetype: "eclipse" });
+  other.inventory.push({
+    id: "blade", slot: "weapon", rarity: "epic", tier: 4, level: 1,
+    name: "Pulse Edge", bonuses: { power: 4 },
+  });
+  world.equipItem("other-1", "blade");
+  other.equipment.weapon.dropClass = { toString: null };
+
+  const decoded = decodeSnapshotBinary(encodeSnapshotBinary(world.getSnapshot("self-1")));
+  const weapon = decoded.players.find((entry) => entry.id === "other-1").equipment.weapon;
+  assert.equal(weapon.dropClass, undefined);
+});
+
 test("a client that negotiates binary1 receives binary snapshot frames", async (t) => {
   const server = createGameServer({
     host: "127.0.0.1",

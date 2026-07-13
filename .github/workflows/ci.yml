@@ -37,10 +37,43 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      # Playwright drives the preinstalled system Chrome (channel: "chrome");
-      # this only tops it up if the runner image ever drops it.
-      - run: npx playwright install --with-deps chrome || true
+      # The harness talks directly to ubuntu-latest's system Chrome over CDP;
+      # no bundled browser or heavyweight automation dependency is needed.
       - run: npm run test:browser
+
+  stress-smoke:
+    name: Deterministic capacity smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Start isolated server
+        run: |
+          HOST=127.0.0.1 PORT=8080 PERSIST_PATH= node src/server/server.js > /tmp/crimson-ci-server.log 2>&1 &
+          echo "$!" > /tmp/crimson-ci-server.pid
+          for attempt in $(seq 1 40); do
+            curl --fail --silent http://127.0.0.1:8080/ready > /dev/null && exit 0
+            sleep 0.25
+          done
+          cat /tmp/crimson-ci-server.log
+          exit 1
+      - name: Enforce short capacity floor
+        run: |
+          npm run stress -- 10 8 ws://127.0.0.1:8080/ws \
+            --seed pull-request --min-join-ratio 1 --min-active-ratio 1 \
+            --min-tick-ratio 0.9 --max-p95-ms 500 --max-p99-ms 750 \
+            --max-errors 0 --require-ready
+      - name: Stop server
+        if: always()
+        run: |
+          if test -f /tmp/crimson-ci-server.pid; then
+            kill "$(cat /tmp/crimson-ci-server.pid)" || true
+          fi
 
   godot:
     name: Godot import & live smoke
@@ -75,15 +108,19 @@ jobs:
           ! grep -Ei "SCRIPT ERROR|Parse Error" /tmp/godot-check.log
       - name: Headless smoke against a live server
         run: |
-          HOST=127.0.0.1 PORT=3000 PERSIST_PATH= node src/server/server.js &
+          rm -rf /tmp/crimson-godot-data /tmp/crimson-godot-accounts.json*
+          HOST=127.0.0.1 PORT=3000 PERSIST_PATH=/tmp/crimson-godot-accounts.json node src/server/server.js &
           SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
           sleep 2
           cd clients/godot
-          CRIMSON_AUTOJOIN=CI CRIMSON_SMOKE=8 timeout 90 godot --headless 2>&1 | tee /tmp/smoke.log
-          kill $SERVER_PID
+          XDG_DATA_HOME=/tmp/crimson-godot-data \
+            CRIMSON_AUTOJOIN=CI CRIMSON_SMOKE=8 \
+            timeout 90 godot --headless 2>&1 | tee /tmp/smoke.log
           grep -q "joined as CI" /tmp/smoke.log
           grep -q "smoke: joined=true" /tmp/smoke.log
           ! grep -Ei "SCRIPT ERROR|Parse Error" /tmp/smoke.log
+          test "$(stat -c '%a' '/tmp/crimson-godot-data/godot/app_userdata/Crimson Relay/session.cfg')" = 600
 
   systemd:
     name: systemd unit verify
@@ -91,3 +128,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: systemd-analyze verify deploy/crimson-relay.service
+
+  proxy-config:
+    name: Reverse proxy syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Caddyfile
+        run: |
+          docker run --rm \
+            -v "$PWD/deploy/Caddyfile.example:/etc/caddy/Caddyfile:ro" \
+            caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+      - name: Create disposable nginx certificate
+        run: |
+          mkdir -p /tmp/crimson-cert
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+            -subj /CN=play.example.com \
+            -keyout /tmp/crimson-cert/privkey.pem \
+            -out /tmp/crimson-cert/fullchain.pem
+      - name: Validate nginx site
+        run: |
+          docker run --rm \
+            -v "$PWD/deploy/nginx.conf.example:/etc/nginx/conf.d/crimson-relay.conf:ro" \
+            -v "/tmp/crimson-cert:/etc/letsencrypt/live/play.example.com:ro" \
+            nginx:stable-alpine nginx -t

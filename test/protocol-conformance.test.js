@@ -76,6 +76,8 @@ test("emitted events carry documented names and conformant payloads", () => {
   world._damageMob(prey, 10, "p-1");
   world.giveItem("p-1", { slot: "weapon", bonuses: { power: 1 } });
   world.sellItem("p-1", player.inventory.at(-1).id);
+  world.detachPlayer("p-1");
+  world.resumeDetachedPlayer({ name: player.name, token: player.token });
   world.removePlayer("p-1");
 
   const events = world.drainEvents();
@@ -119,6 +121,13 @@ test("gateway messages (welcome/session/roster/error) conform on the wire", asyn
   const snapshot = await messages.next("snapshot");
   assertConformant(validate(snapshot, PROTOCOL.serverMessages.snapshot, "snapshot"));
 
+  socket.send(JSON.stringify({ type: "recoveryIssue" }));
+  const recovery = await messages.next("recovery");
+  assertConformant(validate(recovery, PROTOCOL.serverMessages.recovery, "recovery"));
+  socket.send(JSON.stringify({ type: "sessionRotate" }));
+  const rotated = await messages.next("session");
+  assertConformant(validate(rotated, PROTOCOL.serverMessages.session, "rotated-session"));
+
   socket.send(JSON.stringify({ type: "dance" }));
   const error = await messages.next("error");
   assertConformant(validate(error, PROTOCOL.serverMessages.error, "error"));
@@ -134,7 +143,9 @@ test("gateway messages (welcome/session/roster/error) conform on the wire", asyn
 
 test("every implemented command is documented, and vice versa", () => {
   const cases = [...worldSource.matchAll(/case "([a-zA-Z]+)":/g)].map((match) => match[1]);
-  const implemented = new Set([...cases, "join", "start"].map((name) => name.toLowerCase()));
+  // join/start and recover are pre-session commands handled before the
+  // joined-player switch; all remaining commands are switch cases.
+  const implemented = new Set([...cases, "join", "start", "recover"].map((name) => name.toLowerCase()));
   const documented = new Set(Object.keys(PROTOCOL.clientMessages).map((name) => name.toLowerCase()));
   for (const alias of Object.keys(PROTOCOL.commandAliases)) documented.add(alias.toLowerCase());
 

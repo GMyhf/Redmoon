@@ -60,3 +60,30 @@ godot --headless --script scratch/bench.gd
 ```
 
 （脚本为一次性基准，未入库；表格参数足以重建。）
+
+## 可重复容量门槛
+
+`tools/stress.mjs` 现在为每个 bot 从 `seed:index` 建立独立伪随机流；并发回调顺序不会改变
+该 bot 的移动和战斗序列。原来的三个位置参数保持兼容，以下命令还会按门槛返回非零退出码：
+
+```bash
+npm run stress -- 30 30 ws://127.0.0.1:8080/ws \
+  --seed nightly \
+  --min-join-ratio 1 \
+  --min-active-ratio 1 \
+  --min-tick-ratio 0.9 \
+  --max-p95-ms 400 \
+  --max-p99-ms 600 \
+  --max-errors 0 \
+  --require-ready
+```
+
+未提供 `--min-*`/`--max-*`/`--require-ready` 时仍是只观测、不判失败的本地工具。全部参数也
+可用同名 `STRESS_*` 环境变量配置。`active` 比率要求已加入的 bot 在采样结束前仍保持连接，
+意外 close/socket error 也计入错误。结果包含 seed、join/active/tick 比率、快照间隔分位、
+错误总数、readiness 各检查、运行时 lag/快照耗时和 WebSocket 背压计数。
+
+`.github/workflows/stress.yml` 每天 03:17 UTC 以固定 `nightly` seed 对隔离的无存档实例运行
+上述 30 bot/30 秒门槛，也支持 `workflow_dispatch` 调整 bot 数、时长和 seed；失败时上传服务端
+与压力工具日志。`ci.yml` 还会在每次 push/PR 运行 10 bot/8 秒的短容量门（包括 active=100%）；
+nightly 用于较长回归趋势，两者都不替代功能测试。

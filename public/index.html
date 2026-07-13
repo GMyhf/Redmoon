@@ -51,6 +51,10 @@
               <span aria-hidden="true">&gt;</span>
             </button>
           </div>
+          <div class="recovery-controls">
+            <input id="recovery-code" type="text" maxlength="128" placeholder="一次性恢复码" spellcheck="false" />
+            <button id="recover-button" class="mini-command" type="button">找回账号</button>
+          </div>
           <p id="join-error" class="form-error" role="alert" hidden></p>
         </form>
 
@@ -107,6 +111,12 @@
             <button id="auto-fight-toggle" class="mini-command auto-fight-toggle" type="button" title="站立时自动反击射程内的敌人（快捷键 T）">自动战斗 · 开</button>
             <button id="auto-level-toggle" class="mini-command auto-fight-toggle" type="button" title="升级获得的属性点与技能点自动按职业最优方案分配">自动加点 · 开</button>
             <button id="rebirth-button" class="rebirth-button" type="button" title="重置等级，换取永久强化" hidden>转生</button>
+          </div>
+          <div class="operator-secondary-actions">
+            <button id="dungeon-enter-button" class="mini-command" type="button">开启副本</button>
+            <button id="dungeon-leave-button" class="mini-command" type="button" hidden>离开副本</button>
+            <button id="recovery-issue-button" class="mini-command" type="button">恢复码</button>
+            <button id="session-rotate-button" class="mini-command" type="button">轮换会话</button>
           </div>
         </aside>
 
@@ -236,6 +246,16 @@
         <button id="respawn-button" class="primary-command" type="button">重新连接</button>
         <button id="revive-button" class="primary-command revive-command" type="button">复苏露 · 原地复活</button>
       </section>
+
+      <dialog id="recovery-dialog" class="recovery-dialog">
+        <form method="dialog">
+          <span class="eyebrow">账号恢复</span>
+          <h2>一次性恢复码</h2>
+          <code id="recovery-code-value"></code>
+          <p id="recovery-code-expiry"></p>
+          <button class="primary-command" type="submit">关闭</button>
+        </form>
+      </dialog>
 
       <div id="screen-vignette" class="screen-vignette" aria-hidden="true"></div>
     </main>

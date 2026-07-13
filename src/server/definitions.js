@@ -3,6 +3,8 @@
 export const PROTOCOL_VERSION = 2;
 export const TICK_RATE = 20;
 export const SNAPSHOT_RATE = 10;
+export const MAX_ITEM_SEQUENCE = 1_000_000_000_000;
+export const FRIEND_LIMIT = 32;
 
 // Soul Barrier: damage is paid from MP before HP. `absorb` is the fraction
 // of incoming damage redirected to MP; `mpPerHp` is the conversion price.

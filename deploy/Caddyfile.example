@@ -1,0 +1,70 @@
+{
+	servers {
+		max_header_size 16KB
+		timeouts {
+			read_header 5s
+			read_body 10s
+			write 15s
+			idle 2m
+		}
+	}
+}
+
+(crimson_upstream) {
+	reverse_proxy 127.0.0.1:8080 {
+		transport http {
+			read_timeout 45s
+			write_timeout 15s
+			max_conns_per_host 256
+		}
+	}
+}
+
+play.example.com {
+	encode zstd gzip
+
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		Content-Security-Policy "base-uri 'self'; frame-ancestors 'none'; object-src 'none'"
+	}
+
+	# Metrics stay on the loopback-bound Node listener for the local collector.
+	@privateMetrics path /metrics /api/metrics
+	respond @privateMetrics 404
+
+	# Browsers must present the public site as Origin. Native clients normally
+	# omit Origin and are admitted by the separate matcher.
+	@browserWebSocket {
+		path /ws
+		header Origin https://play.example.com
+	}
+	handle @browserWebSocket {
+		import crimson_upstream
+	}
+
+	@nativeWebSocket {
+		path /ws
+		not header Origin *
+	}
+	handle @nativeWebSocket {
+		import crimson_upstream
+	}
+
+	handle /ws {
+		respond "Forbidden Origin" 403
+	}
+
+	handle {
+		import crimson_upstream
+	}
+}
+
+# Stock Caddy has no per-client request-rate directive. The Node gateway still
+# enforces its per-WebSocket token bucket and frame cap. For hostile public
+# traffic, build Caddy with a maintained rate-limit module (or rate-limit at
+# the CDN/firewall) and apply it to /ws handshakes before the handlers above.

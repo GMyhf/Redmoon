@@ -8,16 +8,18 @@ Type=simple
 DynamicUser=yes
 StateDirectory=crimson-relay
 StateDirectoryMode=0700
+UMask=0077
 WorkingDirectory=/opt/crimson-relay
 ExecStart=/usr/bin/node /opt/crimson-relay/src/server/server.js
 Environment=NODE_ENV=production
 Environment=HOST=127.0.0.1
 Environment=PORT=8080
 Environment=PERSIST_PATH=/var/lib/crimson-relay/accounts.json
+Environment=PERSIST_MANAGE_DIRECTORY=1
 EnvironmentFile=-/etc/crimson-relay.env
 Restart=on-failure
 RestartSec=3s
-TimeoutStopSec=15s
+TimeoutStopSec=45s
 NoNewPrivileges=yes
 PrivateTmp=yes
 PrivateDevices=yes

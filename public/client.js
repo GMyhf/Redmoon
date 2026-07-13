@@ -25,6 +25,8 @@ import {
     joinPanel: document.querySelector("#join-panel"),
     joinForm: document.querySelector("#join-form"),
     joinButton: document.querySelector("#join-button"),
+    recoveryCode: document.querySelector("#recovery-code"),
+    recoverButton: document.querySelector("#recover-button"),
     joinError: document.querySelector("#join-error"),
     nameInput: document.querySelector("#operator-name"),
     archetypes: [...document.querySelectorAll(".archetype")],
@@ -93,6 +95,13 @@ import {
     autoLevelToggle: document.querySelector("#auto-level-toggle"),
     bagCount: document.querySelector("#bag-count"),
     autoEquipButton: document.querySelector("#auto-equip-button"),
+    dungeonEnterButton: document.querySelector("#dungeon-enter-button"),
+    dungeonLeaveButton: document.querySelector("#dungeon-leave-button"),
+    recoveryIssueButton: document.querySelector("#recovery-issue-button"),
+    sessionRotateButton: document.querySelector("#session-rotate-button"),
+    recoveryDialog: document.querySelector("#recovery-dialog"),
+    recoveryCodeValue: document.querySelector("#recovery-code-value"),
+    recoveryCodeExpiry: document.querySelector("#recovery-code-expiry"),
     equipmentDoll: document.querySelector("#equipment-doll"),
     inventoryList: document.querySelector("#inventory-list"),
     abilities: [...document.querySelectorAll(".ability")],
@@ -250,7 +259,9 @@ import {
     reconnectAttempt: 0,
     connected: false,
     joined: false,
+    entryRequested: false,
     pendingJoin: false,
+    pendingRecovery: null,
     selectedArchetype: "vanguard",
     profile: null,
     id: null,
@@ -345,22 +356,27 @@ import {
     clearTimeout(state.reconnectTimer);
     setConnection("connecting", state.reconnectAttempt ? "重新连接" : "连接中");
 
+    let socket;
     try {
-      state.socket = new WebSocket(url);
+      socket = new WebSocket(url);
+      state.socket = socket;
     } catch (_error) {
       scheduleReconnect();
       return;
     }
 
-    state.socket.addEventListener("open", () => {
+    socket.addEventListener("open", () => {
+      if (state.socket !== socket) return;
       state.connected = true;
       state.reconnectAttempt = 0;
       setConnection("online", "在线");
       ui.joinError.hidden = true;
-      if (state.pendingJoin && state.profile) sendJoin();
+      if (state.pendingRecovery) sendRecovery();
+      else if (state.pendingJoin && state.profile) sendJoin();
     });
 
-    state.socket.addEventListener("message", (event) => {
+    socket.addEventListener("message", (event) => {
+      if (state.socket !== socket) return;
       let message;
       try {
         message = JSON.parse(event.data);
@@ -370,15 +386,19 @@ import {
       if (message && typeof message === "object") handleMessage(message);
     });
 
-    state.socket.addEventListener("close", () => {
+    socket.addEventListener("close", () => {
+      if (state.socket !== socket) return;
       state.connected = false;
-      if (state.joined && state.profile) state.pendingJoin = true;
+      if (state.profile && (state.joined || state.entryRequested)) {
+        state.pendingJoin = true;
+      }
       setConnection("offline", "连接中断");
       scheduleReconnect();
     });
 
-    state.socket.addEventListener("error", () => {
-      state.socket?.close();
+    socket.addEventListener("error", () => {
+      if (state.socket !== socket) return;
+      socket.close();
     });
   }
 
@@ -399,6 +419,10 @@ import {
     return `crimson-relay-token:${String(name).trim().toLowerCase()}`;
   }
 
+  function pendingTokenStorageKey(name) {
+    return `crimson-relay-pending-token:${String(name).trim().toLowerCase()}`;
+  }
+
   function readAccountToken(name) {
     try {
       return localStorage.getItem(tokenStorageKey(name)) || null;
@@ -410,16 +434,79 @@ import {
   function storeAccountToken(name, token) {
     try {
       localStorage.setItem(tokenStorageKey(name), token);
+      return localStorage.getItem(tokenStorageKey(name)) === token;
     } catch (_error) {
-      // Private browsing without storage: the session still works until reload.
+      return false;
+    }
+  }
+
+  function readPendingAccountToken(name) {
+    try {
+      const key = pendingTokenStorageKey(name);
+      const token = localStorage.getItem(key) || null;
+      if (token && !/^[A-Za-z0-9_-]{43,128}$/.test(token)) {
+        // A syntactically impossible token cannot be a committed bearer.
+        // Repair only this local corruption; server errors never clear a
+        // well-formed pending credential because the commit may have landed.
+        localStorage.removeItem(key);
+        return null;
+      }
+      return token;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function createClientToken() {
+    const bytes = new Uint8Array(32);
+    crypto.getRandomValues(bytes);
+    const binary = String.fromCharCode(...bytes);
+    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  }
+
+  function preparePendingAccountToken(name, replace = false) {
+    const existing = replace ? null : readPendingAccountToken(name);
+    const token = existing || createClientToken();
+    try {
+      localStorage.setItem(pendingTokenStorageKey(name), token);
+      return localStorage.getItem(pendingTokenStorageKey(name)) === token ? token : null;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function clearPendingAccountToken(name) {
+    try {
+      localStorage.removeItem(pendingTokenStorageKey(name));
+    } catch (_error) {
+      // The visible credential warning remains available to the player.
     }
   }
 
   function sendJoin() {
     if (!state.profile) return;
     const token = readAccountToken(state.profile.name);
-    if (!send({ type: "join", protocol: CLIENT_PROTOCOL, ...state.profile, ...(token ? { token } : {}) })) return;
+    const nextToken = readPendingAccountToken(state.profile.name);
+    if (!send({
+      type: "join",
+      protocol: CLIENT_PROTOCOL,
+      ...state.profile,
+      ...(token ? { token } : {}),
+      ...(nextToken ? { nextToken } : {}),
+    })) return;
+    state.entryRequested = true;
     state.pendingJoin = false;
+    applyProfileToHud();
+  }
+
+  function sendRecovery() {
+    if (!state.pendingRecovery) return;
+    if (!send({
+      type: "recover",
+      protocol: CLIENT_PROTOCOL,
+      ...state.pendingRecovery,
+    })) return;
+    state.entryRequested = true;
     applyProfileToHud();
   }
 
@@ -462,9 +549,36 @@ import {
 
     if (type === "session") {
       const name = String(first(message.name, state.profile?.name, ""));
+      const archetype = String(first(message.archetype, state.profile?.archetype, "vanguard"));
+      state.profile = name ? { name, archetype } : state.profile;
+      applyProfileToHud();
       if (name && typeof message.token === "string" && message.token) {
-        storeAccountToken(name, message.token);
+        const pendingToken = readPendingAccountToken(name);
+        if (storeAccountToken(name, message.token)) {
+          if (pendingToken === message.token) clearPendingAccountToken(name);
+        } else {
+          ui.recoveryCodeValue.textContent = message.token;
+          ui.recoveryCodeExpiry.textContent = "浏览器无法保存新会话令牌，请立即保管；刷新前不要关闭此窗口。";
+          ui.recoveryDialog?.showModal?.();
+        }
       }
+      state.pendingRecovery = null;
+      if (!state.joined) {
+        state.entryRequested = true;
+        state.pendingJoin = true;
+      }
+      else {
+        ui.joinButton.disabled = false;
+        if (ui.recoverButton) ui.recoverButton.disabled = false;
+      }
+      if (ui.sessionRotateButton) ui.sessionRotateButton.disabled = false;
+      return;
+    }
+
+    if (type === "recovery") {
+      ui.recoveryCodeValue.textContent = String(message.code || "");
+      ui.recoveryCodeExpiry.textContent = `有效期至 ${String(message.expiresAt || "")}`;
+      ui.recoveryDialog?.showModal?.();
       return;
     }
 
@@ -548,6 +662,7 @@ import {
   }
 
   function applySnapshot(snapshot) {
+    if (!state.joined && !state.entryRequested) return;
     const world = snapshot.world && typeof snapshot.world === "object" ? snapshot.world : snapshot;
     state.tick = finite(first(snapshot.tick, world.tick), state.tick);
     state.id = String(first(snapshot.selfId, snapshot.playerId, world.selfId, state.id, ""));
@@ -563,8 +678,15 @@ import {
     if (drops !== undefined) updateEntities(state.drops, drops, "drop");
 
     const local = localPlayer();
+    if (local && state.profile
+      && (state.profile.name !== local.name || state.profile.archetype !== local.archetype)) {
+      state.profile = { name: local.name, archetype: local.archetype };
+      applyProfileToHud();
+    }
     if (local && !state.joined) {
       state.joined = true;
+      state.entryRequested = false;
+      state.pendingJoin = false;
       // Snap the camera straight onto the hero — no cross-map pan on entry.
       state.camera.x = local.x;
       state.camera.y = local.y;
@@ -572,7 +694,11 @@ import {
       ui.titleArt.hidden = true;
       ui.joinPanel.hidden = true;
       ui.hud.hidden = false;
+      // Stored coordinates are installed while the HUD is hidden so reloads
+      // do not flash at the defaults. Clamp again now that it has real bounds.
+      applyStoredPanelPositions();
       ui.joinButton.disabled = false;
+      if (ui.recoverButton) ui.recoverButton.disabled = false;
       if (ui.leaveButton) ui.leaveButton.hidden = false;
       if (ui.resetHudButton) ui.resetHudButton.hidden = false;
     }
@@ -784,6 +910,9 @@ import {
     updateQuest();
     updateGear(player);
     const alive = first(player.alive, !player.dead, hp > 0);
+    const inDungeon = String(player.mapId || state.map.mapId).startsWith("dungeon:");
+    if (ui.dungeonEnterButton) ui.dungeonEnterButton.disabled = !alive || inDungeon;
+    if (ui.dungeonLeaveButton) ui.dungeonLeaveButton.hidden = !inDungeon;
     ui.deathPanel.hidden = Boolean(alive);
     if (!alive) updateRespawn(player);
   }
@@ -863,7 +992,7 @@ import {
       const mainButton = document.createElement("button");
       mainButton.type = "button";
       mainButton.textContent = isPotion ? "用" : "装";
-      mainButton.title = isPotion ? "使用（快捷键 R）" : "装备";
+      mainButton.title = isPotion ? "使用（快捷键 V）" : "装备";
       mainButton.dataset.action = isPotion ? "use" : "equip";
       mainButton.dataset.item = String(item.id);
       const sellButton = document.createElement("button");
@@ -1093,6 +1222,23 @@ import {
       pushChat(event);
       return;
     }
+    if (eventName === "dungeonstarted") {
+      pushEvent(`副本开始 // ${event.name || "深红中继密库"} · ${finite(event.enemies, 0)} 个目标`, true);
+      return;
+    }
+    if (eventName === "dungeoncompleted") {
+      const reward = event.reward || {};
+      pushEvent(`副本完成 // +${finite(reward.xp, 0)}经验 +${finite(reward.gold, 0)}金 +${finite(reward.dew, 0)}露`);
+      return;
+    }
+    if (eventName === "dungeonfailed") {
+      pushEvent("副本已超时，队伍返回中继站", true);
+      return;
+    }
+    if (eventName === "dungeonleft") {
+      pushEvent("已离开副本");
+      return;
+    }
     if (eventName === "lootpickedup") {
       // Auto-wear now happens server-side, governed by the 自动装备 toggle.
       pushEvent(event.autoEquipped ? `拾取并装备 ${itemLabel(event)}` : `拾取 ${itemLabel(event)}`);
@@ -1234,6 +1380,11 @@ import {
       INVENTORY_FULL: "背包已满",
       ITEM_LEVEL_TOO_HIGH: "等级不足，无法穿戴该装备",
       SKILL_LOCKED: "角色等级不足，该技能尚未解锁",
+      INVALID_RECOVERY: "恢复码无效或已过期",
+      DUNGEON_ACTIVE: "当前已经在副本中",
+      DUNGEON_CAPACITY: "当前副本实例已满，请稍后重试",
+      DUNGEON_LEADER_ONLY: "需要由队伍首位成员开启副本",
+      DUNGEON_PARTY_NOT_READY: "队伍成员尚未全部准备好",
     };
     const message = String(first(translated[error.code], error.message, error.error, "中继请求失败"));
     pushEvent(message, true);
@@ -1241,16 +1392,23 @@ import {
       ui.joinError.textContent = message;
       ui.joinError.hidden = false;
       ui.joinButton.disabled = false;
+      if (ui.recoverButton) ui.recoverButton.disabled = false;
     }
-    if (error.requestType === "join") {
+    if (error.requestType === "join" || error.requestType === "recover") {
+      state.pendingRecovery = null;
       showCharacterScreen();
+    }
+    if (error.requestType === "sessionRotate" || error.requestType === "sessionrotate") {
+      if (ui.sessionRotateButton) ui.sessionRotateButton.disabled = false;
     }
   }
 
   // Back to the character screen: clear world state and show the roster.
   function showCharacterScreen() {
     state.joined = false;
+    state.entryRequested = false;
     state.pendingJoin = false;
+    state.pendingRecovery = null;
     for (const store of [state.players, state.enemies, state.projectiles, state.drops]) store.clear();
     state.effects.length = 0;
     ui.titleArt.classList.remove("is-hidden");
@@ -1258,6 +1416,7 @@ import {
     ui.joinPanel.hidden = false;
     ui.hud.hidden = true;
     ui.joinButton.disabled = false;
+    if (ui.recoverButton) ui.recoverButton.disabled = false;
     if (ui.leaveButton) ui.leaveButton.hidden = true;
     if (ui.resetHudButton) ui.resetHudButton.hidden = true;
     ui.population.hidden = true;
@@ -3896,14 +4055,56 @@ import {
       return;
     }
     state.profile = { name: name.slice(0, 16), archetype: state.selectedArchetype };
+    if (!readAccountToken(state.profile.name)
+      && !preparePendingAccountToken(state.profile.name)) {
+      ui.joinError.textContent = "浏览器无法安全保存会话凭据，请允许本站存储后重试";
+      ui.joinError.hidden = false;
+      return;
+    }
+    state.pendingRecovery = null;
     state.pendingJoin = true;
     ui.joinButton.disabled = true;
+    if (ui.recoverButton) ui.recoverButton.disabled = true;
     if (state.connected) sendJoin();
     else {
       ui.joinError.textContent = "正在等待中继连接";
       ui.joinError.hidden = false;
       if (!state.socket || state.socket.readyState >= WebSocket.CLOSING) connect();
     }
+  });
+
+  function requestRecovery() {
+    const name = ui.nameInput.value.trim().replace(/\s+/g, " ").slice(0, 16);
+    const code = ui.recoveryCode.value.trim();
+    if (name.length < 2 || !code) {
+      ui.joinError.textContent = "请输入呼号和一次性恢复码";
+      ui.joinError.hidden = false;
+      return;
+    }
+    state.profile = { name, archetype: state.selectedArchetype };
+    const nextToken = preparePendingAccountToken(name);
+    if (!nextToken) {
+      ui.joinError.textContent = "浏览器无法安全保存新会话凭据，请允许本站存储后重试";
+      ui.joinError.hidden = false;
+      return;
+    }
+    state.pendingJoin = false;
+    state.pendingRecovery = { name, code, nextToken };
+    ui.joinButton.disabled = true;
+    ui.recoverButton.disabled = true;
+    if (state.connected) sendRecovery();
+    else {
+      ui.joinError.textContent = "正在等待中继连接";
+      ui.joinError.hidden = false;
+      if (!state.socket || state.socket.readyState >= WebSocket.CLOSING) connect();
+    }
+  }
+
+  ui.recoverButton?.addEventListener("click", requestRecovery);
+  ui.recoveryCode?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    requestRecovery();
   });
 
   ui.statRows.forEach((row) => {
@@ -3941,6 +4142,20 @@ import {
     state.socialSignature = "";
   });
   ui.rebirthButton?.addEventListener("click", () => send({ type: "rebirth" }));
+  ui.dungeonEnterButton?.addEventListener("click", () => send({ type: "dungeonEnter" }));
+  ui.dungeonLeaveButton?.addEventListener("click", () => send({ type: "dungeonLeave" }));
+  ui.recoveryIssueButton?.addEventListener("click", () => send({ type: "recoveryIssue" }));
+  ui.sessionRotateButton?.addEventListener("click", () => {
+    const name = state.profile?.name;
+    if (!name) return;
+    const nextToken = preparePendingAccountToken(name, true);
+    if (!nextToken) {
+      pushEvent("浏览器无法安全保存新会话凭据，轮换已取消", true);
+      return;
+    }
+    ui.sessionRotateButton.disabled = true;
+    send({ type: "sessionRotate", nextToken });
+  });
   ui.leaveButton?.addEventListener("click", () => {
     if (!state.joined) return;
     send({ type: "leave" });
@@ -3981,21 +4196,54 @@ import {
   // state persist in localStorage and are clamped back on-screen whenever
   // the viewport shrinks.
   const HUD_LAYOUT_KEY = "crimson-relay-hud-layout";
+  const HUD_LAYOUT_VERSION = 2;
+  const mobileLayout = window.matchMedia("(max-width: 760px)");
+  const mobileAccordionPanels = new Set([
+    "stats-panel",
+    "gear-panel",
+    "quest-panel",
+    "social-panel",
+  ]);
 
-  function loadHudLayout() {
+  function layoutProfile(value) {
+    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  }
+
+  function loadHudLayouts() {
     try {
       const stored = JSON.parse(localStorage.getItem(HUD_LAYOUT_KEY));
-      return stored && typeof stored === "object" ? stored : {};
+      if (!stored || typeof stored !== "object" || Array.isArray(stored)) {
+        return { version: HUD_LAYOUT_VERSION, desktop: {}, mobile: {} };
+      }
+      if (stored.version === HUD_LAYOUT_VERSION) {
+        return {
+          version: HUD_LAYOUT_VERSION,
+          desktop: layoutProfile(stored.desktop),
+          mobile: layoutProfile(stored.mobile),
+        };
+      }
+      // Version 1 was a flat desktop-only panel map. Keep that arrangement
+      // while giving mobile its own clean collapse/layout profile.
+      return { version: HUD_LAYOUT_VERSION, desktop: stored, mobile: {} };
     } catch (_error) {
-      return {};
+      return { version: HUD_LAYOUT_VERSION, desktop: {}, mobile: {} };
     }
   }
 
-  const hudLayout = loadHudLayout();
+  const hudLayouts = loadHudLayouts();
 
-  function saveHudLayout() {
+  function currentHudLayout() {
+    return mobileLayout.matches ? hudLayouts.mobile : hudLayouts.desktop;
+  }
+
+  function saveHudLayouts() {
     try {
-      localStorage.setItem(HUD_LAYOUT_KEY, JSON.stringify(hudLayout));
+      if (Object.keys(hudLayouts.desktop).length === 0
+        && Object.keys(hudLayouts.mobile).length === 0) {
+        localStorage.removeItem(HUD_LAYOUT_KEY);
+      } else {
+        localStorage.setItem(HUD_LAYOUT_KEY, JSON.stringify(hudLayouts));
+      }
     } catch (_error) {
       // Storage unavailable: layout just resets next reload.
     }
@@ -4007,20 +4255,38 @@ import {
 
   function clampPanel(panel) {
     if (!panel.style.left && !panel.style.top) return; // still CSS-anchored
-    const maxX = Math.max(0, window.innerWidth - panel.offsetWidth);
-    const maxY = Math.max(0, window.innerHeight - 36);
+    const hudWidth = ui.hud.clientWidth;
+    const hudHeight = ui.hud.clientHeight;
+    if (hudWidth <= 0 || hudHeight <= 0) return; // hidden HUD has no usable bounds
+    const maxX = Math.max(0, hudWidth - panel.offsetWidth);
+    const maxY = Math.max(0, hudHeight - 36);
     panel.style.left = `${clamp(parseFloat(panel.style.left) || 0, 0, maxX)}px`;
     panel.style.top = `${clamp(parseFloat(panel.style.top) || 0, 0, maxY)}px`;
   }
 
-  // Below the breakpoint the CSS media queries own the layout: stored
-  // desktop drag positions never apply and dragging is disabled, so phones
-  // keep their docked layout independent of what desktop rearranged.
-  const mobileLayout = window.matchMedia("(max-width: 760px)");
+  function setPanelCollapsed(panel, collapsed) {
+    panel.classList.toggle("is-collapsed", collapsed);
+    const toggle = panel.querySelector("[data-panel-toggle]");
+    if (!toggle) return;
+    toggle.textContent = collapsed ? "+" : "−";
+    toggle.title = collapsed ? "展开窗口" : "折叠窗口";
+    toggle.setAttribute("aria-expanded", String(!collapsed));
+  }
+
+  function applyStoredPanelState() {
+    const profile = currentHudLayout();
+    document.querySelectorAll(".hud > aside").forEach((panel) => {
+      const key = panelKey(panel);
+      const stored = profile[key]?.collapsed;
+      const mobileDefault = mobileLayout.matches && mobileAccordionPanels.has(key);
+      setPanelCollapsed(panel, stored === undefined ? mobileDefault : Boolean(stored));
+    });
+  }
 
   function applyStoredPanelPositions() {
+    const profile = currentHudLayout();
     document.querySelectorAll(".hud > aside").forEach((panel) => {
-      const stored = hudLayout[panelKey(panel)];
+      const stored = profile[panelKey(panel)];
       if (mobileLayout.matches
         || !stored || !Number.isFinite(stored.left) || !Number.isFinite(stored.top)) return;
       panel.style.left = `${stored.left}px`;
@@ -4041,32 +4307,37 @@ import {
     });
   }
 
-  const handleLayoutModeChange = () => {
-    if (mobileLayout.matches) clearPanelPositions();
-    else applyStoredPanelPositions();
-  };
-  mobileLayout.addEventListener?.("change", handleLayoutModeChange);
-
   let draggedPanel = null;
   let dragOffsetX = 0;
   let dragOffsetY = 0;
+  const handleLayoutModeChange = () => {
+    draggedPanel = null;
+    clearPanelPositions();
+    applyStoredPanelState();
+    if (!mobileLayout.matches) applyStoredPanelPositions();
+  };
+  mobileLayout.addEventListener?.("change", handleLayoutModeChange);
+
   document.querySelectorAll(".hud > aside").forEach((panel) => {
     const handle = panel.querySelector("[data-drag-handle]");
     const toggle = panel.querySelector("[data-panel-toggle]");
-    const stored = hudLayout[panelKey(panel)];
     if (toggle) {
-      if (stored?.collapsed) {
-        panel.classList.add("is-collapsed");
-        toggle.textContent = "+";
-        toggle.title = "展开窗口";
-      }
       toggle.addEventListener("click", (event) => {
         event.stopPropagation();
         const collapsed = panel.classList.toggle("is-collapsed");
-        toggle.textContent = collapsed ? "+" : "−";
-        toggle.title = collapsed ? "展开窗口" : "折叠窗口";
-        hudLayout[panelKey(panel)] = { ...hudLayout[panelKey(panel)], collapsed };
-        saveHudLayout();
+        setPanelCollapsed(panel, collapsed);
+        const profile = currentHudLayout();
+        const key = panelKey(panel);
+        profile[key] = { ...profile[key], collapsed };
+        if (mobileLayout.matches && !collapsed && mobileAccordionPanels.has(key)) {
+          document.querySelectorAll(".hud > aside").forEach((otherPanel) => {
+            const otherKey = panelKey(otherPanel);
+            if (otherKey === key || !mobileAccordionPanels.has(otherKey)) return;
+            setPanelCollapsed(otherPanel, true);
+            profile[otherKey] = { ...profile[otherKey], collapsed: true };
+          });
+        }
+        saveHudLayouts();
       });
     }
     if (!handle) return;
@@ -4074,8 +4345,9 @@ import {
       if (mobileLayout.matches) return;
       if (event.target.closest("button")) return;
       const rect = panel.getBoundingClientRect();
-      panel.style.left = `${rect.left}px`;
-      panel.style.top = `${rect.top}px`;
+      const hudRect = ui.hud.getBoundingClientRect();
+      panel.style.left = `${rect.left - hudRect.left}px`;
+      panel.style.top = `${rect.top - hudRect.top}px`;
       panel.style.right = "auto";
       panel.style.bottom = "auto";
       panel.style.zIndex = "30";
@@ -4086,41 +4358,34 @@ import {
       event.preventDefault();
     });
   });
+  applyStoredPanelState();
   applyStoredPanelPositions();
 
   ui.resetHudButton?.addEventListener("click", () => {
-    for (const key of Object.keys(hudLayout)) delete hudLayout[key];
-    try {
-      localStorage.removeItem(HUD_LAYOUT_KEY);
-    } catch (_error) {
-      // Storage unavailable: the in-memory layout is cleared anyway.
-    }
+    const profile = currentHudLayout();
+    for (const key of Object.keys(profile)) delete profile[key];
+    saveHudLayouts();
     clearPanelPositions();
-    document.querySelectorAll(".hud > aside").forEach((panel) => {
-      panel.classList.remove("is-collapsed");
-      const toggle = panel.querySelector("[data-panel-toggle]");
-      if (toggle) {
-        toggle.textContent = "−";
-        toggle.title = "折叠窗口";
-      }
-    });
+    applyStoredPanelState();
   });
   window.addEventListener("pointermove", (event) => {
     if (!draggedPanel) return;
-    const maxX = Math.max(0, window.innerWidth - draggedPanel.offsetWidth);
-    const maxY = Math.max(0, window.innerHeight - 36);
-    draggedPanel.style.left = `${clamp(event.clientX - dragOffsetX, 0, maxX)}px`;
-    draggedPanel.style.top = `${clamp(event.clientY - dragOffsetY, 0, maxY)}px`;
+    const hudRect = ui.hud.getBoundingClientRect();
+    const maxX = Math.max(0, ui.hud.clientWidth - draggedPanel.offsetWidth);
+    const maxY = Math.max(0, ui.hud.clientHeight - 36);
+    draggedPanel.style.left = `${clamp(event.clientX - hudRect.left - dragOffsetX, 0, maxX)}px`;
+    draggedPanel.style.top = `${clamp(event.clientY - hudRect.top - dragOffsetY, 0, maxY)}px`;
   });
   window.addEventListener("pointerup", () => {
     if (!draggedPanel) return;
     draggedPanel.style.zIndex = "";
-    hudLayout[panelKey(draggedPanel)] = {
-      ...hudLayout[panelKey(draggedPanel)],
+    const profile = currentHudLayout();
+    profile[panelKey(draggedPanel)] = {
+      ...profile[panelKey(draggedPanel)],
       left: parseFloat(draggedPanel.style.left) || 0,
       top: parseFloat(draggedPanel.style.top) || 0,
     };
-    saveHudLayout();
+    saveHudLayouts();
     draggedPanel = null;
   });
   window.addEventListener("resize", () => {
@@ -4136,9 +4401,13 @@ import {
   });
 
   window.addEventListener("keydown", (event) => {
-    if (event.target instanceof HTMLInputElement) {
-      // Esc leaves the chat box and returns keys to the game.
-      if (event.code === "Escape") event.target.blur();
+    const control = event.target instanceof Element
+      ? event.target.closest("input, textarea, select, button, a[href], [contenteditable]:not([contenteditable='false']), [role='button'], [role='textbox'], [role='combobox'], [role='slider']")
+      : null;
+    if (control) {
+      // Esc leaves a focused control and returns keys to the game. All other
+      // keys retain their native form/button behavior instead of firing play.
+      if (event.code === "Escape" && control instanceof HTMLElement) control.blur();
       return;
     }
     if (event.code === "Enter" && state.joined && ui.chatInput) {

@@ -450,7 +450,8 @@ button {
   gap: 8px;
 }
 
-.join-controls input {
+.join-controls input,
+.recovery-controls input {
   min-width: 0;
   height: 46px;
   padding: 0 14px;
@@ -463,9 +464,21 @@ button {
   font-size: 13px;
 }
 
-.join-controls input:focus {
+.join-controls input:focus,
+.recovery-controls input:focus {
   border-color: var(--teal);
   box-shadow: 0 0 0 2px rgba(84, 211, 194, 0.12);
+}
+
+.recovery-controls {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 112px;
+  gap: 8px;
+}
+
+.recovery-controls input {
+  height: 34px;
 }
 
 .primary-command {
@@ -721,6 +734,63 @@ button {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 5px;
+}
+
+.operator-secondary-actions {
+  margin-top: 7px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.operator-secondary-actions .mini-command {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recovery-dialog {
+  width: min(440px, calc(100vw - 32px));
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  padding: 0;
+  color: var(--paper);
+  background: #11151a;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.65);
+}
+
+.recovery-dialog::backdrop {
+  background: rgba(3, 5, 8, 0.76);
+}
+
+.recovery-dialog form {
+  padding: 20px;
+}
+
+.recovery-dialog h2 {
+  margin: 7px 0 14px;
+  font-size: 18px;
+}
+
+.recovery-dialog code {
+  display: block;
+  padding: 12px;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--line);
+  color: #f2cf77;
+  background: rgba(0, 0, 0, 0.32);
+  user-select: all;
+}
+
+.recovery-dialog p {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.recovery-dialog .primary-command {
+  width: 100%;
+  justify-content: center;
 }
 
 .auto-fight-toggle {
@@ -1450,6 +1520,15 @@ button {
     display: none;
   }
 
+  .server-readout {
+    gap: 6px;
+  }
+
+  .leave-button {
+    padding: 5px 7px;
+    font-size: 9px;
+  }
+
   .join-panel {
     top: calc(var(--top-safe) + 68px);
     left: 12px;
@@ -1527,12 +1606,17 @@ button {
   }
 
   .action-bar {
+    width: calc(100vw - 12px);
     height: 62px;
+    padding: 4px;
+    gap: 3px;
     bottom: var(--bottom-safe);
   }
 
   .ability {
-    width: 60px;
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
     height: 48px;
   }
 
@@ -1553,20 +1637,20 @@ button {
      anchor — the client ignores stored desktop drag positions and disables
      dragging, so phones keep a working layout regardless of what the same
      account rearranged on desktop. */
-  .chat-panel {
+  .hud .chat-panel {
     top: 236px;
     bottom: auto;
     left: 10px;
     width: min(220px, calc(100vw - 20px));
   }
 
-  .chat-feed {
+  .hud .chat-feed {
     max-height: 84px;
   }
 
   /* 16px inputs stop mobile Safari from zooming the page on focus. */
-  .chat-form select,
-  .chat-form input {
+  .hud .chat-form select,
+  .hud .chat-form input {
     font-size: 16px;
   }
 
@@ -1677,15 +1761,127 @@ button {
 }
 
 @media (max-width: 400px) {
-  .quest-panel {
-    top: 132px;
+  .topbar {
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+
+  .brand-lockup {
+    gap: 6px;
+  }
+
+  .brand-lockup strong {
+    width: 56px;
+    font-size: 10px;
+    line-height: 1;
+    white-space: normal;
+  }
+
+  .server-readout {
+    gap: 4px;
+  }
+
+  .connection {
+    gap: 4px;
+  }
+
+  .leave-button {
+    padding: 5px;
+    font-size: 8px;
+    letter-spacing: 0;
+  }
+
+  .operator-panel {
+    left: 10px;
+    width: calc(100vw - 20px);
+  }
+
+  .operator-secondary-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .stats-panel.is-collapsed,
+  .gear-panel.is-collapsed,
+  .quest-panel.is-collapsed,
+  .social-panel.is-collapsed {
+    top: 250px;
+    right: auto;
+    bottom: auto;
+    width: calc(25vw - 8px);
+    padding: 8px;
+    transform: none;
+  }
+
+  .stats-panel.is-collapsed {
+    left: 10px;
+  }
+
+  .gear-panel.is-collapsed {
+    left: calc(25vw + 6px);
+  }
+
+  .quest-panel.is-collapsed {
+    left: calc(50vw + 2px);
+  }
+
+  .social-panel.is-collapsed {
+    left: auto;
     right: 10px;
-    width: 152px;
+  }
+
+  .stats-panel.is-collapsed .panel-title > b,
+  .gear-panel.is-collapsed .panel-title-actions,
+  .social-panel.is-collapsed .panel-title > b {
+    display: none;
+  }
+
+  .stats-panel:not(.is-collapsed),
+  .gear-panel:not(.is-collapsed),
+  .quest-panel:not(.is-collapsed),
+  .social-panel:not(.is-collapsed) {
+    z-index: 24;
+    top: 314px;
+    right: auto;
+    bottom: auto;
+    left: 10px;
+    width: calc(100vw - 20px);
+    max-height: max(56px, calc(100dvh - var(--top-safe) - 496px));
+    overflow-y: auto;
+    transform: none;
+  }
+
+  .shop-panel {
+    z-index: 26;
+    top: 314px;
+    right: auto;
+    left: 10px;
+    width: calc(100vw - 20px);
+    max-height: max(56px, calc(100dvh - var(--top-safe) - 496px));
+    overflow-y: auto;
+    transform: none;
+  }
+
+  .hud .chat-panel {
+    top: auto;
+    bottom: calc(var(--bottom-safe) + 66px);
+    left: 10px;
+    width: calc(100vw - 20px);
+  }
+
+  .hud .chat-feed {
+    max-height: 72px;
   }
 
   .event-feed {
-    top: 226px;
+    z-index: 28;
+    top: 314px;
     width: calc(100vw - 20px);
+  }
+}
+
+@media (max-width: 400px) and (max-height: 680px) {
+  .hud .chat-feed {
+    max-height: 36px;
   }
 }
 

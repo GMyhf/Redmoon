@@ -135,7 +135,7 @@ function packPlayer(writer, player) {
     writer.str(key);
     writer.str(item.name);
     writer.str(item.rarity);
-    writer.str(item.dropClass ?? "");
+    writer.str(typeof item.dropClass === "string" ? item.dropClass : "");
     writer.u16(item.level ?? 1);
   }
 }
@@ -187,7 +187,7 @@ function buildSections(snapshot) {
     entities.str(drop.id);
     entities.str(drop.slot);
     entities.str(drop.rarity);
-    entities.str(drop.dropClass ?? "");
+    entities.str(typeof drop.dropClass === "string" ? drop.dropClass : "");
     entities.str(drop.name);
     entities.f32(drop.x);
     entities.f32(drop.y);

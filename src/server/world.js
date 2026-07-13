@@ -1,6 +1,15 @@
 import { randomUUID } from "node:crypto";
 
 import { rollItem, rollPotion, rollRelic, rollSpecialDrop } from "./loot.js";
+import { createDungeonPlan } from "./dungeon.js";
+import {
+  createRecoveryCode,
+  createSessionToken,
+  hashSecret,
+  normalizeNextToken,
+  recoveryMatches,
+  secretMatches,
+} from "./session.js";
 import {
   ALLOC_WEIGHTS,
   ARCHETYPES,
@@ -12,10 +21,12 @@ import {
   DROP_PICKUP_RADIUS,
   DROP_TTL,
   EQUIP_KEYS,
+  FRIEND_LIMIT,
   GOLD_PER_MOB_LEVEL,
   INVENTORY_LIMIT,
   ITEM_SLOTS,
   LEVEL_CAP,
+  MAX_ITEM_SEQUENCE,
   PARTY_LIMIT,
   PARTY_XP_RANGE,
   PROTOCOL_VERSION,
@@ -68,6 +79,8 @@ const BOSS_RESPAWN_DELAY = 90;
 const PORTAL_RADIUS = 30;
 const PORTAL_LOCK = 2.5;
 const PORTAL_DWELL = 0.6;
+const DEFAULT_DUNGEON_DURATION = 15 * 60;
+const DEFAULT_MAX_DUNGEONS = 32;
 const DEFAULT_MAP_MOB_TARGETS = Object.freeze({
   town: 24,
   residential: 16,
@@ -100,7 +113,12 @@ function highestItemSequence(accountStore) {
   let highest = 0;
   const consider = (item) => {
     const match = /^item-(\d+)$/.exec(item?.id ?? "");
-    if (match) highest = Math.max(highest, Number(match[1]));
+    if (match) {
+      const sequence = Number(match[1]);
+      if (Number.isSafeInteger(sequence) && sequence < MAX_ITEM_SEQUENCE) {
+        highest = Math.max(highest, sequence);
+      }
+    }
   };
   for (const record of Object.values(accountStore ?? {})) {
     if (!record || typeof record !== "object") continue;
@@ -125,6 +143,7 @@ export class World {
     }
 
     this.rng = options.rng ?? Math.random;
+    this.now = options.now ?? Date.now;
     this.name = typeof options.name === "string" && options.name.trim()
       ? options.name.trim().slice(0, 40)
       : "Glassward Outpost";
@@ -144,6 +163,9 @@ export class World {
     this.drops = new Map();
     this.pendingMobSpawns = [];
     this.events = [];
+    this.auditLog = [];
+    this.auditLimit = Math.max(1, nonNegativeInteger(options.auditLimit, 10_000));
+    this.auditDropped = 0;
     this.time = 0;
     this.tick = 0;
     this._mobSequence = 0;
@@ -161,6 +183,10 @@ export class World {
     this.parties = new Map();
     this._partyInvites = new Map();
     this._partySequence = 0;
+    this.dungeons = new Map();
+    this._dungeonSequence = 0;
+    this.dungeonDuration = positiveNumber(options.dungeonDuration, DEFAULT_DUNGEON_DURATION);
+    this.maxDungeons = Math.max(1, nonNegativeInteger(options.maxDungeons, DEFAULT_MAX_DUNGEONS));
     this.shops = SHOPS.map((shop) => ({
       ...shop,
       mapId: "town",
@@ -220,13 +246,35 @@ export class World {
     // Accounts are claimed by the first join: it mints a session token the
     // client must present to reuse the name. Legacy records without a token
     // stay joinable and are upgraded on the spot.
-    const record = this.accountStore[accountKey];
+    const record = this._accountRecord(accountKey);
     const offeredToken = typeof options.token === "string" && options.token.length <= 128
       ? options.token
       : null;
-    if (record?.token && record.token !== offeredToken) {
+    const offeredMatchesDigest = Boolean(record?.tokenHash && secretMatches(offeredToken, record.tokenHash));
+    const offeredMatchesLegacy = Boolean(record?.token && offeredToken === record.token);
+    let nextToken = null;
+    try {
+      nextToken = normalizeNextToken(options.nextToken);
+    } catch (error) {
+      // A valid official bearer must not be bricked by syntactically corrupt
+      // optional local state. A valid distinct nextToken, however, is an
+      // intentional idempotent promotion after an ambiguous commit.
+      if (!offeredMatchesDigest && !offeredMatchesLegacy) {
+        throw new WorldError("INVALID_MESSAGE", error.message);
+      }
+    }
+    let sessionToken = nextToken ?? createSessionToken();
+    if (record?.tokenHash) {
+      if (offeredMatchesDigest) sessionToken = nextToken ?? offeredToken;
+      else if (secretMatches(nextToken, record.tokenHash)) sessionToken = nextToken;
+      else throw new WorldError("INVALID_TOKEN", "This name is registered to another session token.");
+    }
+    // Schema-0/1 stores may still carry a plaintext token. A successful join
+    // upgrades it to tokenHash on the next save.
+    if (!record?.tokenHash && record?.token && record.token !== offeredToken) {
       throw new WorldError("INVALID_TOKEN", "This name is registered to another session token.");
     }
+    if (!record?.tokenHash && record?.token) sessionToken = nextToken ?? record.token;
     // One name is one character, forever: joining an existing account with
     // a different archetype used to silently restart it at level 1 and
     // overwrite the record on the next save.
@@ -242,7 +290,8 @@ export class World {
     const player = {
       id: playerId,
       name,
-      token: record?.token ?? randomUUID(),
+      token: sessionToken,
+      recovery: record?.recovery ? structuredClone(record.recovery) : null,
       archetype,
       mapId: "town",
       x: spawn.x,
@@ -294,6 +343,7 @@ export class World {
       dew: 0,
       friends: [],
       partyId: null,
+      connectionDetached: false,
       quest: { chainIndex: 0, progress: 0 },
     };
     this._restoreAccount(player);
@@ -301,6 +351,7 @@ export class World {
     player.hp = player.maxHp;
     player.mp = player.maxMp;
     this.players.set(playerId, player);
+    this._audit("session_joined", player, { restored: Boolean(record) });
     this._emit("playerJoined", {
       playerId,
       name: player.name,
@@ -315,8 +366,12 @@ export class World {
     return String(name).trim().toLowerCase();
   }
 
+  _accountRecord(accountKey) {
+    return Object.hasOwn(this.accountStore, accountKey) ? this.accountStore[accountKey] : null;
+  }
+
   _restoreAccount(player) {
-    const record = this.accountStore[this._accountKey(player.name)];
+    const record = this._accountRecord(this._accountKey(player.name));
     if (!record || record.archetype !== player.archetype) return;
     for (const field of ACCOUNT_FIELDS) {
       if (record[field] === undefined) continue;
@@ -336,20 +391,131 @@ export class World {
   }
 
   _saveAccount(player) {
-    const record = { savedAt: round(this.time), token: player.token };
+    const record = {
+      savedAt: round(this.time),
+      tokenHash: hashSecret(player.token),
+      ...(player.recovery ? { recovery: structuredClone(player.recovery) } : {}),
+    };
     for (const field of ACCOUNT_FIELDS) record[field] = structuredClone(player[field]);
-    this.accountStore[this._accountKey(player.name)] = record;
+    Object.defineProperty(this.accountStore, this._accountKey(player.name), {
+      value: record,
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
   }
 
-  syncAccounts() {
-    for (const player of this.players.values()) this._saveAccount(player);
-    return this.accountStore;
+  syncAccounts(accountKeys = null) {
+    const selected = accountKeys ? new Set(accountKeys) : null;
+    for (const player of this.players.values()) {
+      if (!selected || selected.has(this._accountKey(player.name))) this._saveAccount(player);
+    }
+    if (!selected) return this.accountStore;
+    return Object.fromEntries([...selected]
+      .filter((accountKey) => Object.hasOwn(this.accountStore, accountKey))
+      .map((accountKey) => [accountKey, this.accountStore[accountKey]]));
+  }
+
+  drainAuditLog() {
+    const entries = this.auditLog;
+    this.auditLog = [];
+    return entries;
+  }
+
+  peekAuditLog() {
+    return this.auditLog.map((entry) => structuredClone(entry));
+  }
+
+  acknowledgeAuditLog(entries) {
+    if (!Array.isArray(entries) || entries.length === 0) return;
+    const ids = new Set(entries.map((entry) => entry.id));
+    this.auditLog = this.auditLog.filter((entry) => !ids.has(entry.id));
+  }
+
+  _audit(action, player, detail = {}) {
+    this._appendAudit(action, player ? this._accountKey(player.name) : null, detail);
+  }
+
+  recordSecurityAudit(action, accountKey, detail = {}) {
+    this._appendAudit(action, accountKey || null, detail);
+  }
+
+  _appendAudit(action, accountKey, detail) {
+    if (this.auditLog.length >= this.auditLimit) {
+      this.auditLog.shift();
+      this.auditDropped += 1;
+    }
+    this.auditLog.push({
+      id: randomUUID(),
+      accountKey,
+      action,
+      detail: structuredClone(detail),
+      at: new Date(this.now()).toISOString(),
+    });
+  }
+
+  issueRecoveryCode(id) {
+    const player = this._requirePlayer(id);
+    const issued = createRecoveryCode(this.now());
+    player.recovery = issued.record;
+    this._saveAccount(player);
+    this._audit("recovery_issued", player, { expiresAt: issued.record.expiresAt });
+    return { name: player.name, code: issued.code, expiresAt: issued.record.expiresAt };
+  }
+
+  rotateSession(id, requestedToken = null) {
+    const player = this._requirePlayer(id);
+    try {
+      player.token = normalizeNextToken(requestedToken) ?? createSessionToken();
+    } catch (error) {
+      throw new WorldError("INVALID_MESSAGE", error.message);
+    }
+    this._saveAccount(player);
+    this._audit("session_rotated", player);
+    return player;
+  }
+
+  recoverAccount(id, options = {}) {
+    if (this.players.has(validateId(id))) {
+      throw new WorldError("ALREADY_JOINED", "Leave the world before recovering another account.");
+    }
+    const name = sanitizeName(options.name);
+    const accountKey = this._accountKey(name);
+    const record = this._accountRecord(accountKey);
+    for (const online of this.players.values()) {
+      if (this._accountKey(online.name) === accountKey) {
+        throw new WorldError("NAME_IN_USE", "A player with this name is already online.");
+      }
+    }
+    const code = typeof options.code === "string" && options.code.length <= 128 ? options.code : "";
+    let nextToken = null;
+    try {
+      nextToken = normalizeNextToken(options.nextToken);
+    } catch (error) {
+      throw new WorldError("INVALID_MESSAGE", error.message);
+    }
+    if ((!record || !recoveryMatches(code, record.recovery, this.now()))
+      && !(record?.tokenHash && secretMatches(nextToken, record.tokenHash))) {
+      throw new WorldError("INVALID_RECOVERY", "The recovery code is invalid or expired.");
+    }
+    // A retry carrying the client-preserved nextToken is idempotent even when
+    // the first committed response was lost after consuming the recovery code.
+    const isRetry = !recoveryMatches(code, record.recovery, this.now());
+    const token = nextToken ?? createSessionToken();
+    record.tokenHash = hashSecret(token);
+    delete record.token;
+    delete record.recovery;
+    this._audit(isRetry ? "account_recovery_retried" : "account_recovered", { name }, {
+      source: isRetry ? "pending_token" : "recovery_code",
+    });
+    return this.addPlayer(id, { ...options, name, archetype: record.archetype, token });
   }
 
   removePlayer(id) {
     const player = this.players.get(id);
     if (!player) return false;
     this._saveAccount(player);
+    if (String(player.mapId).startsWith("dungeon:")) this.leaveDungeon(id, true);
     this.leaveParty(id, true);
     this.players.delete(id);
     for (const [projectileId, projectile] of this.projectiles) {
@@ -357,6 +523,65 @@ export class World {
     }
     this._emit("playerLeft", { playerId: id, name: player.name });
     return true;
+  }
+
+  detachPlayer(id) {
+    const player = this.players.get(id);
+    if (!player || player.pendingAuth || player.connectionDetached) return false;
+    player.connectionDetached = true;
+    player.input = emptyInput();
+    player.inputSeq = 0;
+    player.moveTarget = null;
+    player.attackTarget = null;
+    player.running = false;
+    player.portalDwell = null;
+    for (const mob of this.mobs.values()) {
+      if (mob.aggroTargetId === id) mob.aggroTargetId = null;
+      if (mob.attackTargetId === id) {
+        mob.attackTargetId = null;
+        mob.attackResolveAt = 0;
+      }
+    }
+    return true;
+  }
+
+  resumeDetachedPlayer(options = {}) {
+    if (options.protocol !== undefined && options.protocol !== PROTOCOL_VERSION) {
+      throw new WorldError(
+        "PROTOCOL_MISMATCH",
+        `This server speaks protocol ${PROTOCOL_VERSION}; refresh the client.`,
+      );
+    }
+    const name = sanitizeName(options.name);
+    const accountKey = this._accountKey(name);
+    const player = [...this.players.values()].find((candidate) => (
+      candidate.connectionDetached && this._accountKey(candidate.name) === accountKey
+    ));
+    if (!player) return null;
+
+    const offeredToken = typeof options.token === "string" && options.token.length <= 128
+      ? options.token
+      : null;
+    const tokenHash = hashSecret(player.token);
+    const offeredMatches = secretMatches(offeredToken, tokenHash);
+    let nextToken = null;
+    try {
+      nextToken = normalizeNextToken(options.nextToken);
+    } catch (error) {
+      if (!offeredMatches) {
+        throw new WorldError("INVALID_MESSAGE", error.message);
+      }
+    }
+    if (!offeredMatches && !secretMatches(nextToken, tokenHash)) {
+      throw new WorldError("INVALID_TOKEN", "This name is registered to another session token.");
+    }
+
+    const promotedPendingToken = Boolean(nextToken && nextToken !== player.token);
+    if (promotedPendingToken) player.token = nextToken;
+    player.connectionDetached = false;
+    this._audit("session_resumed", player, { promotedPendingToken });
+    this._emit("playerReconnected", { playerId: player.id, name: player.name });
+    return player;
   }
 
   handleCommand(id, message) {
@@ -367,6 +592,9 @@ export class World {
     const type = message.type;
     if (type === "join" || type === "start") {
       return this.addPlayer(id, message);
+    }
+    if (type === "recover") {
+      return this.recoverAccount(id, message);
     }
 
     const player = this.players.get(id);
@@ -379,6 +607,18 @@ export class World {
         return this.setInput(id, message);
       case "chat":
         return this.sendChat(id, message.channel, message.text);
+      case "sessionRotate":
+      case "sessionrotate":
+        return this.rotateSession(id, message.nextToken);
+      case "recoveryIssue":
+      case "recoveryissue":
+        return this.issueRecoveryCode(id);
+      case "dungeonEnter":
+      case "dungeonenter":
+        return this.enterDungeon(id);
+      case "dungeonLeave":
+      case "dungeonleave":
+        return this.leaveDungeon(id);
       case "leave":
         // Back to the character screen: the account is saved and the seat
         // freed so the same connection can join again.
@@ -439,6 +679,130 @@ export class World {
       default:
         throw new WorldError("UNKNOWN_MESSAGE", `Unknown message type: ${String(type)}`);
     }
+  }
+
+  enterDungeon(id) {
+    const player = this._requirePlayer(id);
+    if (!player.alive) throw new WorldError("PLAYER_DEAD", "Defeated players cannot enter a dungeon.");
+    if (String(player.mapId).startsWith("dungeon:")) {
+      throw new WorldError("DUNGEON_ACTIVE", "This player is already inside a dungeon.");
+    }
+    if (this.dungeons.size >= this.maxDungeons) {
+      throw new WorldError("DUNGEON_CAPACITY", "All dungeon instances are busy; try again soon.");
+    }
+    const party = player.partyId ? this.parties.get(player.partyId) : null;
+    if (party && party.members[0] !== id) {
+      throw new WorldError("DUNGEON_LEADER_ONLY", "The first party member must open the dungeon.");
+    }
+    const members = party ? party.members.map((memberId) => this.players.get(memberId)) : [player];
+    if (members.some((member) => !member || !member.alive || member.connectionDetached || member.pendingAuth
+      || member.mapId !== player.mapId || String(member.mapId).startsWith("dungeon:"))) {
+      throw new WorldError(
+        "DUNGEON_PARTY_NOT_READY",
+        "Every party member must be connected and alive together on the same map outside a dungeon.",
+      );
+    }
+    const averageLevel = Math.round(members.reduce((sum, member) => sum + member.level, 0) / members.length);
+    const instanceId = `vault-${++this._dungeonSequence}`;
+    const plan = createDungeonPlan({ instanceId, averageLevel, width: this.width, height: this.height });
+    const dungeon = {
+      id: instanceId,
+      plan,
+      members: new Set(members.map((member) => member.id)),
+      remaining: new Set(plan.enemies.map((enemy) => enemy.id)),
+      completed: false,
+      rewarded: new Set(),
+      startedAt: this.time,
+      expiresAt: this.time + this.dungeonDuration,
+    };
+    this.dungeons.set(instanceId, dungeon);
+    for (const member of members) {
+      member.mapId = plan.mapId;
+      member.x = plan.spawn.x;
+      member.y = plan.spawn.y + (members.indexOf(member) - (members.length - 1) / 2) * 55;
+      member.input = emptyInput();
+      member.moveTarget = null;
+      member.attackTarget = null;
+    }
+    for (const enemy of plan.enemies) this.spawnMob(enemy);
+    this._emit("dungeonStarted", {
+      dungeonId: instanceId,
+      name: plan.name,
+      level: plan.level,
+      members: members.map((member) => member.name),
+      enemies: plan.enemies.length,
+    }, { players: [...dungeon.members] });
+    this._audit("dungeon_started", player, { dungeonId: instanceId, members: members.length, level: plan.level });
+    return player;
+  }
+
+  leaveDungeon(id, silent = false) {
+    const player = this.players.get(id);
+    if (!player || !String(player.mapId).startsWith("dungeon:")) return player;
+    const mapId = player.mapId;
+    const dungeon = [...this.dungeons.values()].find((entry) => entry.plan.mapId === mapId);
+    player.mapId = "town";
+    const spawn = this._playerSpawn();
+    player.x = spawn.x;
+    player.y = spawn.y;
+    player.input = emptyInput();
+    player.moveTarget = null;
+    player.attackTarget = null;
+    dungeon?.members.delete(id);
+    if (!silent) this._emit("dungeonLeft", { playerId: id, dungeonId: dungeon?.id ?? null });
+    if (dungeon && dungeon.members.size === 0) this._destroyDungeon(dungeon);
+    return player;
+  }
+
+  _destroyDungeon(dungeon) {
+    this.dungeons.delete(dungeon.id);
+    for (const [mobId, mob] of this.mobs) {
+      if (mob.dungeonId === dungeon.id) this.mobs.delete(mobId);
+    }
+    for (const [projectileId, projectile] of this.projectiles) {
+      if (projectile.mapId === dungeon.plan.mapId) this.projectiles.delete(projectileId);
+    }
+    for (const [dropId, drop] of this.drops) {
+      if (drop.mapId === dungeon.plan.mapId) this._removeDrop(dropId);
+    }
+  }
+
+  _expireDungeons() {
+    for (const dungeon of [...this.dungeons.values()]) {
+      if (this.time < dungeon.expiresAt) continue;
+      const members = [...dungeon.members];
+      for (const memberId of members) this.leaveDungeon(memberId, true);
+      // A malformed/empty instance still gets reclaimed deterministically.
+      if (this.dungeons.has(dungeon.id)) this._destroyDungeon(dungeon);
+      this._emit("dungeonFailed", {
+        dungeonId: dungeon.id,
+        name: dungeon.plan.name,
+        reason: "timeout",
+      }, { players: members });
+      const leader = members.map((memberId) => this.players.get(memberId)).find(Boolean) ?? null;
+      this._audit("dungeon_timed_out", leader, { dungeonId: dungeon.id });
+    }
+  }
+
+  _recordDungeonDefeat(dungeon, mob, ownerId) {
+    dungeon.remaining.delete(mob.id);
+    if (dungeon.completed || dungeon.remaining.size > 0) return;
+    dungeon.completed = true;
+    for (const memberId of dungeon.members) {
+      const member = this.players.get(memberId);
+      if (!member || member.mapId !== dungeon.plan.mapId || dungeon.rewarded.has(memberId)) continue;
+      dungeon.rewarded.add(memberId);
+      this._grantXp(member, dungeon.plan.reward.xp);
+      member.gold += dungeon.plan.reward.gold;
+      member.dew += dungeon.plan.reward.dew;
+      this._audit("dungeon_completed", member, { dungeonId: dungeon.id, reward: dungeon.plan.reward });
+    }
+    this._emit("dungeonCompleted", {
+      dungeonId: dungeon.id,
+      name: dungeon.plan.name,
+      playerId: ownerId,
+      reward: { ...dungeon.plan.reward },
+    }, { players: [...dungeon.members] });
   }
 
   setInput(id, input) {
@@ -544,6 +908,9 @@ export class World {
       );
     }
 
+    // A defeated dungeon member respawns in town and leaves the instance;
+    // in-place revival is the explicit way to continue the same run.
+    if (String(player.mapId).startsWith("dungeon:")) this.leaveDungeon(id, true);
     const spawn = this._playerSpawn();
     player.x = spawn.x;
     player.y = spawn.y;
@@ -863,7 +1230,7 @@ export class World {
   inviteParty(id, targetId) {
     const player = this._requirePlayer(id);
     const target = this.players.get(String(targetId));
-    if (!target || target.id === id) {
+    if (!target || target.pendingAuth || target.connectionDetached || target.id === id) {
       throw new WorldError("INVALID_TARGET", "No such player to invite.");
     }
     const party = player.partyId ? this.parties.get(player.partyId) : null;
@@ -971,7 +1338,7 @@ export class World {
       throw new WorldError("INVALID_TARGET", "You are already your own best ally.");
     }
     if (!player.friends.includes(friendName)) {
-      if (player.friends.length >= 32) {
+      if (player.friends.length >= FRIEND_LIMIT) {
         throw new WorldError("FRIENDS_FULL", "The friend list is full.");
       }
       player.friends.push(friendName);
@@ -1042,6 +1409,7 @@ export class World {
     const step = Math.min(dt, 0.5) / steps;
     for (let index = 0; index < steps; index += 1) {
       this.time += step;
+      this._expireDungeons();
       this._updatePlayers(step);
       this._updatePortals();
       this._updateMobs(step);
@@ -1078,7 +1446,7 @@ export class World {
       drops: shared.drops,
       mapId,
       // Server-wide head count: the players array only covers this map.
-      online: this.players.size,
+      online: this.onlinePlayerCount(),
     };
   }
 
@@ -1111,7 +1479,7 @@ export class World {
         tail: `"enemies":${JSON.stringify(shared.enemies)}`
           + `,"projectiles":${JSON.stringify(shared.projectiles)}`
           + `,"drops":${JSON.stringify(shared.drops)}`
-          + `,"mapId":${JSON.stringify(mapId)},"online":${this.players.size}`,
+          + `,"mapId":${JSON.stringify(mapId)},"online":${this.onlinePlayerCount()}`,
         slimIds: shared.players.map((entry) => entry.id),
         slimJson: shared.players.map((entry) => JSON.stringify(entry)),
         onlineNames: shared.onlineNames,
@@ -1132,7 +1500,8 @@ export class World {
   }
 
   _buildMapSnapshot(mapId) {
-    const mapTheme = this.zones.find((entry) => entry.id === mapId)?.theme
+    const dungeon = [...this.dungeons.values()].find((entry) => entry.plan.mapId === mapId);
+    const mapTheme = dungeon?.plan.theme ?? this.zones.find((entry) => entry.id === mapId)?.theme
       ?? ({
         town: "town",
         backhill: "mountain",
@@ -1140,6 +1509,9 @@ export class World {
         starship: "spaceport",
       }[mapId] ?? mapId);
     const visible = (entity) => !mapId || entity.mapId === mapId;
+    const visiblePlayer = (player) => (
+      !player.pendingAuth && !player.connectionDetached && visible(player)
+    );
     const mapZones = mapId === "town"
       ? []
       : this.zones.filter((zone) => zone.id === mapId).map((zone) => ({ ...zone }));
@@ -1194,7 +1566,7 @@ export class World {
     const onlineNames = this._onlineNames();
     return {
       world: {
-        name: MAP_NAMES[mapId] ?? this.name,
+        name: dungeon?.plan.name ?? MAP_NAMES[mapId] ?? this.name,
         width: this.width,
         height: this.height,
         time: round(this.time),
@@ -1208,7 +1580,7 @@ export class World {
           : [],
       },
       safeZone: mapId === "town" && this.safeZone ? { ...this.safeZone } : null,
-      players: [...this.players.values()].filter(visible).map((player) => this._serializePlayerPublic(player)),
+      players: [...this.players.values()].filter(visiblePlayer).map((player) => this._serializePlayerPublic(player)),
       enemies,
       projectiles,
       drops,
@@ -1219,7 +1591,9 @@ export class World {
   // Lobby roster: who is online, at what level, and where — shown on the
   // character screen before joining.
   getRoster() {
-    return [...this.players.values()].map((player) => ({
+    return [...this.players.values()].filter((player) => (
+      !player.pendingAuth && !player.connectionDetached
+    )).map((player) => ({
       name: player.name,
       archetype: player.archetype,
       level: player.level,
@@ -1229,8 +1603,18 @@ export class World {
 
   _onlineNames() {
     const names = new Set();
-    for (const player of this.players.values()) names.add(player.name);
+    for (const player of this.players.values()) {
+      if (!player.pendingAuth && !player.connectionDetached) names.add(player.name);
+    }
     return names;
+  }
+
+  onlinePlayerCount() {
+    let count = 0;
+    for (const player of this.players.values()) {
+      if (!player.pendingAuth && !player.connectionDetached) count += 1;
+    }
+    return count;
   }
 
   drainEvents() {
@@ -1271,6 +1655,7 @@ export class World {
     const id = overrides.id ?? `mob-${++this._mobSequence}`;
     const mob = {
       id: validateId(id),
+      dungeonId: overrides.dungeonId ?? null,
       mapId: overrides.mapId ?? zone?.id ?? "town",
       type: overrides.type ?? species.type,
       name: overrides.name ?? species.name,
@@ -1359,7 +1744,7 @@ export class World {
 
   _updatePlayers(dt) {
     for (const player of this.players.values()) {
-      if (!player.alive) continue;
+      if (player.pendingAuth || player.connectionDetached || !player.alive) continue;
       const manualMove = player.input.move.x !== 0 || player.input.move.y !== 0;
       const runFactor = player.input.sprint && manualMove ? SPRINT_FACTOR : 1;
       player.running = runFactor > 1;
@@ -1441,7 +1826,7 @@ export class World {
   _updateMobs(dt) {
     for (const mob of [...this.mobs.values()]) {
       let target = mob.aggroTargetId ? this.players.get(mob.aggroTargetId) : null;
-      if (!target?.alive || target.mapId !== mob.mapId || this._inSafeZone(target)
+      if (!target?.alive || target.connectionDetached || target.mapId !== mob.mapId || this._inSafeZone(target)
         || Math.hypot(target.x - mob.homeX, target.y - mob.homeY) > (mob.boss ? 780 : 520)) {
         target = this._nearestLivingPlayer(mob, mob.boss ? 520 : 340);
         mob.aggroTargetId = target?.id ?? null;
@@ -1451,7 +1836,7 @@ export class World {
         const attackTarget = this.players.get(mob.attackTargetId);
         if (this.time < mob.attackResolveAt) continue;
         mob.attackTargetId = null;
-        if (attackTarget?.alive && !this._inSafeZone(attackTarget)
+        if (attackTarget?.alive && !attackTarget.connectionDetached && !this._inSafeZone(attackTarget)
           && Math.hypot(attackTarget.x - mob.x, attackTarget.y - mob.y) <= mob.attackRange + attackTarget.radius + 28) {
           this._emit("enemyAttack", {
             enemyId: mob.id, playerId: attackTarget.id,
@@ -1774,7 +2159,8 @@ export class World {
     for (const other of this.players.values()) {
       if (other.attackTarget === mob.id) other.attackTarget = null;
     }
-    if (mob.boss) {
+    const dungeon = mob.dungeonId ? this.dungeons.get(mob.dungeonId) : null;
+    if (mob.boss && !dungeon) {
       this._dropBossHoard(mob);
       this._bossRespawns.set(mob.id, this.time + BOSS_RESPAWN_DELAY);
       this._emit("bossSlain", {
@@ -1785,11 +2171,11 @@ export class World {
         x: round(mob.x),
         y: round(mob.y),
       });
-    } else {
+    } else if (!dungeon) {
       this._maybeDropLoot(mob);
     }
     const player = this.players.get(ownerId);
-    if (player) {
+    if (player && !dungeon) {
       this._grantXp(player, mob.xp);
       player.will += mob.level;
       player.gold += Math.round(GOLD_PER_MOB_LEVEL * mob.level * (mob.boss ? 10 : mob.elite ? 2 : 1));
@@ -1801,7 +2187,7 @@ export class World {
         for (const memberId of party.members) {
           if (memberId === ownerId) continue;
           const member = this.players.get(memberId);
-          if (!member || !member.alive) continue;
+          if (!member || !member.alive || member.connectionDetached || member.pendingAuth) continue;
           // All maps share one coordinate plane, so range alone is not enough.
           if (member.mapId !== mob.mapId) continue;
           if (Math.hypot(member.x - mob.x, member.y - mob.y) > PARTY_XP_RANGE) continue;
@@ -1810,12 +2196,13 @@ export class World {
         }
       }
     }
-    this.pendingMobSpawns.push({ at: this.time + MOB_RESPAWN_DELAY, mapId: mob.mapId });
+    if (dungeon) this._recordDungeonDefeat(dungeon, mob, ownerId);
+    else this.pendingMobSpawns.push({ at: this.time + MOB_RESPAWN_DELAY, mapId: mob.mapId });
     this._emit("enemyDefeated", {
       enemyId: mob.id,
       enemyType: mob.type,
       playerId: ownerId,
-      xp: mob.xp,
+      xp: dungeon ? 0 : mob.xp,
       x: round(mob.x),
       y: round(mob.y),
     }, { mapId: mob.mapId });
@@ -2054,7 +2441,8 @@ export class World {
     let nearest = null;
     let nearestSquared = maximumDistance * maximumDistance;
     for (const player of this.players.values()) {
-      if (!player.alive || player.mapId !== entity.mapId) continue;
+      if (player.pendingAuth || player.connectionDetached || !player.alive
+        || player.mapId !== entity.mapId) continue;
       const dx = player.x - entity.x;
       const dy = player.y - entity.y;
       const distanceSquared = dx * dx + dy * dy;
@@ -2151,7 +2539,8 @@ export class World {
         continue;
       }
       for (const player of this.players.values()) {
-        if (!player.alive || player.mapId !== drop.mapId) continue;
+        if (player.pendingAuth || player.connectionDetached || !player.alive
+          || player.mapId !== drop.mapId) continue;
         const dx = player.x - drop.x;
         const dy = player.y - drop.y;
         const distance = Math.hypot(dx, dy);
@@ -2320,6 +2709,9 @@ export class World {
   // Thin adapters over src/server/loot.js: the world contributes only its
   // rng stream and the item id sequence.
   _nextItemId() {
+    if (this._itemSequence >= MAX_ITEM_SEQUENCE - 1) {
+      return `item-${randomUUID()}`;
+    }
     return `item-${++this._itemSequence}`;
   }
 
@@ -2423,7 +2815,8 @@ export class World {
 
   _updatePortals() {
     for (const player of this.players.values()) {
-      if (!player.alive || this.time < player.portalLockUntil) continue;
+      if (player.pendingAuth || player.connectionDetached || !player.alive
+        || this.time < player.portalLockUntil) continue;
       const covering = this.portals.find((portal) => {
         if (portal.mapId !== player.mapId) return false;
         const dx = player.x - portal.x;
@@ -2548,7 +2941,7 @@ function serializeItem(item) {
   };
 }
 
-function sanitizeName(value) {
+export function sanitizeName(value) {
   if (typeof value !== "string") return "Wayfarer";
   const name = value.replace(/[\u0000-\u001f\u007f]/g, "").trim().replace(/\s+/g, " ");
   return name.slice(0, 20) || "Wayfarer";
