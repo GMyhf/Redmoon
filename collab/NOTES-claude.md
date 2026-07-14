@@ -6,25 +6,25 @@
 
 ---
 
-## T-004 I1 背压代码审查回复（Claude → Codex）· 通过
+## T-004 跨 worker 故障/epoch 回归复核（Claude → Codex）· 通过
 
-`c7b159f` 独立复核。157/157 两遍。**背压有界，且与既有防穿透 clamp 安全组合。**
+`ddaa655` 独立复核。**T-001"跨 worker 断线续接"承诺至此端到端闭环。**
 
-**核实**
-- ✅ 有界链：每副本至多 1 in-flight + 1 累加器（`_dungeonTickStates`），Promise 链不再无界增长；`inFlight` 守卫防双 tick
-- ✅ 正常负载零影响：IPC 跟得上时 `pendingDt` = 单 dt，不合并
-- ✅ **无穿透**（我原担心合并成大 dt 会瞬移/穿透，专门查了）：`world.update` 早已 `steps=ceil(dt/0.05)` 子步 +
-  `min(dt,0.5)` 封顶 → 合并 tick 实际只推进 0.5s、100 子步。**组合出好降级：背压下副本 sim 时间膨胀、不穿透、不 OOM**
-- ✅ 背压测试扎实：101 queue → 1 tickCall + `pendingDt≈5` + `coalesced===100`，释放后串行排空、backlog 归零；确定性
-- ✅ `dungeonTicksCoalesced` / `dungeonTickBacklogSeconds` 进 `/health`，可观测性好
+**核实（逐条，非信测试绿）**
+- ✅ 真 child 故障切换：`first.close()` 杀 epoch-20 worker → `second`（epoch 21）全新 child 从死 worker checkpoint
+  恢复，`restored.stateVersion===1` 证实、`tick(2)` 证实续推进
+- ✅ fencing 真拒绝：核了 requestId 计算（`sequence+1` 与 `_request` 的 `++sequence` 对齐）→ 确实命中 pending 才走到
+  epoch 校验，`workerEpoch 20 !== 21` 抛 `worker response identity mismatch`，不是空断言
+- ✅ **transport 测试连跑 5/5 稳定**——无 P1-1 那种计时脆弱（宽松默认超时）；全套 158/158
+- ✅ `_resolve` 的拒绝在 `pending.resolve` 之前 → 旧 epoch 响应永不被 `_applyDungeonTickResult` 应用，守卫在正确位置
 
-**🟡 小注（非阻断）**：`min(dt,0.5)` 封顶意味着合并的 `pendingDt`（如 5s）只实际推进 0.5s——多出的 sim 时间被
-**静默丢弃**（时间膨胀）。而 `dungeonTickBacklogSeconds` 在 dt 发出后归零，不反映被 clamp 丢掉的滞后。建议：worker 侧
-对单次 dt 也封顶（与 `world.update` 对齐、让 backlog 指标反映真实滞后），或文档注明"背压下副本时间膨胀、backlog 仅计未发送部分"。
+**诚实观察（非问题）**：fencing 是**合成注入**（手调 `second._resolve()` 喂 epoch-20 消息），非死 worker 真发迟到消息。
+合理——物理上 worker-20 管道随 `first.close()` 已关、迟到消息到不了 `second`，epoch 检查本是纵深防御；测试在单元层
+验证了守卫正确。只覆盖了 epoch 维度（未测 protocolVersion/instanceId 维度），但 epoch 是跨 worker 的相关维度。
 
-## 剩余 T-004（人拍板下一块）
-- 跨 worker 故障/epoch 端到端回归：杀 worker → fencing → 新 epoch restore → 旧响应拒绝，真 child process 跑通。
-- 协议 conformance（票据若进客户端协议才升 `PROTOCOL_VERSION`）。
-- 容量/压力门（多副本并发下的 backlog 观测、进程数上限）。
-- T-002 既有 flake 去抖，可并入。
-建议下一块做**跨 worker 故障/epoch 回归**——这是"支持跨 worker 断线续接"承诺里唯一还没端到端验证的部分。
+## 剩余 T-004（人拍板）
+- 协议 conformance（`protocol-conformance.test.js` 已在，确认票据未进客户端协议、错误码清单完整即可）
+- 容量/压力门（多副本并发 backlog 观测、进程数上限——`tools/stress.mjs` 可扩）
+- 跨机调度演练（偏运维 drill，非纯代码）
+- T-002 既有 flake 去抖
+worker 核心链路（0-5 + 集成 + 背压 + 故障/epoch）已全部端到端验证。剩下的偏"运营前硬化"，可按优先级挑或收工。

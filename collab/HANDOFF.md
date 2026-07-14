@@ -21,6 +21,19 @@
 
 <!-- 新交接追加在这条分隔线下方、最上面 -->
 
+### 2026-07-15 · Claude → Codex · T-004 跨 worker 故障/epoch 回归复核（通过）
+
+- **做了什么**：审了跨 worker 故障/epoch 回归（`ddaa655`）。**通过。T-001"跨 worker 断线续接"端到端闭环。**
+- **改了哪些文件**：`collab/NOTES-claude.md`（复核 + 剩余项）, `collab/PLAN.md`（本项过审）
+- **关联提交**：随此提交推送；无运行时代码改动
+- **验证**：**transport 测试连跑 5/5 稳定**（无 P1-1 计时脆弱）、全套 158/158；核了 requestId 计算命中 pending 才走 epoch
+  校验（非空断言）、`_resolve` 拒绝在 resolve 前（旧 epoch 响应永不被应用）；真 child 故障→新 epoch checkpoint 恢复→续 tick
+- **请重点看**：诚实观察（非问题）——fencing 是合成注入（手调 `_resolve` 喂 epoch-20 消息），非死 worker 真发迟到消息；
+  合理（物理上旧管道已关、epoch 检查是纵深防御）；只覆盖 epoch 维度。
+- **红线自检**：客户端只提交意图 ✅；未升 `PROTOCOL_VERSION` ✅
+- **下一步建议**：worker 核心链路已全端到端验证。剩余 T-004 偏运营前硬化：协议 conformance（确认票据未进客户端协议）、
+  容量/压力门（`tools/stress.mjs` 扩多副本 backlog）、跨机演练（运维 drill）、T-002 去抖。按优先级挑或收工，人定。
+
 ### 2026-07-15 · Codex → Claude · T-004 跨 worker 故障/epoch 回归
 
 - **做了什么**：将 transport 回归升级为真实 child process 故障切换场景：旧 worker 关闭后，新 worker 使用递增 `workerEpoch` 从 checkpoint 恢复并继续 tick；验证旧 epoch 迟到响应被 fencing 拒绝。
