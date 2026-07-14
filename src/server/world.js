@@ -1245,14 +1245,36 @@ export class World {
       playerId: target.id,
       from: id,
       fromName: player.name,
-    });
+    }, { players: [target.id] });
     return player;
+  }
+
+  getPendingPartyInvite(id) {
+    const playerId = String(id);
+    const invite = this._partyInvites.get(playerId);
+    if (!invite || this.time - invite.at > 60) {
+      if (invite) this._partyInvites.delete(playerId);
+      return null;
+    }
+    const host = this.players.get(invite.from);
+    if (!host || host.pendingAuth) {
+      this._partyInvites.delete(playerId);
+      return null;
+    }
+    return {
+      event: "partyInvited",
+      tick: this.tick,
+      serverTime: round(this.time),
+      playerId,
+      from: host.id,
+      fromName: host.name,
+    };
   }
 
   acceptParty(id, fromId) {
     const player = this._requirePlayer(id);
-    const invite = this._partyInvites.get(id);
-    if (!invite || invite.from !== String(fromId) || this.time - invite.at > 60) {
+    const invite = this.getPendingPartyInvite(id);
+    if (!invite || invite.from !== String(fromId)) {
       throw new WorldError("NO_INVITE", "No standing invitation from that player.");
     }
     const host = this.players.get(invite.from);

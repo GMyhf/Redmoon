@@ -231,7 +231,7 @@ test("320px mobile keeps primary controls in bounds without panel overlap", asyn
 });
 
 test("a party invite sent from one browser is accepted in another", async (t) => {
-  const { url } = await startServer(t);
+  const { server, url } = await startServer(t);
   const hostPage = await newPage(t, browser);
   const guestPage = await newPage(t, browser);
   await joinAs(hostPage, url, "HostLongOperator");
@@ -243,6 +243,17 @@ test("a party invite sent from one browser is accepted in another", async (t) =>
   await hostPage.waitForFunction(() =>
     document.querySelector("#social-list")?.textContent.includes("● 在线"));
   assert.match(await hostPage.textContent("#social-list"), /GuestLngOperator/);
+
+  await guestPage.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "hidden",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  const guest = playerByName(server, "GuestLngOperator");
+  await waitForServer(() => [...server.wss.clients]
+    .find((socket) => socket.playerId === guest.id)?.clientVisible === false);
   await hostPage.click('#social-list button[data-social="invite"]');
 
   const accept = guestPage.locator(".event-message button", { hasText: "接受" });
@@ -250,6 +261,19 @@ test("a party invite sent from one browser is accepted in another", async (t) =>
   assert.match(
     await guestPage.textContent(".event-message"),
     /HostLongOperator 邀请你组队/,
+  );
+
+  await guestPage.evaluate(() => {
+    delete document.visibilityState;
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await waitForServer(() => [...server.wss.clients]
+    .find((socket) => socket.playerId === guest.id)?.clientVisible === true);
+  assert.equal(
+    await guestPage.evaluate(() =>
+      document.querySelectorAll("[data-party-invite-from] button").length),
+    1,
+    "foreground reminder is deduplicated",
   );
   await accept.click();
 

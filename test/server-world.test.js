@@ -860,7 +860,9 @@ test("parties share XP within range and accounts persist across sessions", () =>
   const ally = world.addPlayer("ally-1", { name: "Beta", archetype: "strider" });
 
   world.handleCommand("host-1", { type: "partyInvite", target: "ally-1" });
-  assert.ok(world.drainEvents().some((event) => event.event === "partyInvited"));
+  const inviteEvent = world.drainEvents().find((event) => event.event === "partyInvited");
+  assert.deepEqual(inviteEvent.scope, { players: ["ally-1"] });
+  assert.equal(world.getPendingPartyInvite("ally-1").fromName, "Alpha");
   world.handleCommand("ally-1", { type: "partyAccept", from: "host-1" });
   assert.equal(host.partyId, ally.partyId);
 

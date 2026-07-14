@@ -1363,8 +1363,12 @@ import {
     }
     if (eventName === "partyinvited") {
       if (String(event.playerId) === String(state.id)) {
+        const existing = [...ui.eventFeed.querySelectorAll("[data-party-invite-from]")]
+          .find((entry) => entry.dataset.partyInviteFrom === String(event.from));
+        if (existing) return;
         const item = document.createElement("div");
         item.className = "event-message";
+        item.dataset.partyInviteFrom = String(event.from);
         item.textContent = `${event.fromName} 邀请你组队 `;
         const accept = document.createElement("button");
         accept.type = "button";

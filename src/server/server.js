@@ -57,6 +57,7 @@ const MAX_ITEM_MODIFIER = 1_000_000;
 const DURABLE_SECURITY_COMMANDS = new Set([
   "join", "start", "recover", "sessionRotate", "recoveryIssue",
 ]);
+const RELIABLE_BACKGROUND_EVENTS = new Set(["partyInvited"]);
 const COMMAND_TYPE_ALIASES = Object.freeze({
   start: "join",
   upgradeSkill: "upgrade",
@@ -884,6 +885,7 @@ export class GameServer {
         socket.backpressureSkips = 0;
         if (becameVisible && commandPlayer && !commandPlayer.connectionDetached) {
           this._sendSnapshot(socket);
+          this._sendPendingPartyInvite(socket, commandPlayer.id);
         }
         return null;
       }
@@ -938,6 +940,7 @@ export class GameServer {
           archetype: result.archetype,
         });
         this._sendSnapshot(socket);
+        this._sendPendingPartyInvite(socket, result.id);
       } else if (message.type === "sessionRotate") {
         this._sendMessage(socket, {
           type: "session",
@@ -1117,6 +1120,12 @@ export class GameServer {
     });
   }
 
+  _sendPendingPartyInvite(socket, playerId) {
+    const invite = this.world.getPendingPartyInvite(playerId);
+    if (!invite) return "missing";
+    return this._sendMessage(socket, { type: "event", ...invite });
+  }
+
   _sendPayload(socket, payload, { droppable = false, kind = "message" } = {}) {
     if (socket.readyState !== WebSocket.OPEN) return "closed";
     const bufferedBytes = Math.max(0, Number(socket.bufferedAmount) || 0);
@@ -1187,10 +1196,11 @@ export class GameServer {
   _broadcastEvent(event) {
     const { scope, ...payload } = event;
     const message = JSON.stringify({ type: "event", ...payload });
+    const reliableInBackground = RELIABLE_BACKGROUND_EVENTS.has(event.event);
     for (const socket of this.wss.clients) {
       if (socket.readyState !== WebSocket.OPEN) continue;
-      if (socket.clientVisible === false) continue;
-      if (socket.deliveryPaused) continue;
+      if (!reliableInBackground && socket.clientVisible === false) continue;
+      if (!reliableInBackground && socket.deliveryPaused) continue;
       if (scope) {
         const player = this.world.players.get(socket.playerId);
         if (!player) continue;

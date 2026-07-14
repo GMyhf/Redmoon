@@ -320,7 +320,7 @@ test("a hidden browser pauses world traffic and receives a fresh snapshot when v
     type: "join", protocol: 2, name: "Background", archetype: "vanguard",
   }));
   await messages.next("session");
-  await messages.next("snapshot");
+  const backgroundSnapshot = await messages.next("snapshot");
   const serverSocket = [...server.wss.clients][0];
 
   socket.send(JSON.stringify({ type: "clientState", visible: false }));
@@ -337,12 +337,31 @@ test("a hidden browser pauses world traffic and receives a fresh snapshot when v
   );
   assert.equal(server._runtimeStatus().websocket.backgroundConnections, 1);
 
+  const hostSocket = new WebSocket(`ws://127.0.0.1:${server.address().port}/ws`);
+  t.after(() => hostSocket.terminate());
+  const hostMessages = messageQueue(hostSocket);
+  await hostMessages.next("welcome");
+  hostSocket.send(JSON.stringify({
+    type: "join", protocol: 2, name: "Inviter", archetype: "strider",
+  }));
+  await hostMessages.next("session");
+  await hostMessages.next("snapshot");
+  hostSocket.send(JSON.stringify({
+    type: "partyInvite", target: backgroundSnapshot.selfId,
+  }));
+  const hiddenInvite = await messages.next("event");
+  assert.equal(hiddenInvite.event, "partyInvited");
+  assert.equal(hiddenInvite.fromName, "Inviter");
+
   socket.send(JSON.stringify({ type: "clientState", visible: true }));
+  await messages.next("snapshot");
+  const reminder = await messages.next("event");
   for (let attempt = 0; attempt < 50 && serverSocket.clientVisible !== true; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   assert.equal(serverSocket.clientVisible, true);
-  assert.ok(server._runtime.snapshotsSent > sentWhileHidden, "foregrounding pushes a fresh snapshot");
+  assert.equal(reminder.event, "partyInvited", "foregrounding repeats the still-valid invite");
+  assert.equal(reminder.from, hiddenInvite.from);
 });
 
 test("heartbeat terminates a connection that does not answer ping frames", async (t) => {
