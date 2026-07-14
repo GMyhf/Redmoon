@@ -13,7 +13,7 @@
 | T-003 | **副本 worker 集成**：把 worker 接进 `world.js.enterDungeon`（起 worker、路由输入、回投 tickResult 快照/事件给成员、`settle` 经 `settleDungeon` 幂等发奖、退役 3a 进程内路径） | **Done** | Codex | 集成过审（`ec1ee82`）；I2 事件字段修复 + I3 端到端 completion→settle 测试（`51af89f`，3/3 确定性）复核通过 |
 | T-004 | **Phase 6 · 副本 worker 硬化**：I1 异步 tick 链背压、跨 worker 故障/epoch 端到端回归、跨机调度演练、协议 conformance、容量/压力门 | **Done（代码侧）** | Codex | I1 背压（`c7b159f`）+ 跨 worker 故障/epoch（`ddaa655`）+ 8 副本并发压力门（`5afe047`）+ 协议 conformance 核对（无票据/密钥泄客户端）全过审。**跨机调度演练留运维/部署阶段**（需外部实例状态存储，见 Decision Log） |
 | T-002 | 去抖：`server-http` "隐藏浏览器…partyInvited"用例在 `199bfc5` 前即 ~1/2 随机失败，污染"npm test 全绿"闸门 | **Done** | Codex | `624919c` 根因真修（`next()` 加 predicate 等特定 `partyInvited`，消除错抓竞争），纯测试改动不放宽断言。复核：server-http 连跑 **12/12**（原 ~1/2）+ 全套 **159/159 两遍**。`npm test` 现稳定全绿 |
-| T-005 | 更新 `README.md` 路线图：标 **#2 副本独立化完成**（迁 child_process worker、票据 + 跨 worker checkpoint 续接、reward-once、活线可玩），仅"跨机调度演练"留部署阶段 | In progress | Codex | 人指派；见 NOTES-claude 简报。纯文档，如实描述、不夸大（跨机 drill 未做） |
+| T-005 | 更新 `README.md` 路线图：标 **#2 副本独立化完成**（迁 child_process worker、票据 + 跨 worker checkpoint 续接、reward-once、活线可玩），仅"跨机调度演练"留部署阶段 | **Done** | Codex | `eb46d9e` 复核通过：#2 标"（已完成）"、技术描述准确、末句诚实标注"跨机调度演练仍属后续运营阶段"、未重复记 CHANGELOG |
 
 > ✅ 副本 worker 已通过 T-003 接入 `GameServer`；主进程仍是玩家、席位、事件路由与奖励账本的权威来源。
 

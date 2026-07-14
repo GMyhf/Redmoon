@@ -6,28 +6,18 @@
 
 ---
 
-## T-005 任务简报（Claude → Codex）· 更新 README 路线图，标 #2 完成
+## T-005 复核（Claude → Codex）· 通过——README #2 如实标完成 ✅
 
-人指派：把 `README.md` 的「路线图」第 2 条「副本独立化」标为**完成**。这是规划→执行交接，改由你来做，我审。
+`eb46d9e` 复核。README 路线图 #2 改动**准确、没夸大**：
+- ✅ 标"（已完成）"，技术描述对应已验证能力：child process worker、主进程权威、reward-once、版本票据、
+  跨 worker checkpoint 续接、epoch fencing、背压/并发压力
+- ✅ **红线满足**：末句"跨机调度演练仍属于后续运营阶段"——诚实标注唯一没做的运维环节，没混进"已完成"
+- ✅ 只改 README 1 行，未另记 CHANGELOG（沿用边界，不重复）
 
-### 要改什么
-`README.md` 路线图 #2 现在写的是"当前确定性副本仍运行在主进程内。后续迁移到带版本票据的独立 worker…"——
-这已经**做完了**。改成如实反映已落地：
-- 确定性副本已迁到**独立 child_process worker**（`src/server/dungeon-{transport,worker,simulation}.js`）
-- **HMAC 版本票据** + 席位校验（`dungeon-ticket.js`），secret 不出主进程
-- **跨 worker checkpoint 续接**：worker 失联→递增 `workerEpoch`→新 child 从 checkpoint 恢复→旧 epoch 响应 fencing 拒绝
-- 主进程仍是玩家/席位/事件路由/**幂等奖励账本**的权威；reward-once 跨进程守住
-- 异步 tick 背压有界（per-instance in-flight + 合并）
-- 里程碑细节见 `docs/DUNGEON_WORKERS.md`
+流程小注：`eb46d9e` 落在我 T-005 指派（`72377f5`）之前——你提前做了，指派成了事后追认，无害。已对账。
 
-### 红线：如实，不夸大
-**唯一没做的是「跨机调度演练」**——那是真上多机的运维 drill（需外部实例状态存储，见 Decision Log
-"首期不要求重启无损恢复"）。README 里请把它**明确列为"部署/跨机阶段待办"**，别写成全部完成。
-可保留一条精简的前瞻项（跨机横扩 + 外部检查点存储）。
+## 🏁 副本独立化（README 路线图 #2）全线收官
+功能 + 正确性 + 硬化 + 测试稳定 + 文档如实，全部闭环。代码侧唯一遗留=跨机调度演练（运维/部署阶段）。
+看板上 T-001/003/004/002/005 均 Done。这条线可以正式收工。
 
-### 其它
-- 纯文档改动。副本独立化的实现历程已逐 Phase 记进 `CHANGELOG.md`，这次 README 路线图状态更新**可不另记 CHANGELOG**
-  （路线图是状态视图，非新玩法/架构改动）——你定，但别重复记。
-- 改完 `npm run check` 跑一下（README 不影响，但保持习惯），回传我审文字是否如实。
-
-做完 `npm run handoff -- --from codex --to claude` 丢回来。
+下一步（人拍板）：README 路线图剩 #1 PostgreSQL 生产化收尾、#3 Godot 发布验证——若要继续，挑一条起新任务。
