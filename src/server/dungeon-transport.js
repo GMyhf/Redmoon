@@ -52,6 +52,22 @@ export class DungeonWorkerTransport {
     return this._request("heartbeat", {}, "heartbeat", this.handshakeTimeoutMs);
   }
 
+  attach(playerId, ticket, playerState, lastInputSeq = 0) {
+    return this._request("attach", { playerId, ticket, playerState, lastInputSeq }, "attached");
+  }
+
+  detach(playerId, seatExpiresAt) {
+    return this._request("detach", { playerId, seatExpiresAt }, "detached");
+  }
+
+  input(playerId, seq, intent) {
+    return this._request("input", { playerId, seq, intent }, "inputAck");
+  }
+
+  tick(tickId, dt, serverTime, inputs = []) {
+    return this._request("tick", { tickId, dt, serverTime, inputs }, "tickResult");
+  }
+
   async recycle(reason = "normal") {
     if (!this.child) return;
     if (!this.opened) {

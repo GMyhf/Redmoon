@@ -1,24 +1,28 @@
-import { createHash } from "node:crypto";
-
 import {
   DungeonFrameDecoder,
   encodeDungeonFrame,
   MAX_DUNGEON_FRAME_BYTES,
 } from "./dungeon-ipc.js";
 import { PROTOCOL_VERSION } from "./definitions.js";
+import { DungeonSimulation } from "./dungeon-simulation.js";
 
-const SUPPORTED_MESSAGES = new Set(["open", "heartbeat", "recycle"]);
+const SUPPORTED_MESSAGES = new Set(["open", "attach", "detach", "input", "tick", "heartbeat", "recycle"]);
 const decoder = new DungeonFrameDecoder(MAX_DUNGEON_FRAME_BYTES);
 let opened = false;
 let identity = null;
+let simulation = null;
+let messageQueue = Promise.resolve();
 
 process.stdin.on("data", (chunk) => {
+  let messages;
   try {
-    for (const message of decoder.push(chunk)) handleMessage(message);
+    messages = decoder.push(chunk);
   } catch (error) {
-    process.stderr.write(`dungeon worker protocol failure: ${error.message}\n`);
-    process.exitCode = 1;
-    process.stdin.pause();
+    protocolFailure(error);
+    return;
+  }
+  for (const message of messages) {
+    messageQueue = messageQueue.then(() => handleMessage(message)).catch((error) => protocolFailure(error));
   }
 });
 
@@ -53,6 +57,12 @@ async function handleMessage(message) {
       });
       return;
     }
+    try {
+      simulation = new DungeonSimulation(message);
+    } catch (error) {
+      await sendError(message, "INVALID_OPEN", error.message, false);
+      return;
+    }
     identity = {
       instanceId: message.instanceId,
       workerEpoch: message.workerEpoch,
@@ -61,8 +71,8 @@ async function handleMessage(message) {
     await send({
       ...responseFields(message),
       type: "ready",
-      stateHash: stateHash(identity),
-      stateVersion: 0,
+      stateHash: simulation.stateHash(),
+      stateVersion: simulation.stateVersion,
     });
     return;
   }
@@ -78,12 +88,44 @@ async function handleMessage(message) {
     return;
   }
 
+  if (message.type === "attach") {
+    try {
+      const snapshot = simulation.attach(message.playerId, message.playerState, message.lastInputSeq);
+      await send({ ...responseFields(message), type: "attached", snapshot, stateVersion: simulation.stateVersion });
+    } catch (error) {
+      await sendError(message, "ATTACH_INVALID", error.message, false);
+    }
+    return;
+  }
+
+  if (message.type === "detach") {
+    const detached = simulation.detach(message.playerId);
+    await send({ ...responseFields(message), type: "detached", playerId: message.playerId, detached, stateVersion: simulation.stateVersion });
+    return;
+  }
+
+  if (message.type === "input") {
+    const accepted = simulation.queueInput(message.playerId, message.seq, message.intent);
+    await send({ ...responseFields(message), type: "inputAck", playerId: message.playerId, seq: message.seq, accepted, stateVersion: simulation.stateVersion });
+    return;
+  }
+
+  if (message.type === "tick") {
+    try {
+      const result = simulation.tick(message.dt, message.inputs, message.tickId);
+      await send({ ...responseFields(message), type: "tickResult", tickId: message.tickId, ...result });
+    } catch (error) {
+      await sendError(message, "TICK_INVALID", error.message, false);
+    }
+    return;
+  }
+
   if (message.type === "heartbeat") {
     await send({
       ...responseFields(message),
       type: "heartbeat",
-      lastTickId: 0,
-      stateVersion: 0,
+      lastTickId: simulation.lastTickId,
+      stateVersion: simulation.stateVersion,
     });
     return;
   }
@@ -95,6 +137,16 @@ async function handleMessage(message) {
   });
   process.exitCode = 0;
   setImmediate(() => process.exit(0));
+}
+
+async function sendError(message, code, detail, retryable) {
+  await send({ ...responseFields(message), type: "error", code, detail, retryable, stateVersion: simulation?.stateVersion ?? 0 });
+}
+
+function protocolFailure(error) {
+  process.stderr.write(`dungeon worker protocol failure: ${error.message}\n`);
+  process.exitCode = 1;
+  process.stdin.pause();
 }
 
 function validateEnvelope(message) {
@@ -114,10 +166,6 @@ function responseFields(message) {
     requestId: message.requestId,
     workerEpoch: message.workerEpoch,
   };
-}
-
-function stateHash(value) {
-  return createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 16);
 }
 
 function send(message) {

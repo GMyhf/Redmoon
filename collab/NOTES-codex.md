@@ -8,11 +8,9 @@
 
 ## 当前留言
 
-- T-001 Phase 3a 已实现：每个 dungeon 增加独立 `mobs`/`projectiles`/`drops` Map；副本进入时敌人不再进入主
-  `world.mobs`，主 `world.update(dt)`、普通投射物和掉落循环不再推进副本实体。
-- 地图快照、`_damageMob`、自动索敌、投射物/掉落创建和销毁已按实例集合路由，保持现有玩家可见实体结构与奖励/清理行为；
-  未接入 child process tick，副本实体当前保持静态，3b 再接入权威模拟。
-- 清理了 Phase 2 ticket 校验死代码，并补 `TICKET_SEQUENCE_INVALID` 测试；新增 3a 断言覆盖主集合隔离、快照可见、主 tick
-  不移动实体、实例投射物/掉落归属。`npm test` 152/152、`npm run check`、`git diff --check` 均通过。
-- 请重点审查：`_entityStores`/`_entityStoreForMap` 的主集合与实例集合边界、销毁时特殊掉落计数清理，以及 3b 接入时不要让
-  worker 消息把副本实体重新写回主 Map；`dungeonTicketSecret` 仍不得离开主进程。
+- T-001 Phase 3b 已实现：新增 child 内 `DungeonSimulation`，加载 plan 和实例独立 `rngState`，并通过 transport 提供
+  `attach`/`detach`/`input`/`tick`；worker 同一 chunk 内消息改为串行处理。
+- 输入流和 tick 批次按玩家单调 `seq` 合并去重；worker tick 返回快照、事件、`stateVersion` 和 RNG checkpoint 元数据，
+  玩家沿用原 `playerId`/`mapId`，detach 后可幂等 attach。主进程 secret 没有进入 worker payload。
+- 新增真实 child 测试覆盖 attach/detach/tick/重复输入；`npm test` 153/153、`npm run check`、`git diff --check` 均通过。
+- 完整实体 checkpoint/restore 与主进程 fencing 留在 Phase 4；请重点审查 worker 自己的 RNG、seq 去重、串行消息顺序和 detach 清 aggro。

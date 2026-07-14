@@ -131,7 +131,7 @@ export async function runDungeonWorker({ transport, rng, clock }) {
 
 - 将副本使用的 `World` 随机源从不透明函数改成带 seed、可读取/恢复状态的 PRNG；保留测试注入 RNG 的能力。
 - 盘点并覆盖副本 tick 中全部随机调用（掉落、伤害浮动、怪物巡逻和复苏露等），禁止 restore 后隐式回到 `Math.random`。
-- 新增确定性测试：相同 seed、相同输入和相同 `dt` 得到相同事件/状态；保存并恢复 PRNG 状态后继续 tick 与不中断运行一致。
+- 新增确定性测试：相同 seed 的 RNG 序列一致，保存并恢复 PRNG 状态后后续序列一致；完整 World tick 重放留到 Phase 4。
 - 验收：`npm test`、`npm run check`，并确认现有 `dungeon.js` 纯函数测试不变。
 
 ### Phase 1：child process transport 与握手
@@ -157,6 +157,8 @@ export async function runDungeonWorker({ transport, rng, clock }) {
 - 将副本输入按 `playerId` 路由到 child process；主进程先做身份/席位校验，worker 只执行批准意图。
 - 实现 `tick`/`tickResult`，`seq` 单调去重；同一意图即使同时出现在 `input` 流和 tick 批次中也只能应用一次。
 - 实现 detached 席位、原 `playerId`/`mapId` 续接和快照/事件回传。
+- worker 在 child 内以独立 `DungeonSimulation` 推进 plan 实体和玩家状态，使用实例自己的 `rngState`；主进程 secret 不下发。
+- 当前 worker checkpoint 只返回 RNG 状态和版本元数据，完整实体 checkpoint 与跨 worker restore 属于 Phase 4。
 - 验收：断线保席、错误 bearer、重复 seq、输入跨 tick、主动离开和实例销毁测试。
 
 ### Phase 4：周期检查点、restore 与 fencing
@@ -165,6 +167,7 @@ export async function runDungeonWorker({ transport, rng, clock }) {
 - worker 失联后递增 `workerEpoch`，启动新 child process 并 restore；旧进程的迟到 `tickResult`/`settle`/`expired` 全部拒绝。
 - 首期检查点只保存在主进程内存；主进程重启时未恢复实例失败、成员回城、不发奖励。
 - 验收：杀 worker、超时、恢复后继续战斗、旧 epoch 消息、检查点周期和状态 hash 测试。
+- 追加验收：从 checkpoint 创建新 World，使用相同输入和 `dt` 重放，事件、实体状态和 RNG 后续序列逐项一致。
 
 ### Phase 5：结算幂等与回收
 

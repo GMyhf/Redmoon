@@ -6,10 +6,22 @@ import {
   DungeonFrameDecoder,
   encodeDungeonFrame,
 } from "../src/server/dungeon-ipc.js";
+import { createDungeonPlan } from "../src/server/dungeon.js";
+import { createSeededRandom } from "../src/server/random.js";
 import { DungeonWorkerTransport } from "../src/server/dungeon-transport.js";
 
 const silentWorker = fileURLToPath(new URL("./fixtures/dungeon-worker-silent.mjs", import.meta.url));
 const corruptWorker = fileURLToPath(new URL("./fixtures/dungeon-worker-corrupt.mjs", import.meta.url));
+
+function openPayload() {
+  const rng = createSeededRandom("transport-test");
+  return {
+    plan: createDungeonPlan({ instanceId: "vault-transport", averageLevel: 10, width: 4800, height: 2700 }),
+    rngState: rng.getState(),
+    width: 4800,
+    height: 2700,
+  };
+}
 
 test("dungeon frames handle split messages and reject oversized payloads", () => {
   const first = encodeDungeonFrame({ type: "one", value: 1 });
@@ -31,7 +43,7 @@ test("child transport opens, heartbeats, rejects unsupported messages, and recyc
     workerEpoch: 4,
     heartbeatIntervalMs: 20,
   });
-  const ready = await transport.open({ ticket: {}, plan: {}, rngState: { algorithm: "mulberry32", state: 1 } });
+  const ready = await transport.open(openPayload());
   assert.equal(ready.type, "ready");
   assert.equal(ready.workerEpoch, 4);
   assert.match(ready.stateHash, /^[0-9a-f]{16}$/);
@@ -39,9 +51,54 @@ test("child transport opens, heartbeats, rejects unsupported messages, and recyc
   const heartbeat = await transport.heartbeat();
   assert.equal(heartbeat.type, "heartbeat");
   await assert.rejects(
-    transport._request("tick", {}, "tickResult"),
+    transport._request("restore", {}, "restoreAck"),
     /worker UNSUPPORTED_MESSAGE/,
   );
+  await transport.recycle("test");
+});
+
+test("child transport attaches, detaches, ticks and deduplicates input sequences", async () => {
+  const transport = new DungeonWorkerTransport({
+    instanceId: "vault-transport",
+    workerEpoch: 5,
+    heartbeatIntervalMs: 50,
+  });
+  await transport.open(openPayload());
+  const playerState = {
+    name: "WorkerHero",
+    archetype: "vanguard",
+    x: 1_000,
+    y: 1_000,
+    hp: 100,
+    mp: 100,
+  };
+  const attached = await transport.attach("worker-player", {}, playerState, 0);
+  assert.equal(attached.type, "attached");
+  assert.equal(attached.snapshot.players.some((player) => player.id === "worker-player"), true);
+
+  const firstInput = await transport.input("worker-player", 1, { move: { x: 1, y: 0 } });
+  assert.equal(firstInput.accepted, true);
+  const duplicateInput = await transport.input("worker-player", 1, { move: { x: -1, y: 0 } });
+  assert.equal(duplicateInput.accepted, false, "a duplicate pending sequence is rejected");
+  const result = await transport.tick(1, 0.1, 0, [
+    { playerId: "worker-player", seq: 1, intent: { move: { x: 1, y: 0 } } },
+  ]);
+  assert.equal(result.type, "tickResult");
+  assert.equal(result.tickId, 1);
+  assert.equal((await transport.heartbeat()).lastTickId, 1);
+  assert.equal(result.snapshot.enemies.length, 6);
+  assert.ok(result.snapshot.players.find((player) => player.id === "worker-player").x > playerState.x);
+
+  const detached = await transport.detach("worker-player", 10_000);
+  assert.equal(detached.detached, true);
+  const detachedInput = await transport.input("worker-player", 2, { move: { x: -1, y: 0 } });
+  assert.equal(detachedInput.accepted, false, "detached players cannot queue input");
+  await transport.tick(2, 0.1, 100, []);
+  const reattached = await transport.attach("worker-player", {}, playerState, 1);
+  assert.equal(reattached.type, "attached");
+  assert.equal(reattached.snapshot.players.find((player) => player.id === "worker-player").x,
+    result.snapshot.players.find((player) => player.id === "worker-player").x,
+    "reattach preserves worker-authoritative state");
   await transport.recycle("test");
 });
 

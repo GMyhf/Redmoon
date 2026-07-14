@@ -9,7 +9,7 @@
 | ID | 任务 | 状态 | 负责 | 关联提交 / 备注 |
 | --- | --- | --- | --- | --- |
 | T-000 | 搭建 Claude⇄Codex 协作脚手架（本目录 + handoff 脚本） | Done | Claude | `2f5b370` / `13d3ffd` |
-| T-001 | 副本独立化：把主进程内确定性副本迁到带版本票据的独立 worker，支持跨 worker 断线续接（README 路线图 #2） | In progress | Codex | Phase 0/1/2 + **Phase 3a 实体抽离（`18df1bd`）已过审**，Q1/Q2 已清。当前子步=**Phase 3b：worker tick + attach/detach + seq 去重**（P1-3 改串行、secret 不出主进程）。S1：3a/3b 须同发。C1 验收挪 Phase 4。里程碑见 `docs/DUNGEON_WORKERS.md` |
+| T-001 | 副本独立化：把主进程内确定性副本迁到带版本票据的独立 worker，支持跨 worker 断线续接（README 路线图 #2） | Review | Codex | Phase 0/1/2 + **Phase 3a 实体抽离（`18df1bd`）已过审**，Q1/Q2 已清。**Phase 3b worker tick + attach/detach + seq 去重（`7da6c84`）待审**；P1-3 串行、secret 不出主进程。S1：3a/3b 须同发。C1 验收挪 Phase 4。里程碑见 `docs/DUNGEON_WORKERS.md` |
 | T-002 | 去抖：`server-http` "隐藏浏览器…partyInvited"用例在 `199bfc5` 前即 ~1/2 随机失败，污染"npm test 全绿"闸门 | Backlog | - | Phase 1 审查中发现的既有问题，与 T-001 无关，建议独立修 |
 
 <!-- 追加新任务时复制下面这行：

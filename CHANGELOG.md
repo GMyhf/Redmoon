@@ -27,6 +27,12 @@
 - 普通 World tick 不再推进副本实体，副本地图快照仍从实例集合读取，实体清理、奖励和现有玩家可见协议保持兼容。
 - 3a 暂不接入 child process tick；副本战斗输入与实体模拟留给后续 Phase 3b。
 
+## 2026-07-14 · 副本 Phase 3b：Worker tick 与续接基础
+
+- child worker 新增独立 `DungeonSimulation`，从副本 plan 和独立 `rngState` 加载实体，提供 `attach`、`detach`、`input` 和显式 `tick`。
+- worker 消息改为串行处理；输入流和 tick 批次按玩家单调 `seq` 合并去重，返回快照、事件、状态版本和 RNG checkpoint 元数据。
+- 新增真实 child process 测试覆盖 attach/detach、tick、重复输入和玩家状态续接；完整实体 checkpoint/restore 留给 Phase 4。
+
 ## 2026-07-14 · 恢复环境概念图与英雄原图
 
 - 恢复九张环境概念图，以及八名英雄的原始卡面 PNG 和 RGBA `-3d.png` 立绘，供美术参考和备用访问。
