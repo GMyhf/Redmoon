@@ -15,9 +15,9 @@
 | `worker_threads` | Node 内置；结构化克隆传递对象；低 IPC 延迟；可复用现有 JS/ESM 和注入 `rng` 的测试；worker 退出后主进程仍可重建实例 | 与主进程共享 Node 运行时和部署单元；不能提供完整的进程/资源隔离；需要严格限制消息大小和 worker 内存行为 |
 | `child_process` / 独立进程 | 崩溃、内存和权限边界更清晰；可独立重启、限额和跨机器扩展；更接近长期水平扩展形态 | 需要序列化协议、进程监督、启动握手和额外部署；IPC 延迟/故障路径更多；本地开发和确定性测试成本更高 |
 
-**推荐首期使用 `worker_threads`，但实现 `DungeonWorkerTransport` 抽象。** 当前项目是单进程 Node 原型，副本计划已经纯化，worker_threads 能以最小的运行时改动验证消息契约、票据续接和奖励幂等。主进程不依赖 worker 的内存对象，只依赖带 request/sequence 的消息，因此以后可把 transport 换成 `child_process`，无需改变票据和游戏消息语义。
+**首期使用受监督的 `child_process`，同时保留 `DungeonWorkerTransport` 抽象。** 副本需要真正的崩溃/资源隔离，并为以后跨机横扩保留路径；因此首期就落实序列化协议、启动握手、退出检测和进程重启边界。主进程不依赖 worker 的内存对象，只依赖带 request/sequence 的消息，因此以后可以把 transport 换成跨机实例服务而不改变票据和游戏消息语义。
 
-这不是对故障隔离的承诺：worker_threads 不能替代独立进程的崩溃隔离。公开部署需要更强的故障边界、跨机迁移或资源配额时，应把同一契约落到受监督的 child process/实例服务，并把票据签名密钥只放在主进程或票据服务中。
+进程由主进程监督，使用 stdin/stdout（或等价的单一 framed IPC 通道）传输结构化消息；不得把 JSON 行边界直接当作完整消息边界，必须有长度/类型校验和最大帧限制。票据签名密钥只放在主进程或票据服务中，不下发给 child process。
 
 ## 版本票据
 
@@ -61,7 +61,7 @@ worker -- attached(snapshot, workerEpoch) --> 主进程
 主进程恢复连接并发送 snapshot；玩家沿用原 playerId/mapId
 ```
 
-续接不要求回到原 worker。主进程的 `instanceId -> workerId/workerEpoch` 路由表先尝试原 worker；worker 无响应、已退出或容量不足时，主进程从持久化/内存中的实例检查点重建新 worker，再用同一票据和最新权威状态 `restore`。未完成的输入队列、随机源状态、敌人/投射物/掉落和 `remaining` 集合必须包含在检查点中；不能只凭 `createDungeonPlan` 重新生成，否则会回滚战斗状态。
+续接不要求回到原 worker。主进程的 `instanceId -> workerId/workerEpoch` 路由表先尝试原 worker；worker 无响应或已退出时，主进程可从当前进程内存中的最新检查点重建新 worker，再用同一票据和最新权威状态 `restore`。未完成的输入队列、可序列化随机源状态、敌人/投射物/掉落和 `remaining` 集合必须包含在检查点中；不能只凭 `createDungeonPlan` 重新生成，否则会回滚战斗状态。
 
 降级路径如下：
 
@@ -69,7 +69,7 @@ worker -- attached(snapshot, workerEpoch) --> 主进程
 - worker 超时但检查点完整：标记旧 worker `fenced`，递增 `workerEpoch`，恢复到新 worker；旧 worker 的迟到消息全部丢弃。
 - worker 崩溃且无可用检查点：实例失败，所有仍有席位的成员回城，发出一次 `dungeonFailed(reason: "worker_lost")`，不发完成奖励。
 - worker/实例容量满：玩家仍可保留当前保席直到 `expiresAt`；续接返回可重试的容量错误，不把席位转给未授权玩家。
-- 主进程重启：当前首期不承诺无损恢复；若没有外部实例状态存储，应在启动时将未恢复实例统一标为失败。跨进程/跨机版本必须先引入检查点存储。
+- 主进程重启：首期不承诺无损恢复；未恢复实例统一标为失败，成员回城且不发完成奖励。跨进程/跨机版本再引入外部检查点存储。
 
 ## 主进程与 Worker 消息契约
 
@@ -77,7 +77,7 @@ worker -- attached(snapshot, workerEpoch) --> 主进程
 
 | 方向 | 型别 | 必要字段 | 语义 |
 | --- | --- | --- | --- |
-| 主进程 → worker | `open` | `ticket`, `plan`, `seed`, `now`, `tickRate`, `rngMode` | 创建实例；worker 校验票据摘要并初始化状态 |
+| 主进程 → worker | `open` | `ticket`, `plan`, `rngState`, `now`, `tickRate` | 创建实例；worker 校验票据摘要并初始化可恢复随机源 |
 | 主进程 → worker | `attach` | `ticket`, `playerId`, `playerState`, `lastInputSeq` | 恢复一个已授权席位；重复 attach 必须幂等 |
 | 主进程 → worker | `input` | `playerId`, `seq`, `intent` | 经过主进程身份/席位校验的玩家意图；旧序号丢弃 |
 | 主进程 → worker | `tick` | `tickId`, `dt`, `serverTime`, `inputs` | 在确定性边界推进一次模拟 |
@@ -85,13 +85,13 @@ worker -- attached(snapshot, workerEpoch) --> 主进程
 | 主进程 → worker | `restore` | `checkpoint`, `workerEpoch` | 新 worker 从最新权威检查点恢复 |
 | 主进程 → worker | `recycle` | `reason`, `finalSequence` | 停止实例、释放实体并确认不再发消息 |
 | worker → 主进程 | `ready` | `instanceId`, `workerEpoch`, `stateHash` | `open`/`restore` 完成，可接受 tick |
-| worker → 主进程 | `tickResult` | `tickId`, `stateVersion`, `snapshot`, `events`, `checkpoint` | 返回权威状态增量/事件和可恢复检查点 |
+| worker → 主进程 | `tickResult` | `tickId`, `stateVersion`, `snapshot`, `events`, `checkpoint?` | 返回权威状态增量/事件；仅检查点周期或显式请求时附带 checkpoint |
 | worker → 主进程 | `settle` | `settlementId`, `instanceId`, `members`, `reward`, `stateVersion` | 副本完成请求结算；同一 `settlementId` 只允许一次 |
 | worker → 主进程 | `expired` | `instanceId`, `reason`, `members`, `stateVersion` | 超时或 worker 侧终止建议；最终清理由主进程确认 |
 | worker → 主进程 | `error` | `requestId`, `code`, `retryable`, `stateVersion` | 可分类处理的错误，不暴露内部堆栈 |
 | 双向 | `heartbeat` | `lastTickId`, `stateVersion` | 监测卡死；超时触发 fencing/恢复流程 |
 
-`settle` 是请求，不是奖励事实。主进程以事务/幂等记录先占用 `settlementId`，验证实例状态、成员资格和 `stateVersion` 后，再逐成员发放 XP、金币和复苏露；重复消息、重试、worker 重启恢复都只能返回已结算结果。成员已经离开或在结算时不在线不应凭空新增奖励，具体是否允许“完成后重新上线领取”必须由产品规则另行拍板；首期沿用现有行为，只对结算时仍在副本地图且未奖励的成员结算。
+`settle` 是请求，不是奖励事实。主进程以事务/幂等记录先占用 `settlementId`，验证实例状态、成员资格和 `stateVersion` 后，再逐成员发放 XP、金币和复苏露；重复消息、重试、worker 重启恢复都只能返回已结算结果。首期沿用现有行为，只对结算时仍在副本地图且未奖励的成员结算，离线成员不补领。
 
 ## 接口草案
 
@@ -121,7 +121,57 @@ export async function runDungeonWorker({ transport, rng, clock }) {
 }
 ```
 
-`rng` 和 `clock` 必须是可注入的逻辑依赖；生产环境使用受主进程记录的 seed/状态，测试使用固定函数和 `world.update(dt)` 风格的显式推进。worker 不读取真实墙上时钟来决定过期，不接受客户端时间，也不直接写账号存储。
+`rng` 和 `clock` 必须是可注入的逻辑依赖；生产环境使用可序列化的 PRNG 状态，测试使用固定 seed 和 `world.update(dt)` 风格的显式推进。worker 不读取真实墙上时钟来决定过期，不接受客户端时间，也不直接写账号存储。
+
+## 实现里程碑
+
+每个阶段都应保持可回滚；除 Phase 0 外，不先引入客户端票据字段。阶段之间的依赖和验收标准如下：
+
+### Phase 0：可 seed、可恢复的 PRNG
+
+- 将副本使用的 `World` 随机源从不透明函数改成带 seed、可读取/恢复状态的 PRNG；保留测试注入 RNG 的能力。
+- 盘点并覆盖副本 tick 中全部随机调用（掉落、伤害浮动、怪物巡逻和复苏露等），禁止 restore 后隐式回到 `Math.random`。
+- 新增确定性测试：相同 seed、相同输入和相同 `dt` 得到相同事件/状态；保存并恢复 PRNG 状态后继续 tick 与不中断运行一致。
+- 验收：`npm test`、`npm run check`，并确认现有 `dungeon.js` 纯函数测试不变。
+
+### Phase 1：child process transport 与握手
+
+- 新增 transport、worker 入口和 framed IPC；实现 `open`、`ready`、`heartbeat`、`error`、正常 `recycle`。
+- 主进程监督启动超时、异常退出、stdout/stderr 隔离、帧大小和协议版本；worker 只接受受支持的消息型别。
+- 验收：真实 child process 的启动/关闭/损坏帧/超时测试；迟到消息不会影响其他实例。
+
+### Phase 2：票据签发与席位校验
+
+- 主进程实现票据 canonicalization、HMAC、`schemaVersion`/`protocolVersion`、过期和序列号校验；签名密钥不出主进程。
+- `dungeonEnter` 生成票据并建立 `instanceId -> workerEpoch` 路由；重复票据不能创建第二个实例。
+- 验收：合法票据、旧版本、篡改、过期、错误成员、重放和容量满测试；暂不改变线上客户端协议，除非明确升级。
+
+### Phase 3：tick、attach、detach 和状态投递
+
+- 将副本输入按 `playerId` 路由到 child process；主进程先做身份/席位校验，worker 只执行批准意图。
+- 实现 `tick`/`tickResult`，`seq` 单调去重；同一意图即使同时出现在 `input` 流和 tick 批次中也只能应用一次。
+- 实现 detached 席位、原 `playerId`/`mapId` 续接和快照/事件回传。
+- 验收：断线保席、错误 bearer、重复 seq、输入跨 tick、主动离开和实例销毁测试。
+
+### Phase 4：周期检查点、restore 与 fencing
+
+- 按固定周期或显式请求生成检查点，不在每个 20Hz `tickResult` 中全量携带；检查点包含实体、输入队列、remaining、PRNG 状态和 `stateVersion`。
+- worker 失联后递增 `workerEpoch`，启动新 child process 并 restore；旧进程的迟到 `tickResult`/`settle`/`expired` 全部拒绝。
+- 首期检查点只保存在主进程内存；主进程重启时未恢复实例失败、成员回城、不发奖励。
+- 验收：杀 worker、超时、恢复后继续战斗、旧 epoch 消息、检查点周期和状态 hash 测试。
+
+### Phase 5：结算幂等与回收
+
+- 实现 `settlementId` 生成、主进程幂等记录、`stateVersion` 校验和一次性奖励发放；worker 的 `settle` 永远只是请求。
+- 实现完成/超时/worker_lost 的单次事件、成员回城、mob/projectile/drop 清理和 child process 回收。
+- 结算只奖励当时仍在副本地图且未奖励的成员，离线成员不补领。
+- 验收：重复 settle、主进程重试、worker 重启后重复 settle、成员提前离开和超时测试。
+
+### Phase 6：协议与回归闸门
+
+- 仅在需要浏览器/Godot 携带票据时，才同步修改 `PROTOCOL_VERSION`、`src/server/protocol.js`、`docs/ARCHITECTURE.md` 和 conformance tests。
+- 补齐端到端 WebSocket 续接、child process 故障、容量限制和确定性压力测试；更新 CHANGELOG.md 记录架构改进。
+- 验收：`npm test`、`npm run check`，以及适用的 `npm run test:browser`/`npm run check:godot`。
 
 ## 安全与测试闸门
 
@@ -131,9 +181,8 @@ export async function runDungeonWorker({ transport, rng, clock }) {
 - 覆盖奖励幂等：重复 `settle`、重复连接、主进程重试和恢复后再次结算都不能重复增加 XP、金币或复苏露。
 - 若票据或续接字段进入 browser/Godot 的 server↔client 协议，必须同步提升 `PROTOCOL_VERSION`、`src/server/protocol.js`、`docs/ARCHITECTURE.md` 和 conformance tests；仅内部 worker 消息不应暴露在线协议字段。
 
-## 待拍板事项
+## 已定边界
 
-1. 是否接受首期 `worker_threads` 的故障隔离边界，还是直接以 `child_process` 作为生产载体。
-2. 是否要求主进程重启后副本无损恢复；若要求，需要先确定检查点存储（本地文件、Redis 或 PostgreSQL）和写入频率。
-3. 副本完成后离线但仍在保席期内的成员，是否允许凭票据补领一次奖励；本文首期建议沿用当前“结算时在副本地图”的行为。
-4. 票据是否暴露给客户端并成为公开续接协议；若是，需要确定票据 TTL、撤销存储和 `PROTOCOL_VERSION` 升级窗口。
+- 首期载体为受监督的 `child_process`/独立进程；`DungeonWorkerTransport` 仍需保留以便未来跨机扩展。
+- 首期不要求主进程重启无损恢复；未恢复实例失败，成员回城，不发奖励。
+- 首期不允许离线补领；只结算完成时仍在副本地图且未奖励的成员。
