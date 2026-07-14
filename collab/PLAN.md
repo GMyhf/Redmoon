@@ -8,7 +8,8 @@
 
 | ID | 任务 | 状态 | 负责 | 关联提交 / 备注 |
 | --- | --- | --- | --- | --- |
-| T-000 | 搭建 Claude⇄Codex 协作脚手架（本目录 + handoff 脚本） | In progress | Claude | 初始化 collab/ 与 tools/handoff.mjs |
+| T-000 | 搭建 Claude⇄Codex 协作脚手架（本目录 + handoff 脚本） | Done | Claude | `2f5b370` / `13d3ffd` |
+| T-001 | 副本独立化：把主进程内确定性副本迁到带版本票据的独立 worker，支持跨 worker 断线续接（README 路线图 #2） | In progress | Codex | 首个交付=设计文档+接口契约，见 HANDOFF 2026-07-14 与 NOTES-claude |
 
 <!-- 追加新任务时复制下面这行：
 | T-00X | <一句话任务> | Backlog | - | - |
@@ -39,4 +40,6 @@
 
 > agent 遇到需要人决定的分叉，写在这里，不要自行猜测方向。
 
-- （暂无）
+- **T-001 · worker 载体选型**：`node:worker_threads`（共享进程、传结构化数据、低开销）还是独立
+  `child_process`/进程（真正隔离、可跨机横扩、崩溃不拖累主进程）？影响票据设计与续接协议。
+  倾向先出设计文档对比两条路，人拍板后再落代码——请 Codex 在首个交付里给出推荐与理由。
