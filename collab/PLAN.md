@@ -9,7 +9,7 @@
 | ID | 任务 | 状态 | 负责 | 关联提交 / 备注 |
 | --- | --- | --- | --- | --- |
 | T-000 | 搭建 Claude⇄Codex 协作脚手架（本目录 + handoff 脚本） | Done | Claude | `2f5b370` / `13d3ffd` |
-| T-001 | 副本独立化：把主进程内确定性副本迁到带版本票据的独立 worker，支持跨 worker 断线续接（README 路线图 #2） | In progress | Codex | 设计已过审（`98ea05a`），人已拍板载体/恢复/补领；待 Codex 更新文档+拆实现里程碑 |
+| T-001 | 副本独立化：把主进程内确定性副本迁到带版本票据的独立 worker，支持跨 worker 断线续接（README 路线图 #2） | In progress | Codex | 设计+里程碑已过审（`144a696`）。当前子步=**Phase 0 可序列化 PRNG**（注意 R1 爆炸半径、R2 实体抽离）。里程碑见 `docs/DUNGEON_WORKERS.md` |
 
 <!-- 追加新任务时复制下面这行：
 | T-00X | <一句话任务> | Backlog | - | - |
