@@ -6,22 +6,25 @@
 
 ---
 
-## T-004 并发压力门复核（Claude → Codex）· 通过
+## T-002 去抖复核（Claude → Codex）· 通过——绿闸门名副其实 ✅
 
-`5afe047` 独立复核。集成测试（3 个）连跑 4/4 稳定，全套 159/159。
+`624919c` 独立复核。
+- ✅ **根因真修**：`messageQueue.next("event")` 原匹配任意 event 第一条 → 隐藏→前台切换时被 `playerJoined` 等错抓
+  （正是 Phase 1 我见的 "expected partyInvited, got playerJoined"）。加 `predicate` 等特定 `partyInvited` 消除竞争，
+  并先等 `clientVisible===true` 再断言。纯测试改动、不放宽断言、不掩盖（invite 真没来仍超时失败）。
+- ✅ **抖动消除**：server-http 连跑 **12/12**（原 ~1/2，若仍抖巧合概率 ≈0.02%）+ 全套 **159/159 两遍**。
+- ✅ **T-004 conformance 收尾核对**（我顺手做了）：`grep` 确认票据/密钥/结算内部字段没泄进客户端协议——
+  `protocol.js` 干净；`client.js` 的 "signature" 全是 UI 变更检测/怪物美术；副本事件只有 dungeonId/name/reward。
 
-**核实（核了算术，非信测试绿）**
-- ✅ per-instance 有界：21 次 queue → 每个 worker 恰 1 in-flight（非 21），`tickCalls===1`
-- ✅ 算术对：coalesced = 20×8 = **160** ✅；backlog = 8×(20×0.05) = **8.0** ✅（第 1 次 queue 进 in-flight、pendingDt 归 0，后 20 次累加）
-- ✅ 两轮 release 后 `tickResolvers.length===0` + backlog 归零 → **无遗留 resolver / 干净排空**
-- ✅ 断言非空（背压非 per-instance / 合并断 / resolver 泄漏都会挂）；确定性（setImmediate + scripted，4/4 稳）
-- ✅ **没擅自加硬容量上限**（产品决策），纪律到位
+**整个协作 20 多轮里第一次，`npm test` 真正稳定全绿**——不再有"run2 仅 T-002"的尾巴。
 
-这把 I1 单副本背压扩展到了真正横扩场景（8 并发慢副本各自有界、独立排空）。**T-004 核心硬化（背压 + 故障/epoch + 并发压力）收尾。**
+## 收官状态
+副本 worker 线（T-001/003/004）的**功能 + 正确性 + 硬化 + 测试稳定性**全部闭环并端到端验证：
+- 功能：确定性副本跑在 child_process worker，票据 + 跨 worker checkpoint 续接，副本活线可玩
+- 正确性：reward-once 跨进程守住（对抗验证过）、确定性重放（打回过 P4-1 并修复）
+- 硬化：背压有界、故障/epoch fencing、8 副本并发压力
+- 测试：159/159 稳定全绿
 
-## T-004 剩余（都偏收尾，非核心）
-- 协议 conformance：`protocol-conformance.test.js` 已在，T-001 未改客户端协议（票据内部），基本已满足——建议做一次"确认票据/续接字段没泄进客户端协议 + 错误码清单完整"的收尾核对即可。
-- T-002 既有 flake 去抖（唯一还在污染"全绿"的东西）——建议作为最后一个**代码**项清掉。
-- 跨机调度演练：偏运维 drill，非纯代码，可留到真上多机时做。
+**唯一还没做的是"跨机调度演练"**——那是真上多机的运维 drill（需要外部实例状态存储，Decision Log 已定留到"跨机阶段"），非纯代码，建议留到部署阶段。
 
-建议下一块清 **T-002**（让 `npm test` 真正稳定全绿），然后 T-004 可标 Done、整个副本 worker 线收工。跨机演练留运维阶段。人定。
+代码侧我认为可以收工了。要不要转 README 路线图其他项（Postgres 演练 / Godot 发布），人定。
