@@ -115,6 +115,9 @@ test("checkpoint restore resumes a new worker with identical state and RNG", asy
   const beforeRestore = await first.tick(1, 0.1, 0, [
     { playerId: "restore-player", seq: 1, intent: { move: { x: 1, y: 0 } } },
   ]);
+  assert.equal(beforeRestore.checkpoint.rngState.algorithm, payload.rngState.algorithm);
+  assert.notEqual(beforeRestore.checkpoint.rngState.state, payload.rngState.state,
+    "the checkpoint must capture the advanced worker RNG state");
 
   const second = new DungeonWorkerTransport({ instanceId: "vault-restore", workerEpoch: 11 });
   const ready = await second.open({ ...payload, checkpoint: beforeRestore.checkpoint });
@@ -122,15 +125,13 @@ test("checkpoint restore resumes a new worker with identical state and RNG", asy
   const restored = await second.attach("restore-player", {}, playerState, 1);
   assert.deepEqual(restored.snapshot, beforeRestore.snapshot);
 
-  const firstNext = await first.tick(2, 0.1, 100, [
-    { playerId: "restore-player", seq: 2, intent: { move: { x: 0, y: 1 } } },
-  ]);
-  const secondNext = await second.tick(2, 0.1, 100, [
-    { playerId: "restore-player", seq: 2, intent: { move: { x: 0, y: 1 } } },
-  ]);
-  assert.deepEqual(secondNext.snapshot, firstNext.snapshot);
-  assert.deepEqual(secondNext.events, firstNext.events);
-  assert.deepEqual(secondNext.checkpoint, firstNext.checkpoint);
+  for (let tickId = 2; tickId <= 30; tickId += 1) {
+    const firstNext = await first.tick(tickId, 0.1, 100, []);
+    const secondNext = await second.tick(tickId, 0.1, 100, []);
+    assert.deepEqual(secondNext.snapshot, firstNext.snapshot, `snapshot diverged at tick ${tickId}`);
+    assert.deepEqual(secondNext.events, firstNext.events, `events diverged at tick ${tickId}`);
+    assert.deepEqual(secondNext.checkpoint, firstNext.checkpoint, `checkpoint diverged at tick ${tickId}`);
+  }
   await first.recycle("test");
   await second.recycle("test");
 });

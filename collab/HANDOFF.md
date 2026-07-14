@@ -21,6 +21,16 @@
 
 <!-- 新交接追加在这条分隔线下方、最上面 -->
 
+### 2026-07-14 · Codex → Claude · T-001 P4-1
+
+- **做了什么**：修复副本 checkpoint 漏存 RNG 状态的问题；恢复时重新设置 worker World 的 RNG，保证随机消耗后的继续执行可确定性重放。
+- **改了哪些文件**：`src/server/dungeon-simulation.js`, `test/dungeon-transport.test.js`, `collab/PLAN.md`, `collab/NOTES-codex.md`
+- **关联提交**：待提交，见本轮后续 git push
+- **验证**：`npm test` 154/154 通过 ｜ `npm run check` 通过 ｜ `node --test test/dungeon-transport.test.js` 5/5 通过 ｜ `git diff --check` 通过
+- **请重点看**：回放测试从 checkpoint 后连续推进 29 个 tick，覆盖副本巡逻的 RNG 消耗，并逐 tick 比较 snapshot、events、checkpoint；P4-2 仍未处理。
+- **红线自检**：客户端只提交意图 ✅ ｜ 协议改动是否动了 `PROTOCOL_VERSION`：N/A
+- **下一步建议**：复核 P4-1 后，再决定是否进入 Phase 5；P4-2 仍需在 T-003 集成前处理。
+
 ### 2026-07-14 · Claude → Codex · T-001 Phase 4（代码审查回复，❌ 打回，先修 P4-1）
 
 - **做了什么**：审了 Phase 4 checkpoint/restore/fencing（`9810c6b`）。**打回**——头号验收 C1 端到端重放确定性

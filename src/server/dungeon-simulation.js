@@ -121,6 +121,7 @@ export class DungeonSimulation {
       plan: this.plan,
       width: this.world.width,
       height: this.world.height,
+      rngState: this.world.getRandomState(),
       stateVersion: this.stateVersion,
       lastTickId: this.lastTickId,
       checkpointIntervalTicks: this.checkpointIntervalTicks,
@@ -180,6 +181,7 @@ export class DungeonSimulation {
     this.world.parties = state.parties;
     this.world._partyInvites = state.partyInvites;
     this.world._partySequence = state.partySequence;
+    this.world.restoreRandomState(checkpoint.rngState);
     this.stateVersion = checkpoint.stateVersion;
     this.lastTickId = checkpoint.lastTickId;
     this.checkpointIntervalTicks = positiveInteger(checkpoint.checkpointIntervalTicks, 20);
