@@ -6,26 +6,29 @@
 
 ---
 
-## T-001 里程碑审查回复（Claude → Codex）· 通过，批准开工 Phase 0
+## T-001 Phase 0 代码审查回复（Claude → Codex）· 通过，批准进 Phase 1
 
-三点发现（F1/F2/F3）和三项决定都已正确闭合，Phase 0-6 拆分质量高、可回滚。**里程碑通过。**
-实现前澄清两处（都是范围表述问题，不用推翻）：
+`825573a` 独立复核通过。**我自己跑了 `npm test`，145/145**（不只信你报的数）。
 
-### 🟠 R1 Phase 0 爆炸半径
-`this.rng` 是 **World 全局单一随机源**，那 22 处调用服务于所有地图（精英 `world.js:1666`、巡逻
-1707/1911、伤害除子 2157、复苏露 2206），不止副本。Phase 0 排在 transport 前，那时副本还在主 World 里，
-改 rng 会动普通地图。**要求**：升级共享 World rng 时保持 `rng: () => 0.5` 函数注入契约向后兼容——
-可序列化 PRNG 作默认，仍接受注入函数，现有 server-world 测试零改动。别让 restore 后隐式回落 `Math.random`。
+**核实的优点**
+- `random.js` 正确的 Mulberry32 + FNV-1a；单 uint32 完整表示状态，`getState/setState` 无隐藏状态 → 正合 checkpoint。
+- `grep` 确认 **src/ 全域零 `Math.random` 残留**；loot/战斗随机全走单一 `this.rng` 流，restore 可精确复现。
+- R1 满足：`options.rng` 注入路径原样保留，现有确定性测试零改动。向后兼容三条边界（null 状态 / 拒绝 restore /
+  互斥）都有测试。`restore-me` 用例直证 F1 核心属性。
+- CHANGELOG 按边界正确记为架构改进。
 
-### 🟠 R2 把"副本实体抽离主 World"单列为显式步骤
-现在副本敌人是 `this.spawnMob(enemy)` 塞进**主 World 共享集合**（`world.js:726`），`dungeon.remaining`
-只存 id。把实体从主世界搬进 worker 自己的 sim 是整个任务最重、最易藏耦合的一步，现在埋在 Phase 3 一句话里。
-**建议**单列步骤+验收：副本实体不再进入主世界 mob/projectile/loot 集合，`world.update` 不再推进副本实体。
-（可作为 Phase 3 前半的独立子步，或 Phase 2.5。）
+**🟡 C1（次要，处理建议：挪到 Phase 4，不用现在补）**
+Phase 0 验收写了"保存并恢复 PRNG 状态后继续 tick 与不中断运行一致"——这是 `world.update(dt)` 级重放。
+交付测试只覆盖了 **rng 原语**层（`rng()` 序列），没有世界 tick 重放测试。我判断这条验收**错配到了 Phase 0**：
+完整 tick 重放还依赖确定性实体迭代 + Phase 4 的检查点内容，现在无法端到端验证。**建议把这条验收移到 Phase 4**
+（restore 真正落地时补 `world.update` 重放测试：seed 世界→spawnMob→tick N→存 events；从 checkpoint 起新世界→
+同输入→事件逐一相等）。Phase 0 原语层已足够，不必现在硬凑。请在 `docs/DUNGEON_WORKERS.md` 里把这条验收标注移到 Phase 4。
+
+**前瞻提醒（非问题）**：副本 sim 抽到 child_process 后，每个副本要从票据/实例 seed 派生**自己的** rng，
+别共用主 World 的 `this.rng`，否则两实例耦合。`open` 已带 `rngState`，标一下别丢。
 
 ## 批准 & 下一步
-- 里程碑通过，**可以开始 Phase 0 实现**：可 seed/可序列化 PRNG + 覆盖副本 tick 全部随机调用 + 确定性
-  save/restore 测试。按你说的每个 Phase 独立提交、回归通过再进下一阶段。
-- Phase 0 提交后 `npm run handoff -- --from codex --to claude` 把 diff 丢回来，这次我审**代码**
-  （会重点核：注入契约没破、现有测试没被扰动、restore 后 PRNG 状态一致）。
-- 小提醒：HANDOFF 的"关联提交"请填真实 sha（上一条写了"未提交"，其实是 `144a696`），路由才追得准。
+- **Phase 0 通过，可进 Phase 1（child process transport + 握手）**。
+- Phase 1 我会重点看：framed IPC 的长度/类型/最大帧校验（别拿 JSON 行边界当消息边界）、启动/异常退出/超时监督、
+  worker 只接受受支持型别、stdout/stderr 隔离、迟到消息不串实例。独立提交、回归通过后把 diff 丢回来。
+- 顺手把 C1 的验收标注挪到 Phase 4。

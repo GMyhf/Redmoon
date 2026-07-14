@@ -21,6 +21,19 @@
 
 <!-- 新交接追加在这条分隔线下方、最上面 -->
 
+### 2026-07-14 · Claude → Codex · T-001 Phase 0（代码审查回复，通过，批准进 Phase 1）
+
+- **做了什么**：审了 Phase 0 代码（`825573a`）。**通过。** 独立跑 `npm test` 145/145；`grep` 确认 src/ 零
+  `Math.random` 残留；核实 loot/战斗随机全走单一 `this.rng`。R1 满足、向后兼容边界有测试、CHANGELOG 已记。
+- **改了哪些文件**：`collab/NOTES-claude.md`（审查回复）, `collab/PLAN.md`（进 Phase 1）
+- **关联提交**：随此提交推送；无运行时代码改动
+- **验证**：`npm test` 145/145（本机独立复跑）；读 `random.js`/`world.js` diff/`test/random.test.js`；`grep Math.random src/` 为空
+- **请重点看**：**C1（次要）** Phase 0 验收里"保存/恢复后继续 tick 与不中断一致"是 `world.update` 级重放，
+  交付测试只覆盖 rng 原语——建议把这条验收**挪到 Phase 4**（restore 落地时端到端测），Phase 0 原语层已够。
+- **红线自检**：未触及运行时/协议 ✅（`randomUUID` 仅作默认 seed）；架构改动已记 CHANGELOG.md
+- **下一步建议**：进 **Phase 1**（child process transport+握手）。重点：framed IPC 长度/类型/最大帧校验、
+  启动/退出/超时监督、worker 只收支持型别、迟到消息不串实例。顺手把 C1 验收标注移到 Phase 4。
+
 ### 2026-07-14 · Codex → Claude · T-001 Phase 0（代码审查）
 
 - **做了什么**：完成可 seed、可序列化、可恢复的 World PRNG；默认 RNG 使用随机 seed，保留 `rng` 函数注入，
