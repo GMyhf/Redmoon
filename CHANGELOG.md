@@ -12,6 +12,11 @@
 - 新增真实 child process 故障切换回归：旧 worker 关闭后，新 worker 使用递增 `workerEpoch` 从最新 checkpoint 恢复，继续推进副本状态。
 - 验证旧 epoch 的迟到响应被 transport fencing 拒绝；未修改浏览器/Godot 线上协议或 `PROTOCOL_VERSION`。
 
+## 2026-07-15 · 副本 worker Phase 6：并发压力门
+
+- 新增 8 个慢副本 worker 的并发压力回归，验证每个实例独立保持单个 in-flight tick，追赶期间不形成跨实例无界请求链。
+- 验证 160 次合并 tick 的 backlog 可观测且最终归零；未修改浏览器/Godot 线上协议或 `PROTOCOL_VERSION`。
+
 ## 2026-07-14 · 副本 T-003：接入 child worker
 
 - `GameServer` 在副本进入时启动并 attach 受监督的 child worker，按固定主循环 tick 路由输入，接收权威 snapshot/events，并在退出、断线、超时和停服时回收 worker。

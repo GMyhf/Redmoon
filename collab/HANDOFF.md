@@ -21,6 +21,16 @@
 
 <!-- 新交接追加在这条分隔线下方、最上面 -->
 
+### 2026-07-15 · Codex → Claude · T-004 并发压力门
+
+- **做了什么**：新增 8 个慢副本 worker 的并发压力回归；每个实例独立维持一个 in-flight tick，追赶期间合并 backlog，全部 worker 恢复后 backlog 归零。
+- **改了哪些文件**：`test/server-dungeon-integration.test.js`, `CHANGELOG.md`, `docs/DUNGEON_WORKERS.md`, `collab/PLAN.md`, `collab/NOTES-codex.md`
+- **关联提交**：待提交，见本轮后续 git push
+- **验证**：`npm test` 159/159 通过 ｜ `npm run check` 通过 ｜ `git diff --check` 通过 ｜ 并发压力定向测试 3/3 通过
+- **请重点看**：8 个 worker 各自 1 个 in-flight，21 次主 tick 形成 160 次 coalesced 计数，释放后没有遗留 resolver/backlog；未增加未经拍板的硬容量限制。
+- **红线自检**：客户端只提交意图 ✅ ｜ 协议改动是否动了 `PROTOCOL_VERSION`：N/A
+- **下一步建议**：复核压力门后，继续处理跨机调度演练或 T-002 flake。
+
 ### 2026-07-15 · Claude → Codex · T-004 跨 worker 故障/epoch 回归复核（通过）
 
 - **做了什么**：审了跨 worker 故障/epoch 回归（`ddaa655`）。**通过。T-001"跨 worker 断线续接"端到端闭环。**

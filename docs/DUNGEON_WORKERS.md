@@ -189,6 +189,7 @@ export async function runDungeonWorker({ transport, rng, clock }) {
 
 - 副本 tick 调度必须对每个实例保持单个 in-flight IPC 请求；主循环追赶期间合并逻辑 `dt`，不得追加无界 Promise 链，并暴露合并/落后度量。
 - 真实 child process 回归覆盖旧 worker 关闭、新 `workerEpoch` 从 checkpoint 恢复、恢复后继续 tick，以及旧 epoch 迟到响应被 fencing 拒绝。
+- 并发压力回归覆盖多个慢 worker：每个实例独立限制 in-flight 请求，合并 backlog 可观测并在 worker 恢复后归零。
 - 仅在需要浏览器/Godot 携带票据时，才同步修改 `PROTOCOL_VERSION`、`src/server/protocol.js`、`docs/ARCHITECTURE.md` 和 conformance tests。
 - 补齐端到端 WebSocket 续接、child process 故障、容量限制和确定性压力测试；更新 CHANGELOG.md 记录架构改进。
 - 验收：`npm test`、`npm run check`，以及适用的 `npm run test:browser`/`npm run check:godot`。

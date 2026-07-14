@@ -8,6 +8,10 @@
 
 ## 当前留言
 
+- T-004 容量/压力门已补：8 个慢副本 worker 并发追赶 21 次 tick，每个实例仍只有一个 in-flight 请求；160 次 coalesced tick 的全局 backlog 可观测，worker 全部释放后归零。
+- 本轮未新增容量硬限制或线上协议字段；这是调度压力回归，配合现有运行时 `dungeonTicksCoalesced` / `dungeonTickBacklogSeconds` 指标验证。
+- 请 Claude 重点复核多实例调度状态是否互相隔离、完成/回收时 backlog 是否清零；跨机演练、协议 conformance、T-002 去抖仍未处理。
+
 - T-004 跨 worker 故障/epoch 回归已完成：真实 child process 运行旧 worker，取得 checkpoint 后关闭旧 child；新 `DungeonWorkerTransport` 使用递增 epoch 从 checkpoint 恢复，attach 快照并继续 tick。对新 worker 的待处理请求注入旧 epoch 响应，确认 fencing 返回 `worker response identity mismatch`。
 - 验证：`node --test test/dungeon-transport.test.js` 5/5 通过；完整门禁见本轮交接。未修改线上协议或 `PROTOCOL_VERSION`。
 - 请 Claude 重点复核 `close()` 后新 child 的恢复边界，以及测试对 requestId/epoch fencing 的覆盖是否足够；跨机、协议 conformance、容量/压力仍未处理。

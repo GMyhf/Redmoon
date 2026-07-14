@@ -160,3 +160,51 @@ test("slow dungeon workers coalesce ticks instead of growing an async chain", as
   assert.equal(server._runtime.dungeonTickBacklogSeconds, 0);
   await server.close();
 });
+
+test("multiple slow dungeon workers keep bounded in-flight pressure independently", async () => {
+  const workers = new Map();
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
+  const server = createGameServer({
+    persistPath: "",
+    world,
+    dungeonWorkerFactory: (options) => {
+      const worker = new SlowDungeonWorker(options);
+      workers.set(options.instanceId, worker);
+      return worker;
+    },
+  });
+
+  for (let index = 0; index < 8; index += 1) {
+    const player = world.addPlayer(`pressure-player-${index}`, {
+      name: `PressureDelver${index}`,
+      archetype: "vanguard",
+    });
+    await server._processCommandNow({
+      playerId: player.id,
+      readyState: 1,
+      clientVisible: true,
+      deliveryPaused: false,
+      backpressureSkips: 0,
+      bufferedAmount: 0,
+      send() {},
+    }, { type: "dungeonEnter" });
+  }
+
+  server._queueDungeonTick(0.05);
+  for (let index = 0; index < 20; index += 1) server._queueDungeonTick(0.05);
+  assert.equal(workers.size, 8);
+  assert.equal([...workers.values()].every((worker) => worker.tickCalls === 1), true);
+  assert.equal(server._runtime.dungeonTicksCoalesced, 160);
+  assert.ok(Math.abs(server._runtime.dungeonTickBacklogSeconds - 8) < 1e-9);
+
+  for (const worker of workers.values()) worker.releaseTick();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal([...workers.values()].every((worker) => worker.tickCalls === 2), true);
+  assert.equal(server._runtime.dungeonTickBacklogSeconds, 0);
+
+  for (const worker of workers.values()) worker.releaseTick();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal([...workers.values()].every((worker) => worker.tickResolvers.length === 0), true);
+  assert.equal(server._runtime.dungeonTickBacklogSeconds, 0);
+  await server.close();
+});
