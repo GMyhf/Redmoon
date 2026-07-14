@@ -3,45 +3,41 @@
 > Claude 留给 Codex 的话：我改了什么、哪里没把握、想让你重点看哪里。
 > 只有 Claude 写这个文件；Codex 的回话写在 `NOTES-codex.md`。
 > 保持简短，过期内容可清理——真正的历史在 git 和 `HANDOFF.md` 里。
+> （T-001 首轮设计简报已被 Codex 消费，原文见 git `39a077e`。）
 
 ---
 
-## T-001 设计简报 · 副本独立化（Claude → Codex）
+## T-001 设计审查回复（Claude → Codex）· 设计通过，实现前补 3 处
 
-这是一个"规划 → 执行"的交接：我（Claude）负责拆解和约束，**执行交给你**。
-这个任务是下阶段最大的一块，别一把梭改成大 PR。**首个交付请只做设计文档 + 接口契约**，
-人拍板载体选型后，再进入分步实现。
+我核验了 `docs/DUNGEON_WORKERS.md` 对现有代码的断言，全部准确（`world.js` 的
+`rewarded` Set、结算需在副本地图、`plan.reward` 结构）。奖励幂等映射到现有语义、票据校验顺序、
+`workerEpoch` fencing 都做得好。**设计通过**，但实现前必须处理下面三条：
 
-### 目标（README 路线图 #2）
-把当前跑在主进程内的确定性副本，迁到**带版本票据（versioned ticket）的独立 worker**，
-让玩家状态和当前默认 5 分钟断线保席能**跨 worker 续接**。
+### 🔴 F1（阻断实现）先做「Phase 0：可 seed PRNG」
+`world.js:145` 是 `this.rng = options.rng ?? Math.random`——不透明函数，tick 期 22 处调用
+（掉落 / 伤害浮动 / 怪物巡逻 / 复苏露）。`Math.random` **没有可序列化状态**。跨 worker `restore`
+后掷骰序列会与原 worker 分叉 → 掉落/伤害/AI 漂移 → "权威恢复"破功。**前置任务**：把副本用的 rng
+换成可 seed、状态可序列化的 PRNG（counter-based / splitmix 之类），检查点存 PRNG 状态而非空谈"seed"。
+选了 child_process 后这条更硬——所有状态都要序列化过进程边界，没有共享内存兜底。
 
-### 现状（先读这些再动手）
-- `src/server/dungeon.js`：`createDungeonPlan(...)` 是**纯函数**生成器（70 行），文件头注释就写了
-  "can later move into a dedicated instance worker unchanged"——它天然可搬，不用改。
-- `src/server/world.js`：实例**生命周期**在这里，in-process `this.dungeons` Map 管理
-  （`enterDungeon`/`leaveDungeon` 约 684–718 行，`_dungeonSequence`、`maxDungeons=32`、
-  `dungeonDuration=15min`）。这是要拆出去的部分。
-- 副本 tick 目前和主世界共用 `world.update(dt)`。
+### 🟠 F2（中）检查点别逐 tick 全量
+消息表里 `tickResult` 每帧都带 `checkpoint`（文档第 88 行）。20Hz 全量序列化开销大。
+改成周期性/增量检查点，与 `tickResult` 解耦。
 
-### 首个交付（就做这些，别越界）
-1. `docs/DUNGEON_WORKERS.md` 设计文档，覆盖：
-   - **载体选型对比**：`worker_threads` vs `child_process`/独立进程，落到 PLAN 的 Open question，给推荐+理由。
-   - **版本票据结构**：签发/校验字段（instanceId、schemaVersion、averageLevel、party 成员、签发时刻、
-     过期、签名/序号），以及旧票据如何被安全拒绝（对齐现有 `PROTOCOL_VERSION` / schema 拒绝旧版的做法）。
-   - **续接协议**：玩家断线→保席→在（可能不同的）worker 上凭票据续接的时序；崩溃/超时/容量满的降级路径。
-   - **主进程 ↔ worker 消息契约**：开副本、tick 广播、结算奖励（只结算一次！）、回收实例的消息型别。
-2. 一个**接口草案**（TS 注释或 JSDoc 皆可，不用完整实现）：worker 入口签名、主进程侧的 handle。
-3. 在 `NOTES-codex.md` 回我：你选了哪条载体、哪些地方要我这边先拍板。
+### 🟡 F3（小）注明输入去重
+`input` 流式和 `tick.inputs` 批量两条路都送意图。文档补一句"意图按单调 `seq` 去重"
+（World 已有此机制），避免同一意图被应用两次。
 
-### 红线（我会照这些审你）
-- **服务端权威不能破**：迁到 worker 后，命中/伤害/位置/XP/奖励仍由服务端权威决定，客户端只提交意图。
-- **奖励只结算一次**：现有副本"成员奖励只结算一次"的保证，跨 worker 后绝不能变成可重复领取——
-  这是我会重点写对抗测试的地方。
-- **确定性可测**：worker 逻辑要能像现在一样用注入 `rng` + `world.update(dt)` 确定性测试，不依赖真实时钟/IPC 时序。
-- **协议破坏要升版本**：若票据/续接改了 server↔client 字段，同步 `PROTOCOL_VERSION` + `docs/ARCHITECTURE.md` + 测试。
-- 脚手架变更不进 CHANGELOG，但**副本架构改动属于架构改进，要记 CHANGELOG.md**。
+## 人已拍板（覆盖文档"待拍板事项"）
+1. **载体 = `child_process` / 独立进程**（不是 worker_threads）。真正的崩溃/资源隔离、可跨机横扩。
+   → `DungeonWorkerTransport` 抽象保留，但**首期就落 child_process**：序列化协议、进程监督、启动握手
+   都要一并设计；票据签名密钥只放主进程/票据服务，不下发 worker。
+2. **不要求重启无损恢复**：主进程重启时未恢复实例统一标 `dungeonFailed`、成员回城、不发奖励。
+   检查点存储（文件/Redis/PG）留到跨机阶段再引入。
+3. **不允许离线补领**：沿用现有规则，只对结算时仍在副本地图且未奖励的成员结算。
 
-### 交接完请
-认领确认（PLAN 里 T-001 已挂你名下、In progress），做完设计文档后跑
-`npm run handoff -- --from codex --to claude`，把设计包丢回来给我审。
+## 下一步（给你）
+把设计文档更新到反映以上三条决定 + F1/F2/F3（尤其把 child_process 序列化协议和 Phase 0 PRNG
+写进去），然后把大任务拆成可执行的实现里程碑清单（Phase 0 PRNG → transport+握手 → 票据签发/校验 →
+tick/attach/detach → restore+fencing → settle 幂等 → 测试闸门），回 `NOTES-codex.md` 贴清单，
+`npm run handoff -- --from codex --to claude` 丢回来我审拆分，再进入逐 Phase 实现。
