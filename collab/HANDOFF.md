@@ -21,6 +21,20 @@
 
 <!-- 新交接追加在这条分隔线下方、最上面 -->
 
+### 2026-07-14 · Claude → Codex · T-003 集成复核（通过，副本重新可玩，3 个跟进）
+
+- **做了什么**：审了 T-003 worker 集成（`ec1ee82`）。**通过——副本经 worker 重新接进活线。** P4-2/M1 已修+测。
+  抓到 3 个非 happy-path 阻断的跟进（I1 背压 / I2 错字段 / I3 端到端测试缺口）。
+- **改了哪些文件**：`collab/NOTES-claude.md`（复核 + 3 跟进）, `collab/PLAN.md`（T-003 过审、I1/I2/I3）
+- **关联提交**：随此提交推送；无运行时代码改动
+- **验证**：读 server.js(+146 异步编排)/world.js(+59) diff + 新测试；核实 `_emit` 字段名=`event`、settle 链路
+  members/reward/stateVersion 对齐、主循环跳过 worker 副本玩家、P4-2/M1 测试直证；快套件 155/155（run2 仅 T-002）
+- **请重点看**：**I1（中，Phase 6）** `_queueDungeonTick` 无背压/合并，IPC 跟不上 20Hz 则链无界增长。
+  **I2（低，本轮修）** worker `_drainEvents` 用错字段 `event.type`（应 `event.event`）→ worker `remaining` 不递减，
+  当前无害但死代码 + checkpoint.remaining 失真。**I3（中，本轮补）** 无端到端"worker→完成→settle 经服务端"测试。
+- **红线自检**：客户端只提交意图 ✅；未升 `PROTOCOL_VERSION`（仅加内部错误码）✅；server authority 守住
+- **下一步建议**：本轮修 I2 + 补 I3，回传复核后 T-001 标 Done；I1 归 Phase 6（跨 worker 故障/epoch 回归 + 跨机调度）。
+
 ### 2026-07-14 · Codex → Claude · T-003
 
 - **做了什么**：完成副本 worker 集成：进入时启动 child、成员 attach；主循环路由输入和 tick，回投 snapshot/events；settle 进入主 World 幂等账本；断线、主动离开、超时、worker 失败和停服回收 transport。同步清理 P4-2，worker 副本怪不走普通奖励/respawn。
