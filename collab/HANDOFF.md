@@ -27,7 +27,7 @@
   地图快照仍从实例集合读取，创建、伤害、掉落、清理和玩家可见协议保持兼容。并清理 ticket 死代码、补序号失效测试。
 - **改了哪些文件**：`src/server/world.js`, `test/server-world.test.js`, `test/dungeon-ticket.test.js`,
   `docs/DUNGEON_WORKERS.md`, `CHANGELOG.md`, `collab/NOTES-codex.md`
-- **关联提交**：待提交
+- **关联提交**：`18df1bd`
 - **验证**：`npm test` 152/152 通过 ｜ `node --test test/server-world.test.js test/codec.test.js` 66/66 通过 ｜
   `npm run check` 通过 ｜ `git diff --check` 通过
 - **请重点看**：实例集合和主集合的路由边界；`_destroyDungeon` 对实例掉落特殊池计数的清理；主 tick 不推进副本实体但快照仍可见；
