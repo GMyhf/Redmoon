@@ -1149,15 +1149,16 @@ import {
     if (visibleFriends.length > 0) addSection("好友", visibleFriends.length);
     for (const friend of visibleFriends) {
       const onlinePlayer = others.find((other) => nameKey(other.name) === nameKey(friend.name));
+      const onlinePlayerId = String(friend.id || onlinePlayer?.id || "");
       const actions = [];
-      if (friend.online && onlinePlayer) {
+      if (friend.online && onlinePlayerId) {
         const invite = document.createElement("button");
         invite.type = "button";
         invite.textContent = "邀";
         invite.title = "邀请组队";
         invite.setAttribute("aria-label", `邀请 ${friend.name} 组队`);
         invite.dataset.social = "invite";
-        invite.dataset.target = String(onlinePlayer.id);
+        invite.dataset.target = onlinePlayerId;
         actions.push(invite);
       }
       const remove = document.createElement("button");

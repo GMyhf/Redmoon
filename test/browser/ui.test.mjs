@@ -244,6 +244,18 @@ test("a party invite sent from one browser is accepted in another", async (t) =>
     document.querySelector("#social-list")?.textContent.includes("● 在线"));
   assert.match(await hostPage.textContent("#social-list"), /GuestLngOperator/);
 
+  const guest = playerByName(server, "GuestLngOperator");
+  guest.mapId = "desert";
+  await hostPage.evaluate(() =>
+    document.querySelector('#social-list button[data-social="invite"]')?.remove());
+  await hostPage.waitForSelector('#social-list button[data-social="invite"]', { state: "visible" });
+  assert.equal(
+    await hostPage.evaluate(() =>
+      document.querySelector('#social-list button[data-social="invite"]')?.dataset.target),
+    guest.id,
+    "an online friend remains invitable after leaving the current map",
+  );
+
   await guestPage.evaluate(() => {
     Object.defineProperty(document, "visibilityState", {
       configurable: true,
@@ -251,7 +263,6 @@ test("a party invite sent from one browser is accepted in another", async (t) =>
     });
     document.dispatchEvent(new Event("visibilitychange"));
   });
-  const guest = playerByName(server, "GuestLngOperator");
   await waitForServer(() => [...server.wss.clients]
     .find((socket) => socket.playerId === guest.id)?.clientVisible === false);
   await hostPage.click('#social-list button[data-social="invite"]');

@@ -85,7 +85,7 @@ HTTP 表面保持很小：
 | `roster` | `players`（`name`/`archetype`/`level`/`mapId`） | 大厅名册：`welcome` 附带一份初始名册，未加入的连接每秒收到更新，供主画面展示在线角色 |
 | `session` | `token`, `name`, `archetype` | `join`、`recover` 或 `sessionRotate` 成功后仅发给本连接；浏览器存入 `localStorage`，Godot 存入 owner-only 的 `user://session.cfg`。`archetype` 是账号的权威职业，找回时客户端必须用它纠正本地选择 |
 | `recovery` | `name`, `code`, `expiresAt` | `recoveryIssue` 的单次明文结果；服务端只保存摘要，客户端必须立即展示/保管 |
-| `snapshot` | `tick`, `serverTime`, `selfId`, `mapId`, `world`, `safeZone`, `players`, `enemies`, `projectiles`, `drops` | 当前地图状态，实体只包含当前地图内容。`players` 中只有本人条目携带完整数据（背包、好友、任务、技能、金币等）；其他玩家为渲染所需的轻量条目（位置、血蓝、等级、装备的名称/稀有度/特殊掉落标识），不含属性数值。所有条目携带 `moveSpeed`（含地形修正、不含奔跑倍率的权威移速），客户端据此对本地角色做输入预测，服务器位置仍是最终事实。服务器对同一地图的所有接收者共享一次构建 |
+| `snapshot` | `tick`, `serverTime`, `selfId`, `mapId`, `world`, `safeZone`, `players`, `enemies`, `projectiles`, `drops` | 当前地图状态，实体只包含当前地图内容。`players` 中只有本人条目携带完整数据（背包、好友、任务、技能、金币等）；好友条目为 `{name, online, id}`，在线 id 供跨地图邀请，离线时为 `null`。其他玩家为渲染所需的轻量条目（位置、血蓝、等级、装备的名称/稀有度/特殊掉落标识），不含属性数值。所有条目携带 `moveSpeed`（含地形修正、不含奔跑倍率的权威移速），客户端据此对本地角色做输入预测，服务器位置仍是最终事实。服务器对同一地图的所有接收者共享一次构建 |
 | `event` | `event`, `tick`, `serverTime`, 事件载荷 | 短时表现或离散结果 |
 | `error` | `code`, `message`, `requestType?` | 可处理的协议错误 |
 | 事件作用域 | （内部） | 世界事件可携带网关内部的投递作用域（按图或按成员），`chatMessage` 的本图/组队频道与高频战斗事件（`enemyAttack`/`skillUsed`/`enemyDefeated`/`lootDropped`）只发给相关连接，不再全服广播；作用域字段不会出现在线上 |

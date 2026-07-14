@@ -168,7 +168,7 @@ export const PLAYER_SELF = {
   autoEquip: "boolean",
   gold: "number",
   dew: "number",
-  friends: { $array: { name: "string", online: "boolean" } },
+  friends: { $array: { name: "string", online: "boolean", id: "string|null" } },
   party: { $array: "string" },
   xp: "number",
   xpToNext: "number",

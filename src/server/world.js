@@ -1452,7 +1452,7 @@ export class World {
     const shared = this._sharedMapSnapshot(mapId, sharedCache);
     const players = self
       ? shared.players.map((entry) => (
-        entry.id === selfId ? this._serializePlayer(self, shared.onlineNames) : entry
+        entry.id === selfId ? this._serializePlayer(self, shared.onlinePlayersByName) : entry
       ))
       : shared.players;
     return {
@@ -1504,7 +1504,7 @@ export class World {
           + `,"mapId":${JSON.stringify(mapId)},"online":${this.onlinePlayerCount()}`,
         slimIds: shared.players.map((entry) => entry.id),
         slimJson: shared.players.map((entry) => JSON.stringify(entry)),
-        onlineNames: shared.onlineNames,
+        onlinePlayersByName: shared.onlinePlayersByName,
       };
       sharedCache?.set(cacheKey, strings);
     }
@@ -1513,7 +1513,7 @@ export class World {
     const parts = strings.slimJson.slice();
     if (self) {
       const position = strings.slimIds.indexOf(selfId);
-      const selfJson = JSON.stringify(this._serializePlayer(self, strings.onlineNames));
+      const selfJson = JSON.stringify(this._serializePlayer(self, strings.onlinePlayersByName));
       if (position >= 0) parts[position] = selfJson;
       else parts.push(selfJson);
     }
@@ -1585,7 +1585,7 @@ export class World {
       color: projectile.color,
     }));
 
-    const onlineNames = this._onlineNames();
+    const onlinePlayersByName = this._onlinePlayersByName();
     return {
       world: {
         name: dungeon?.plan.name ?? MAP_NAMES[mapId] ?? this.name,
@@ -1606,7 +1606,7 @@ export class World {
       enemies,
       projectiles,
       drops,
-      onlineNames,
+      onlinePlayersByName,
     };
   }
 
@@ -1623,12 +1623,14 @@ export class World {
     }));
   }
 
-  _onlineNames() {
-    const names = new Set();
+  _onlinePlayersByName() {
+    const players = new Map();
     for (const player of this.players.values()) {
-      if (!player.pendingAuth && !player.connectionDetached) names.add(player.name);
+      if (!player.pendingAuth && !player.connectionDetached) {
+        players.set(this._accountKey(player.name), player);
+      }
     }
-    return names;
+    return players;
   }
 
   onlinePlayerCount() {
@@ -2394,8 +2396,8 @@ export class World {
     };
   }
 
-  _serializePlayer(player, onlineNames = null) {
-    const online = onlineNames ?? this._onlineNames();
+  _serializePlayer(player, onlinePlayersByName = null) {
+    const online = onlinePlayersByName ?? this._onlinePlayersByName();
     const skills = Object.fromEntries(SKILL_SLOTS.map((slot) => {
       const definition = skillDefinition(player.archetype, slot);
       return [slot, {
@@ -2417,10 +2419,14 @@ export class World {
       autoEquip: player.autoEquip,
       gold: player.gold,
       dew: player.dew,
-      friends: player.friends.map((name) => ({
-        name,
-        online: online.has(name),
-      })),
+      friends: player.friends.map((name) => {
+        const onlinePlayer = online.get(this._accountKey(name));
+        return {
+          name,
+          online: Boolean(onlinePlayer),
+          id: onlinePlayer?.id ?? null,
+        };
+      }),
       party: player.partyId
         ? (this.parties.get(player.partyId)?.members ?? [])
           .map((memberId) => this.players.get(memberId)?.name)

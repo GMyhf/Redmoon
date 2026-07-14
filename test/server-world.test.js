@@ -999,7 +999,7 @@ test("snapshots share per-map arrays and only send full detail to the owner", ()
   // Alpha's own entry is full; Beta's view of Alpha is slim.
   const selfEntry = forAlpha.players.find((entry) => entry.id === "alpha-1");
   assert.equal(selfEntry.inventory.length, 1);
-  assert.deepEqual(selfEntry.friends, [{ name: "Beta", online: true }]);
+  assert.deepEqual(selfEntry.friends, [{ name: "Beta", online: true, id: "beta-1" }]);
   assert.ok(selfEntry.skills, "self entry keeps skill details");
   const alphaSeenByBeta = forBeta.players.find((entry) => entry.id === "alpha-1");
   assert.equal(alphaSeenByBeta.inventory, undefined, "no inventory for other players");
@@ -1024,6 +1024,26 @@ test("snapshots share per-map arrays and only send full detail to the owner", ()
   // Without a cache each call still builds a fresh, correct snapshot.
   const fresh = world.getSnapshot("alpha-1");
   assert.equal(fresh.players.find((entry) => entry.id === "alpha-1").inventory.length, 1);
+});
+
+test("friend snapshots expose an online target id across maps", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
+  const owner = world.addPlayer("owner-1", { name: "Owner", archetype: "vanguard" });
+  const friend = world.addPlayer("friend-1", { name: "RelayFriend", archetype: "strider" });
+  world.addFriend(owner.id, "relayfriend");
+  friend.mapId = "desert";
+
+  assert.deepEqual(
+    world.getSnapshot(owner.id).players.find((entry) => entry.id === owner.id).friends,
+    [{ name: "relayfriend", online: true, id: friend.id }],
+    "friend lookup is case-insensitive and independent of the current map",
+  );
+
+  world.detachPlayer(friend.id);
+  assert.deepEqual(
+    world.getSnapshot(owner.id).players.find((entry) => entry.id === owner.id).friends,
+    [{ name: "relayfriend", online: false, id: null }],
+  );
 });
 
 test("join rejects a mismatched declared protocol but accepts legacy joins", () => {
