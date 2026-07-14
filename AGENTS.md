@@ -9,6 +9,7 @@
 交接时：把「做了什么 / 哪里没把握 / 请重点看哪」写进 `collab/NOTES-codex.md`，
 按模板往 `collab/HANDOFF.md` 追加一条，再跑 `npm run handoff -- --from codex --to claude` 生成 review 包。
 Claude 的回话看 `collab/NOTES-claude.md`。完整流程见 `collab/README.md`。
+脚手架自身的变更记录走 `collab/HANDOFF.md` / `PLAN.md`，**不进 `CHANGELOG.md`**——CHANGELOG 只记玩法与架构改进。
 
 ## Directory Map
 

@@ -16,6 +16,13 @@
 > `git` 是最硬的桥梁，`npm test` 是最硬的仲裁。文档负责「为什么」和「接下来」，
 > 代码与测试负责「是什么」。冲突时，能跑通测试的方案胜出。
 
+## 与 CHANGELOG.md 的边界
+
+**本脚手架自身的变更记录走 `HANDOFF.md` / `PLAN.md`（Decision Log），不进 `CHANGELOG.md`。**
+`CHANGELOG.md` 只记 CRIMSON RELAY 的**玩法与架构改进**；协作流程/工具属于开发流程，
+另立一条记录线，避免稀释以玩家和协议为中心的迭代日志。一句话：
+**CHANGELOG 管游戏怎么变，`collab/` 管我们俩怎么协作。**
+
 ## 一轮标准循环
 
 ```
