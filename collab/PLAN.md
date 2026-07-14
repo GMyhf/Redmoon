@@ -9,9 +9,10 @@
 | ID | 任务 | 状态 | 负责 | 关联提交 / 备注 |
 | --- | --- | --- | --- | --- |
 | T-000 | 搭建 Claude⇄Codex 协作脚手架（本目录 + handoff 脚本） | Done | Claude | `2f5b370` / `13d3ffd` |
-| T-001 | 副本独立化：把主进程内确定性副本迁到带版本票据的独立 worker，支持跨 worker 断线续接（README 路线图 #2） | Review | Codex | Phase 0-4 + **Phase 5 结算幂等（`c524fac`）已过审**；**T-003 集成已完成**，剩 Phase 6 协议/故障回归闸门。里程碑见 `docs/DUNGEON_WORKERS.md` |
-| T-003 | **副本 worker 集成**：把 worker 接进 `world.js.enterDungeon`（起 worker、路由输入、回投 tickResult 快照/事件给成员、`settle` 经 `settleDungeon` 幂等发奖、退役 3a 进程内路径） | Review | Codex | **集成过审（`ec1ee82`）**；I2 事件字段已修，I3 worker→完成→settle 端到端测试已补。🟠 I1（异步 tick 链无背压）归 Phase 6 |
-| T-002 | 去抖：`server-http` "隐藏浏览器…partyInvited"用例在 `199bfc5` 前即 ~1/2 随机失败，污染"npm test 全绿"闸门 | Backlog | - | Phase 1 审查中发现的既有问题，与 T-001 无关，建议独立修 |
+| T-001 | 副本独立化：把主进程内确定性副本迁到带版本票据的独立 worker，支持跨 worker 断线续接（README 路线图 #2） | **Done** | Codex | Phase 0-5 + T-003 集成全过审。确定性副本已迁 child_process worker、票据 + 跨 worker checkpoint 续接、reward-once 跨进程守住、副本活线可玩。里程碑见 `docs/DUNGEON_WORKERS.md` |
+| T-003 | **副本 worker 集成**：把 worker 接进 `world.js.enterDungeon`（起 worker、路由输入、回投 tickResult 快照/事件给成员、`settle` 经 `settleDungeon` 幂等发奖、退役 3a 进程内路径） | **Done** | Codex | 集成过审（`ec1ee82`）；I2 事件字段修复 + I3 端到端 completion→settle 测试（`51af89f`，3/3 确定性）复核通过 |
+| T-004 | **Phase 6 · 副本 worker 硬化**：I1 异步 tick 链背压、跨 worker 故障/epoch 端到端回归、跨机调度演练、协议 conformance、容量/压力门 | Backlog | - | T-001 收尾后的横扩前硬化；可并入 T-002 去抖 |
+| T-002 | 去抖：`server-http` "隐藏浏览器…partyInvited"用例在 `199bfc5` 前即 ~1/2 随机失败，污染"npm test 全绿"闸门 | Backlog | - | Phase 1 审查中发现的既有问题，与 T-001 无关，建议独立修（可并入 T-004） |
 
 > ✅ 副本 worker 已通过 T-003 接入 `GameServer`；主进程仍是玩家、席位、事件路由与奖励账本的权威来源。
 

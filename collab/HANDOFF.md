@@ -21,6 +21,19 @@
 
 <!-- 新交接追加在这条分隔线下方、最上面 -->
 
+### 2026-07-14 · Claude → Codex · T-003 I2/I3 复核（通过，🎯 T-001 副本独立化落地）
+
+- **做了什么**：复核 I2/I3（`51af89f`）。**均通过。T-001/T-003 标 Done。** Phase 6 硬化另立 T-004。
+- **改了哪些文件**：`collab/NOTES-claude.md`（复核）, `collab/PLAN.md`（T-001/T-003→Done、新增 T-004）
+- **关联提交**：随此提交推送；无运行时代码改动
+- **验证**：I2 `_drainEvents` 改 `event.event`、`grep` 确认 src/ 零残留；I3 集成测试单跑 3/3 确定性、断言强
+  （host/guest gold 各 +reward 一次、`settleCalls===1`、一个 `dungeonCompleted`）；工厂注入默认真 transport、生产路径未变；156/156
+- **请重点看**：无阻断。诚实边界：I3 用 scripted worker（好实践，隔离服务端逻辑避 child process 计时脆弱），
+  真 worker 侧由 dungeon-transport + 浏览器测试覆盖，两侧在 `_emit` 契约对齐。
+- **红线自检**：客户端只提交意图 ✅；未升 `PROTOCOL_VERSION` ✅；reward-once 跨进程守住
+- **下一步建议**：T-001 主体收官。剩 **T-004（Phase 6 硬化）**：I1 背压、跨 worker 故障/epoch 端到端回归、
+  跨机调度演练、协议 conformance、容量门；可并入 T-002 去抖。人拍板是否即刻开 T-004 还是转其他优先级。
+
 ### 2026-07-14 · Codex → Claude · T-003 I2/I3
 
 - **做了什么**：修正 worker `_drainEvents` 使用错误的 `event.type` 字段，改为规范的 `event.event`；新增 GameServer 集成回归，覆盖 worker 完成、stateVersion 回写、settle 和 reward-once。

@@ -6,27 +6,24 @@
 
 ---
 
-## T-003 集成代码审查回复（Claude → Codex）· 通过——副本经 worker 重新可玩
+## T-003 I2/I3 复核（Claude → Codex）· 通过——T-001 副本独立化落地 🎯
 
-`ec1ee82` 独立复核。快套件 155/155（run2 唯一失败=既有 T-002）。**副本终于接进活线了。**
+`51af89f` 独立复核：
+- ✅ **I2** `_drainEvents` 改用 `event.event`（`grep` 确认 src/ 零残留 `event.type`）
+- ✅ **I3** `server-dungeon-integration.test.js` 真测服务端 completion→settle 编排：3/3 确定性通过，断言强
+  （host/guest gold 各 +reward 一次、`settleCalls===1`、一个 `dungeonCompleted`）——双发/双 settle 会挂，不是假绿
+- ✅ 工厂注入 `dungeonWorkerFactory` 干净：默认真 `DungeonWorkerTransport`，生产路径未变；测试注入 scripted worker
+  隔离服务端逻辑（避开 child process 计时脆弱，好实践）。真 worker 侧由 dungeon-transport 测试 + 浏览器测试覆盖
+- ✅ 156/156（run2 唯一失败=既有 T-002）
 
-**核实通过**
-- ✅ P4-2 已修+测：`dungeonMode` 让副本怪跳过 loot/XP/respawn（新测直证）；worker-enabled 时主 World 不再 spawn plan 敌人
-- ✅ M1 三守卫已测（reward/member/stale，用 clear remaining 造完成未结算态）
-- ✅ 主循环 `_updatePlayers` 跳过 worker 副本玩家（`_isWorkerDungeonMap`）→ 无双 tick；输入设在主 player（未用）+ 路由 worker
-- ✅ 每成员快照正确：enemies/projectiles/drops 取 `workerSnapshot`（map 全局），self 由 `applyDungeonWorkerSnapshot` 逐玩家回写
-- ✅ 各退出路径 recycle transport（断线/离开/超时/worker失败/停服）；server authority 守住；settle 经 `settleDungeon` 幂等校验
-- ✅ 核实 settle 链路：worker `requestSettlement` → 服务端 `settleDungeon`，members⊆成员/reward==plan/stateVersion 对齐（tick 与 settle 间无 tick，版本一致）
-- ✅ protocol.js/docs/ARCHITECTURE 已更；"主分支副本坏"警示可撤
+**T-001 的核心目标达成**：确定性副本已迁到带票据的 child_process worker，支持跨 worker 检查点续接，
+reward-once 跨进程守住。**标 Done。** Phase 6 硬化另立 T-004 继续。
 
-**三个跟进（均非 happy-path 阻断）**
-- 🟠 **I1（中，归 Phase 6）** 异步 tick 链无背压：`_queueDungeonTick` 每主 tick 无条件追加、无合并。IPC 往返超 tick 间隔时
-  链无界增长（内存+延迟）——恰是多副本/横扩场景。建议：in-flight 跳过入队或 drop-oldest，并记录落后度。
-- 🟡 **I2（低，建议本轮修）** worker `_drainEvents` 用错字段 `event.type`（规范是 `event.event`，见 `_emit`）→ worker
-  自己的 `remaining` 从不递减。当前无害（服务端那份正确），但死/错代码 + 让 `checkpoint.remaining` 失真。一字修。
-- 🟡 **I3（中，测试缺口）** 没有端到端测"worker→完成→settle 经服务端"（浏览器只进+离开，server-world 直调 settle）。
-  T-003 核心路径 `_applyDungeonTickResult` 未测。我已推理验证正确，但按 Phase 4 抓假绿的一致标准，该补一个真跑到结算+发奖的测试。
+一个诚实边界：I3 用 scripted worker，未在单个测试里真跑 child process 到完成；但真 worker 的 tick/snapshot/
+checkpoint 有真 child process 测试、浏览器测试证实真 worker 启动+快照流转，两侧在 `_emit` 契约处对齐，覆盖完整。
 
-## 下一步
-建议**本轮先修 I2（一字）+ 补 I3（端到端完成测试）**，回传我复核后把 T-001 标 Done。
-I1 归入 **Phase 6**（跨 worker 故障/epoch 回归 + 跨机调度演练一起做背压）。
+## 剩余（T-004 · Phase 6 硬化）
+- 🟠 **I1 背压**：`_queueDungeonTick` 无合并，IPC 跟不上则链无界增长——横扩前必做。
+- 跨 worker 故障/epoch 回归（杀 worker→fencing→新 epoch restore→旧响应拒绝，端到端）。
+- 跨机调度演练；协议 conformance；容量/压力门。
+- 顺带：T-002 既有 flake 去抖（污染全绿闸门），可并入。
