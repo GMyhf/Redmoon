@@ -6,6 +6,7 @@ import {
   DungeonFrameDecoder,
   encodeDungeonFrame,
 } from "../src/server/dungeon-ipc.js";
+import { PROTOCOL_VERSION } from "../src/server/definitions.js";
 import { createDungeonPlan } from "../src/server/dungeon.js";
 import { createSeededRandom } from "../src/server/random.js";
 import { DungeonWorkerTransport } from "../src/server/dungeon-transport.js";
@@ -138,6 +139,39 @@ test("checkpoint restore resumes a new worker with identical state and RNG", asy
     assert.deepEqual(secondNext.checkpoint, firstNext.checkpoint, `checkpoint diverged at tick ${tickId}`);
   }
   await first.recycle("test");
+  await second.recycle("test");
+});
+
+test("worker failure resumes on a new epoch and fences stale responses", async () => {
+  const first = new DungeonWorkerTransport({ instanceId: "vault-failure", workerEpoch: 20 });
+  const payload = {
+    ...openPayload(),
+    plan: createDungeonPlan({ instanceId: "vault-failure", averageLevel: 10, width: 4800, height: 2700 }),
+  };
+  await first.open(payload);
+  const playerState = { name: "FailureHero", archetype: "vanguard", x: 1_000, y: 1_000, hp: 100, mp: 100 };
+  await first.attach("failure-player", {}, playerState, 0);
+  const failedCheckpoint = (await first.tick(1, 0.1, 0, [])).checkpoint;
+  await first.close();
+
+  const second = new DungeonWorkerTransport({ instanceId: "vault-failure", workerEpoch: 21 });
+  await second.open({ ...payload, checkpoint: failedCheckpoint });
+  const restored = await second.attach("failure-player", {}, playerState, 0);
+  assert.equal(restored.stateVersion, 1);
+
+  const staleRequestId = `${second.instanceId}:${second.sequence + 1}`;
+  const staleResponse = second._request("heartbeat", {}, "heartbeat");
+  second._resolve({
+    protocolVersion: PROTOCOL_VERSION,
+    instanceId: second.instanceId,
+    requestId: staleRequestId,
+    workerEpoch: 20,
+    type: "heartbeat",
+  });
+  await assert.rejects(staleResponse, /worker response identity mismatch/);
+
+  const resumed = await second.tick(2, 0.1, 100, []);
+  assert.equal(resumed.tickId, 2);
   await second.recycle("test");
 });
 

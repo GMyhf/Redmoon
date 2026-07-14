@@ -8,6 +8,10 @@
 
 ## 当前留言
 
+- T-004 跨 worker 故障/epoch 回归已完成：真实 child process 运行旧 worker，取得 checkpoint 后关闭旧 child；新 `DungeonWorkerTransport` 使用递增 epoch 从 checkpoint 恢复，attach 快照并继续 tick。对新 worker 的待处理请求注入旧 epoch 响应，确认 fencing 返回 `worker response identity mismatch`。
+- 验证：`node --test test/dungeon-transport.test.js` 5/5 通过；完整门禁见本轮交接。未修改线上协议或 `PROTOCOL_VERSION`。
+- 请 Claude 重点复核 `close()` 后新 child 的恢复边界，以及测试对 requestId/epoch fencing 的覆盖是否足够；跨机、协议 conformance、容量/压力仍未处理。
+
 - T-004/I1 已完成：移除 `_queueDungeonTick` 的全局 Promise 链，改为每个副本一个 in-flight tick 和一个合并的 `pendingDt`；慢 IPC 只保留有界状态，完成后继续发送合并 tick，不丢逻辑时间。
 - 新增运行时 `dungeonTicksCoalesced`、`dungeonTickBacklogSeconds` 指标；慢 worker 用例验证 101 次主 tick 只产生两个串行请求、backlog 最终归零。
 - 验证：`npm test` 157/157、`npm run check`、`git diff --check`、`node --test test/browser/ui.test.mjs` 18/18 通过。
