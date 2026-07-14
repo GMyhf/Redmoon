@@ -371,6 +371,7 @@ import {
       state.reconnectAttempt = 0;
       setConnection("online", "在线");
       ui.joinError.hidden = true;
+      sendClientState();
       if (state.pendingRecovery) sendRecovery();
       else if (state.pendingJoin && state.profile) sendJoin();
     });
@@ -407,6 +408,10 @@ import {
     const delay = Math.min(8000, 700 * 2 ** state.reconnectAttempt);
     state.reconnectAttempt += 1;
     state.reconnectTimer = window.setTimeout(connect, delay);
+  }
+
+  function sendClientState() {
+    send({ type: "clientState", visible: document.visibilityState !== "hidden" });
   }
 
   function send(payload) {
@@ -1084,59 +1089,115 @@ import {
       return;
     }
     ui.socialPanel.hidden = false;
-    const signature = JSON.stringify([party, friends, others.map((entry) => entry.id)]);
+    const signature = JSON.stringify([
+      party,
+      friends,
+      others.map((entry) => [entry.id, entry.name]),
+    ]);
     if (signature === state.socialSignature) return;
     state.socialSignature = signature;
 
     ui.partyState.textContent = party.length > 0 ? `队伍 ${party.length}/4` : "未组队";
+    const nameKey = (name) => String(name || "").trim().toLocaleLowerCase();
+    const partyKeys = new Set(party.map(nameKey));
+    const friendKeys = new Set(friends.map((friend) => nameKey(friend.name)));
     const rows = [];
-    if (party.length > 0) {
+
+    const addSection = (label, count, action = null) => {
+      const heading = document.createElement("div");
+      heading.className = "social-section";
+      const title = document.createElement("strong");
+      title.textContent = `${label} ${count}`;
+      heading.append(title);
+      if (action) heading.append(action);
+      rows.push(heading);
+    };
+    const addRow = (name, status, statusClass, actions = []) => {
       const row = document.createElement("div");
-      row.className = "gear-row";
+      row.className = "social-row";
       const label = document.createElement("b");
-      label.textContent = `队伍：${party.join("、")}`;
+      label.className = "social-name";
+      label.textContent = name;
+      label.title = name;
+      const stateLabel = document.createElement("span");
+      stateLabel.className = `social-status ${statusClass}`;
+      stateLabel.textContent = status;
+      row.append(label, stateLabel);
+      if (actions.length > 0) {
+        const actionGroup = document.createElement("span");
+        actionGroup.className = "social-actions";
+        actionGroup.append(...actions);
+        row.append(actionGroup);
+      }
+      rows.push(row);
+    };
+
+    if (party.length > 0) {
       const leave = document.createElement("button");
       leave.type = "button";
       leave.textContent = "退";
       leave.title = "离开队伍";
+      leave.setAttribute("aria-label", "离开队伍");
       leave.dataset.social = "party-leave";
-      row.append(label, leave);
-      rows.push(row);
+      addSection("队伍", `${party.length}/4`, leave);
+      for (const name of party) {
+        addRow(String(name), nameKey(name) === nameKey(player.name) ? "本人" : "队友", "is-party");
+      }
     }
-    for (const other of others) {
-      const row = document.createElement("div");
-      row.className = "gear-row";
-      const label = document.createElement("b");
-      label.textContent = String(other.name || other.id);
+
+    const visibleFriends = friends.filter((friend) => !partyKeys.has(nameKey(friend.name)));
+    if (visibleFriends.length > 0) addSection("好友", visibleFriends.length);
+    for (const friend of visibleFriends) {
+      const onlinePlayer = others.find((other) => nameKey(other.name) === nameKey(friend.name));
+      const actions = [];
+      if (friend.online && onlinePlayer) {
+        const invite = document.createElement("button");
+        invite.type = "button";
+        invite.textContent = "邀";
+        invite.title = "邀请组队";
+        invite.setAttribute("aria-label", `邀请 ${friend.name} 组队`);
+        invite.dataset.social = "invite";
+        invite.dataset.target = String(onlinePlayer.id);
+        actions.push(invite);
+      }
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.textContent = "除";
+      remove.title = "移除好友";
+      remove.setAttribute("aria-label", `移除好友 ${friend.name}`);
+      remove.dataset.social = "friend-remove";
+      remove.dataset.name = friend.name;
+      actions.push(remove);
+      addRow(
+        String(friend.name),
+        friend.online ? "● 在线" : "○ 离线",
+        friend.online ? "is-online" : "is-offline",
+        actions,
+      );
+    }
+
+    const available = others.filter((other) => {
+      const key = nameKey(other.name);
+      return !partyKeys.has(key) && !friendKeys.has(key);
+    });
+    if (available.length > 0) addSection("同图在线", available.length);
+    for (const other of available) {
+      const displayName = String(other.name || other.id);
       const invite = document.createElement("button");
       invite.type = "button";
       invite.textContent = "邀";
       invite.title = "邀请组队";
+      invite.setAttribute("aria-label", `邀请 ${displayName} 组队`);
       invite.dataset.social = "invite";
       invite.dataset.target = String(other.id);
       const befriend = document.createElement("button");
       befriend.type = "button";
       befriend.textContent = "友";
       befriend.title = "加为好友";
+      befriend.setAttribute("aria-label", `添加好友 ${displayName}`);
       befriend.dataset.social = "friend-add";
-      befriend.dataset.name = String(other.name || "");
-      row.append(label, invite, befriend);
-      rows.push(row);
-    }
-    for (const friend of friends) {
-      const row = document.createElement("div");
-      row.className = "gear-row";
-      const label = document.createElement("b");
-      label.textContent = `${friend.online ? "●" : "○"} ${friend.name}`;
-      label.style.color = friend.online ? "#79d99b" : "rgba(255,255,255,0.4)";
-      const remove = document.createElement("button");
-      remove.type = "button";
-      remove.textContent = "除";
-      remove.title = "移除好友";
-      remove.dataset.social = "friend-remove";
-      remove.dataset.name = friend.name;
-      row.append(label, remove);
-      rows.push(row);
+      befriend.dataset.name = displayName;
+      addRow(displayName, "在线", "is-online", [invite, befriend]);
     }
     ui.socialList.replaceChildren(...rows);
   }
@@ -4441,6 +4502,7 @@ import {
     state.keys.clear();
     state.pointer.down = false;
   });
+  document.addEventListener("visibilitychange", sendClientState);
 
   canvas.addEventListener("pointermove", (event) => {
     const rect = canvas.getBoundingClientRect();

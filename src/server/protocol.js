@@ -306,6 +306,7 @@ export const PROTOCOL = Object.freeze({
     recoveryIssue: {},
     dungeonEnter: {},
     dungeonLeave: {},
+    clientState: { visible: "boolean" },
     leave: {},
   },
   commandAliases: {

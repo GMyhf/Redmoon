@@ -39,6 +39,10 @@ test("HTTP serves the client and health status", async (t) => {
   });
   assert.equal(healthBody.runtime.tickRate, 20);
   assert.equal(healthBody.runtime.websocket.connections, 0);
+  assert.equal(healthBody.runtime.websocket.backgroundConnections, 0);
+  assert.equal(healthBody.runtime.websocket.pausedConnections, 0);
+  assert.ok(healthBody.runtime.memory.rssBytes > 0);
+  assert.ok(healthBody.runtime.memory.heapUsedBytes > 0);
   assert.ok(healthBody.runtime.tickAgeMs === null || healthBody.runtime.tickAgeMs >= 0);
 
   let ready;
@@ -56,6 +60,8 @@ test("HTTP serves the client and health status", async (t) => {
   const metricText = await metrics.text();
   assert.match(metricText, /crimson_event_loop_lag_seconds\{quantile="0\.99"\}/);
   assert.match(metricText, /crimson_audit_pending 0/);
+  assert.match(metricText, /crimson_process_resident_memory_bytes [1-9]\d*/);
+  assert.match(metricText, /crimson_process_heap_used_bytes [1-9]\d*/);
 
   const index = await fetch(`http://127.0.0.1:${port}/`);
   assert.equal(index.status, 200);
@@ -251,7 +257,7 @@ test("a flooding connection is rate limited without stalling the world", async (
   assert.equal(server.world.players.size, 1, "the world keeps running for joined players");
 });
 
-test("snapshot backpressure skips serialization and terminates a persistently slow socket", () => {
+test("snapshot backpressure pauses droppable delivery and retains a hard disconnect limit", () => {
   const world = new World({ rng: () => 0.5, mobTargetCount: 0, spawnMobs: false });
   const server = createGameServer({
     persistPath: "",
@@ -269,7 +275,7 @@ test("snapshot backpressure skips serialization and terminates a persistently sl
     bufferedAmount: 100,
     backpressureSkips: 0,
     send() {
-      throw new Error("a skipped frame must not reach send");
+      this.sent = true;
     },
     terminate() {
       this.terminated = true;
@@ -278,10 +284,65 @@ test("snapshot backpressure skips serialization and terminates a persistently sl
 
   assert.equal(server._sendSnapshot(socket), "skipped");
   assert.equal(serialized, 0, "the expensive snapshot is not built while the socket is backed up");
+  assert.equal(server._sendSnapshot(socket), "skipped");
+  assert.equal(socket.deliveryPaused, true);
+  assert.equal(socket.terminated, undefined);
+  assert.equal(server._runtime.snapshotsSkipped, 2);
+  socket.bufferedAmount = 0;
+  assert.equal(server._sendSnapshot(socket), "sent");
+  assert.equal(socket.sent, true);
+  assert.equal(socket.deliveryPaused, false, "delivery resumes as soon as the backlog drains");
+  assert.equal(serialized, 1);
+  socket.bufferedAmount = 1_000;
   assert.equal(server._sendSnapshot(socket), "disconnected");
   assert.equal(socket.terminated, true);
-  assert.equal(server._runtime.snapshotsSkipped, 2);
-  assert.equal(server._runtime.backpressureDisconnects, 1);
+  assert.equal(server._runtime.backpressureDisconnects, 1, "the hard limit remains");
+});
+
+test("a hidden browser pauses world traffic and receives a fresh snapshot when visible", async (t) => {
+  const server = createGameServer({
+    host: "127.0.0.1",
+    port: 0,
+    persistPath: "",
+    tickRate: 20,
+    snapshotRate: 20,
+    world: new World({ rng: () => 0.5, mobTargetCount: 0, spawnMobs: false }),
+  });
+  assert.equal(server.reconnectGraceMs, 300_000);
+  await server.listen();
+  t.after(() => server.close());
+
+  const socket = new WebSocket(`ws://127.0.0.1:${server.address().port}/ws`);
+  t.after(() => socket.terminate());
+  const messages = messageQueue(socket);
+  await messages.next("welcome");
+  socket.send(JSON.stringify({
+    type: "join", protocol: 2, name: "Background", archetype: "vanguard",
+  }));
+  await messages.next("session");
+  await messages.next("snapshot");
+  const serverSocket = [...server.wss.clients][0];
+
+  socket.send(JSON.stringify({ type: "clientState", visible: false }));
+  for (let attempt = 0; attempt < 50 && serverSocket.clientVisible !== false; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.equal(serverSocket.clientVisible, false);
+  const sentWhileHidden = server._runtime.snapshotsSent;
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  assert.equal(
+    server._runtime.snapshotsSent,
+    sentWhileHidden,
+    "background tabs do not accumulate snapshots while server-side play continues",
+  );
+  assert.equal(server._runtimeStatus().websocket.backgroundConnections, 1);
+
+  socket.send(JSON.stringify({ type: "clientState", visible: true }));
+  for (let attempt = 0; attempt < 50 && serverSocket.clientVisible !== true; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.equal(serverSocket.clientVisible, true);
+  assert.ok(server._runtime.snapshotsSent > sentWhileHidden, "foregrounding pushes a fresh snapshot");
 });
 
 test("heartbeat terminates a connection that does not answer ping frames", async (t) => {
@@ -367,6 +428,12 @@ test("runtime thresholds gate readiness and expose the failing measurements", ()
   assert.equal(status.checks.eventLoopLag.ok, false);
   assert.equal(status.checks.snapshotDuration.ok, false);
   assert.equal(status.checks.websocketBacklog.ok, false);
+  slowSocket.deliveryPaused = true;
+  assert.equal(
+    server._readinessStatus().checks.websocketBacklog.ok,
+    true,
+    "an isolated slow client does not withdraw the whole server from traffic",
+  );
   assert.match(server._prometheusMetrics(), /crimson_ready 0/);
 });
 

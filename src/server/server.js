@@ -120,7 +120,7 @@ export class GameServer {
     };
     this.reconnectGraceMs = nonNegativeRate(
       options.reconnectGraceMs ?? process.env.WS_RECONNECT_GRACE_MS,
-      15_000,
+      300_000,
     );
     this.readinessLimits = {
       tickStaleMs: positiveRate(
@@ -633,6 +633,7 @@ export class GameServer {
           // recipient's own full entry is serialized per socket.
           const recipients = [...this.wss.clients].filter((socket) => (
             socket.readyState === WebSocket.OPEN
+            && socket.clientVisible !== false
             && this.world.players.has(socket.playerId)
             && !this.world.players.get(socket.playerId).pendingAuth
             && !this.world.players.get(socket.playerId).connectionDetached
@@ -699,6 +700,8 @@ export class GameServer {
       ? request.headers.origin.slice(0, 256)
       : null;
     socket.isAlive = true;
+    socket.clientVisible = true;
+    socket.deliveryPaused = false;
     socket.backpressureSkips = 0;
     socket.on("pong", () => {
       socket.isAlive = true;
@@ -872,6 +875,18 @@ export class GameServer {
       ? this._securityCheckpoint(socket, message)
       : null;
     try {
+      if (message.type === "clientState") {
+        if (typeof message.visible !== "boolean") {
+          throw new WorldError("INVALID_MESSAGE", "clientState.visible must be a boolean.");
+        }
+        const becameVisible = socket.clientVisible === false && message.visible;
+        socket.clientVisible = message.visible;
+        socket.backpressureSkips = 0;
+        if (becameVisible && commandPlayer && !commandPlayer.connectionDetached) {
+          this._sendSnapshot(socket);
+        }
+        return null;
+      }
       let result = null;
       if (!commandPlayer && ["join", "start", "recover"].includes(message.type)) {
         const resumed = this.world.resumeDetachedPlayer(message);
@@ -1118,13 +1133,15 @@ export class GameServer {
       this._runtime.droppableFramesSkipped += 1;
       if (kind === "snapshot") this._runtime.snapshotsSkipped += 1;
       if (socket.backpressureSkips >= this.backpressure.maxSkippedFrames) {
-        this._terminateSocket(socket, "backpressure");
-        return "disconnected";
+        socket.deliveryPaused = true;
       }
       return "skipped";
     }
 
-    if (bufferedBytes < this.backpressure.skipBytes) socket.backpressureSkips = 0;
+    if (bufferedBytes < this.backpressure.skipBytes) {
+      socket.backpressureSkips = 0;
+      socket.deliveryPaused = false;
+    }
     const serialized = typeof payload === "function" ? payload() : payload;
     try {
       socket.send(serialized);
@@ -1172,6 +1189,8 @@ export class GameServer {
     const message = JSON.stringify({ type: "event", ...payload });
     for (const socket of this.wss.clients) {
       if (socket.readyState !== WebSocket.OPEN) continue;
+      if (socket.clientVisible === false) continue;
+      if (socket.deliveryPaused) continue;
       if (scope) {
         const player = this.world.players.get(socket.playerId);
         if (!player) continue;
@@ -1191,21 +1210,30 @@ export class GameServer {
 
   _runtimeStatus(now = performance.now()) {
     let connections = 0;
+    let backgroundConnections = 0;
+    let pausedConnections = 0;
     let backlogBytes = 0;
     let maxBacklogBytes = 0;
+    let activeMaxBacklogBytes = 0;
     let slowConnections = 0;
     for (const socket of this.wss.clients) {
       if (socket.readyState !== WebSocket.OPEN) continue;
       connections += 1;
+      if (socket.clientVisible === false) backgroundConnections += 1;
+      if (socket.deliveryPaused) pausedConnections += 1;
       const bufferedBytes = Math.max(0, Number(socket.bufferedAmount) || 0);
       backlogBytes += bufferedBytes;
       maxBacklogBytes = Math.max(maxBacklogBytes, bufferedBytes);
+      if (socket.clientVisible !== false && !socket.deliveryPaused) {
+        activeMaxBacklogBytes = Math.max(activeMaxBacklogBytes, bufferedBytes);
+      }
       if (bufferedBytes >= this.backpressure.skipBytes) slowConnections += 1;
     }
     this._runtime.maxWsBacklogBytes = Math.max(
       this._runtime.maxWsBacklogBytes,
       maxBacklogBytes,
     );
+    const memory = process.memoryUsage();
     return {
       startedAt: this._runtime.startedAt,
       tickRate: this.tickRate,
@@ -1218,12 +1246,22 @@ export class GameServer {
       consecutiveTickErrors: this._runtime.consecutiveTickErrors,
       totalTickErrors: this._runtime.totalTickErrors,
       lastTickError: this._runtime.lastTickError,
+      memory: {
+        rssBytes: memory.rss,
+        heapUsedBytes: memory.heapUsed,
+        heapTotalBytes: memory.heapTotal,
+        externalBytes: memory.external,
+        arrayBuffersBytes: memory.arrayBuffers,
+      },
       eventLoopLagMs: this._runtime.eventLoopLagMs.summary(),
       snapshotDurationMs: this._runtime.snapshotDurationMs.summary(),
       websocket: {
         connections,
+        backgroundConnections,
+        pausedConnections,
         backlogBytes,
         maxBacklogBytes,
+        activeMaxBacklogBytes,
         historicalMaxBacklogBytes: this._runtime.maxWsBacklogBytes,
         slowConnections,
         snapshotsSent: this._runtime.snapshotsSent,
@@ -1262,8 +1300,8 @@ export class GameServer {
         limitMs: this.readinessLimits.snapshotP99Ms,
       },
       websocketBacklog: {
-        ok: runtime.websocket.maxBacklogBytes < this.readinessLimits.wsBacklogBytes,
-        actualBytes: runtime.websocket.maxBacklogBytes,
+        ok: runtime.websocket.activeMaxBacklogBytes < this.readinessLimits.wsBacklogBytes,
+        actualBytes: runtime.websocket.activeMaxBacklogBytes,
         limitBytes: this.readinessLimits.wsBacklogBytes,
       },
     };
@@ -1314,10 +1352,23 @@ export class GameServer {
       "# HELP crimson_ws_connections Open WebSocket connections.",
       "# TYPE crimson_ws_connections gauge",
       `crimson_ws_connections ${runtime.websocket.connections}`,
+      "# HELP crimson_ws_background_connections WebSockets whose browser page is hidden.",
+      "# TYPE crimson_ws_background_connections gauge",
+      `crimson_ws_background_connections ${runtime.websocket.backgroundConnections}`,
+      "# HELP crimson_ws_paused_connections WebSockets isolated after sustained backpressure.",
+      "# TYPE crimson_ws_paused_connections gauge",
+      `crimson_ws_paused_connections ${runtime.websocket.pausedConnections}`,
+      "# HELP crimson_process_resident_memory_bytes Resident memory used by the Node.js process.",
+      "# TYPE crimson_process_resident_memory_bytes gauge",
+      `crimson_process_resident_memory_bytes ${runtime.memory.rssBytes}`,
+      "# HELP crimson_process_heap_used_bytes V8 heap memory currently in use.",
+      "# TYPE crimson_process_heap_used_bytes gauge",
+      `crimson_process_heap_used_bytes ${runtime.memory.heapUsedBytes}`,
       "# HELP crimson_ws_backlog_bytes Bytes queued across WebSocket connections.",
       "# TYPE crimson_ws_backlog_bytes gauge",
       `crimson_ws_backlog_bytes{scope="total"} ${runtime.websocket.backlogBytes}`,
       `crimson_ws_backlog_bytes{scope="max_connection"} ${runtime.websocket.maxBacklogBytes}`,
+      `crimson_ws_backlog_bytes{scope="active_max_connection"} ${runtime.websocket.activeMaxBacklogBytes}`,
       "# HELP crimson_ws_snapshot_frames_total Snapshot frames sent or skipped.",
       "# TYPE crimson_ws_snapshot_frames_total counter",
       `crimson_ws_snapshot_frames_total{result="sent"} ${runtime.websocket.snapshotsSent}`,

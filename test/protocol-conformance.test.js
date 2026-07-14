@@ -144,8 +144,11 @@ test("gateway messages (welcome/session/roster/error) conform on the wire", asyn
 test("every implemented command is documented, and vice versa", () => {
   const cases = [...worldSource.matchAll(/case "([a-zA-Z]+)":/g)].map((match) => match[1]);
   // join/start and recover are pre-session commands handled before the
-  // joined-player switch; all remaining commands are switch cases.
-  const implemented = new Set([...cases, "join", "start", "recover"].map((name) => name.toLowerCase()));
+  // joined-player switch. clientState is connection metadata handled by the
+  // gateway because it controls delivery rather than authoritative gameplay.
+  const implemented = new Set([
+    ...cases, "join", "start", "recover", "clientState",
+  ].map((name) => name.toLowerCase()));
   const documented = new Set(Object.keys(PROTOCOL.clientMessages).map((name) => name.toLowerCase()));
   for (const alias of Object.keys(PROTOCOL.commandAliases)) documented.add(alias.toLowerCase());
 

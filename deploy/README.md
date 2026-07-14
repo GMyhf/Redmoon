@@ -144,8 +144,8 @@ curl --fail --silent localhost:8080/metrics
 | `WS_HEARTBEAT_INTERVAL_MS` | 15000 | ping 周期；一轮未 pong 即终止 |
 | `WS_BACKPRESSURE_SKIP_BYTES` | 262144 | 达到后跳过快照/名册帧 |
 | `WS_BACKPRESSURE_DISCONNECT_BYTES` | 2097152 | 达到后立即终止慢连接 |
-| `WS_BACKPRESSURE_MAX_SKIPS` | 50 | 连续跳帧达到后终止 |
-| `WS_RECONNECT_GRACE_MS` | 15000 | 非主动断线保留原队伍/副本席位；`0` 禁用 |
+| `WS_BACKPRESSURE_MAX_SKIPS` | 50 | 连续跳帧达到后暂停世界事件；缓冲排空自动恢复 |
+| `WS_RECONNECT_GRACE_MS` | 300000 | 非主动断线保留原队伍/副本席位；`0` 禁用 |
 | `READY_TICK_STALE_MS` | 1000 | 最近成功 tick 的最大年龄 |
 | `READY_MAX_CONSECUTIVE_TICK_ERRORS` | 3 | 达到后 readiness 失败 |
 | `READY_EVENT_LOOP_LAG_P99_MS` | 250 | 最近窗口 lag p99 上限 |

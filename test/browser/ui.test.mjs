@@ -234,23 +234,42 @@ test("a party invite sent from one browser is accepted in another", async (t) =>
   const { url } = await startServer(t);
   const hostPage = await newPage(t, browser);
   const guestPage = await newPage(t, browser);
-  await joinAs(hostPage, url, "Hostess");
-  await joinAs(guestPage, url, "Guest");
+  await joinAs(hostPage, url, "HostLongOperator");
+  await joinAs(guestPage, url, "GuestLngOperator");
 
-  // The social panel lists the other operator once both are in the world.
+  // A friend remains invitable, but now carries an explicit online label
+  // instead of relying on green text alone.
+  await hostPage.click('#social-list button[data-social="friend-add"]');
+  await hostPage.waitForFunction(() =>
+    document.querySelector("#social-list")?.textContent.includes("● 在线"));
+  assert.match(await hostPage.textContent("#social-list"), /GuestLngOperator/);
   await hostPage.click('#social-list button[data-social="invite"]');
 
   const accept = guestPage.locator(".event-message button", { hasText: "接受" });
   await accept.waitFor({ state: "visible" });
   assert.match(
     await guestPage.textContent(".event-message"),
-    /Hostess 邀请你组队/,
+    /HostLongOperator 邀请你组队/,
   );
   await accept.click();
 
   for (const page of [hostPage, guestPage]) {
     await page.waitForFunction(() =>
       document.querySelector("#party-state")?.textContent.includes("队伍 2/4"));
+    const partyRows = await page.evaluate(() => [...document.querySelectorAll(".social-row")]
+      .filter((row) => row.querySelector(".social-status.is-party"))
+      .map((row) => ({
+        name: row.querySelector(".social-name")?.textContent,
+        status: row.querySelector(".social-status")?.textContent,
+        whiteSpace: getComputedStyle(row.querySelector(".social-name")).whiteSpace,
+      })));
+    assert.deepEqual(
+      partyRows.map((row) => row.name).sort(),
+      ["GuestLngOperator", "HostLongOperator"],
+    );
+    assert.equal(partyRows.every((row) => row.whiteSpace !== "nowrap"), true);
+    assert.equal(partyRows.some((row) => row.status === "本人"), true);
+    assert.equal(partyRows.some((row) => row.status === "队友"), true);
   }
 });
 
