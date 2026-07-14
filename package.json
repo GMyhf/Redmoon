@@ -15,7 +15,7 @@
     "stress": "node tools/stress.mjs",
     "handoff": "node tools/handoff.mjs",
     "migrate:postgres": "node tools/migrate-postgres.mjs",
-    "check": "node --check src/server/server.js && node --check src/server/definitions.js && node --check src/server/world.js && node --check src/server/protocol.js && node --check src/server/session.js && node --check src/server/dungeon.js && node --check src/server/random.js && node --check src/server/postgres-store.js && node --check public/client.js && node --check tools/stress.mjs && node --check tools/stress-lib.js && node --check tools/migrate-postgres.mjs && node --check tools/handoff.mjs",
+    "check": "node --check src/server/server.js && node --check src/server/definitions.js && node --check src/server/world.js && node --check src/server/protocol.js && node --check src/server/session.js && node --check src/server/dungeon.js && node --check src/server/random.js && node --check src/server/dungeon-ipc.js && node --check src/server/dungeon-worker.js && node --check src/server/dungeon-transport.js && node --check src/server/postgres-store.js && node --check public/client.js && node --check tools/stress.mjs && node --check tools/stress-lib.js && node --check tools/migrate-postgres.mjs && node --check tools/handoff.mjs",
     "check:godot": "godot --headless --path clients/godot --editor --quit"
   },
   "dependencies": {

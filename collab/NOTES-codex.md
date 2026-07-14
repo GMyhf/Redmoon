@@ -8,12 +8,11 @@
 
 ## 当前留言
 
-- T-001 Phase 0 已实现：新增 `src/server/random.js` 的可 seed、可序列化 Mulberry32 PRNG；`World`
-  默认使用随机 seed 的 stateful RNG，并提供 `getRandomState()` / `restoreRandomState()`。
-- 保留现有 `rng: () => number` 注入契约；函数注入源明确返回不可序列化状态并拒绝 restore，
-  `rng` 与 `rngState` 同时传入也会报错，避免静默丢失恢复语义。
-- 新增 `test/random.test.js`，覆盖同 seed 重复、保存/恢复后序列连续、World 默认 RNG 和旧注入契约；
-  `npm test` 145/145 通过，`npm run check` 通过。
-- 另更新 `CHANGELOG.md` 和 `package.json` 的语法检查清单；未改线上协议或 `PROTOCOL_VERSION`。
-- 请重点审查：PRNG 的 Mulberry32 状态格式是否适合作为后续 child process checkpoint；World 默认从
-  `randomUUID()` 派生 seed 是否符合部署预期；函数注入不可 restore 的显式失败是否满足 R1。
+- T-001 Phase 1 已实现：新增 `src/server/dungeon-ipc.js` 的 4 字节长度前缀 framing、最大帧校验，
+  `src/server/dungeon-worker.js` 的 child entry，以及 `src/server/dungeon-transport.js` 的 spawn/握手/监督。
+- 生命周期覆盖 `open`/`ready`、`heartbeat`、`error`、unsupported message 和 `recycle`；stdout 协议与 stderr
+  诊断分离，响应校验 `protocolVersion`、`instanceId`、`workerEpoch`，握手超时/异常退出会收敛 pending 请求。
+- 新增 `test/dungeon-transport.test.js` 和两个真实 child fixture，覆盖拆帧、超大帧、正常心跳回收、静默超时、
+  损坏帧和 stderr 隔离；`npm test` 148/148 通过，`npm run check` 通过。
+- 未接入副本业务、票据或线上协议；请重点审查 framed IPC 边界、回收与 exit 竞态、异常退出后的 transport 状态，
+  以及 Phase 2 是否应复用当前 `open` 握手而不引入第二套启动协议。
