@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { rollItem, rollPotion, rollRelic, rollSpecialDrop } from "./loot.js";
 import { createDungeonPlan } from "./dungeon.js";
+import { createRandomFromState, createSeededRandom } from "./random.js";
 import {
   createRecoveryCode,
   createSessionToken,
@@ -141,8 +142,14 @@ export class World {
     if (options.rng !== undefined && typeof options.rng !== "function") {
       throw new TypeError("rng must be a function");
     }
+    if (options.rng !== undefined && options.rngState !== undefined) {
+      throw new TypeError("rng and rngState are mutually exclusive");
+    }
 
-    this.rng = options.rng ?? Math.random;
+    this.rng = options.rng
+      ?? (options.rngState !== undefined
+        ? createRandomFromState(options.rngState)
+        : createSeededRandom(options.randomSeed ?? randomUUID()));
     this.now = options.now ?? Date.now;
     this.name = typeof options.name === "string" && options.name.trim()
       ? options.name.trim().slice(0, 40)
@@ -414,6 +421,17 @@ export class World {
     return Object.fromEntries([...selected]
       .filter((accountKey) => Object.hasOwn(this.accountStore, accountKey))
       .map((accountKey) => [accountKey, this.accountStore[accountKey]]));
+  }
+
+  getRandomState() {
+    return typeof this.rng.getState === "function" ? this.rng.getState() : null;
+  }
+
+  restoreRandomState(state) {
+    if (typeof this.rng.setState !== "function") {
+      throw new TypeError("World RNG is not stateful");
+    }
+    this.rng.setState(state);
   }
 
   drainAuditLog() {

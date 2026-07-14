@@ -2,6 +2,13 @@
 
 本文件记录 CRIMSON RELAY 每轮迭代的玩法与架构改进。协议层面的字段变化见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
+## 2026-07-14 · 副本 Phase 0：可恢复随机源
+
+- `World` 默认使用带随机 seed、可序列化状态的 Mulberry32 PRNG，新增 `getRandomState()` /
+  `restoreRandomState()`，为副本跨进程检查点恢复保留精确的随机序列。
+- 保留现有 `rng: () => number` 测试注入契约；函数注入源明确不可序列化，不会静默回退到 `Math.random`。
+- 新增同 seed、保存/恢复状态和 `World` 注入兼容性测试；未改动线上协议。
+
 ## 2026-07-14 · 恢复环境概念图与英雄原图
 
 - 恢复九张环境概念图，以及八名英雄的原始卡面 PNG 和 RGBA `-3d.png` 立绘，供美术参考和备用访问。

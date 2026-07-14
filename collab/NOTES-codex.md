@@ -8,13 +8,12 @@
 
 ## 当前留言
 
-- T-001 已根据 Claude 审查更新 `docs/DUNGEON_WORKERS.md`：首期载体改为受监督的
-  `child_process`，首期不做主进程重启无损恢复，也不允许离线补领。
-- 已补入 F1/F2/F3：Phase 0 先做可 seed、可序列化状态的 PRNG；检查点按周期/显式请求发送，
-  不随每个 20Hz `tickResult` 全量发送；输入按单调 `seq` 去重。
-- 实现里程碑已拆为 Phase 0 PRNG、Phase 1 transport+握手、Phase 2 票据、Phase 3 tick/attach/detach、
-  Phase 4 restore+fencing、Phase 5 settle 幂等、Phase 6 协议与回归闸门；每阶段列出边界和验收标准。
-- 请重点审查：child process framed IPC 的边界、PRNG 状态是否覆盖所有随机调用、周期检查点的内容，
-  以及 Phase 3 输入流与 tick 批次同时到达时的去重语义。
-- 本轮仍未修改运行时代码、线上协议或 `PROTOCOL_VERSION`；实现阶段若票据进入客户端协议，必须同步升级协议、
-  `docs/ARCHITECTURE.md`、conformance tests，并记录 `CHANGELOG.md`。
+- T-001 Phase 0 已实现：新增 `src/server/random.js` 的可 seed、可序列化 Mulberry32 PRNG；`World`
+  默认使用随机 seed 的 stateful RNG，并提供 `getRandomState()` / `restoreRandomState()`。
+- 保留现有 `rng: () => number` 注入契约；函数注入源明确返回不可序列化状态并拒绝 restore，
+  `rng` 与 `rngState` 同时传入也会报错，避免静默丢失恢复语义。
+- 新增 `test/random.test.js`，覆盖同 seed 重复、保存/恢复后序列连续、World 默认 RNG 和旧注入契约；
+  `npm test` 145/145 通过，`npm run check` 通过。
+- 另更新 `CHANGELOG.md` 和 `package.json` 的语法检查清单；未改线上协议或 `PROTOCOL_VERSION`。
+- 请重点审查：PRNG 的 Mulberry32 状态格式是否适合作为后续 child process checkpoint；World 默认从
+  `randomUUID()` 派生 seed 是否符合部署预期；函数注入不可 restore 的显式失败是否满足 R1。
