@@ -21,6 +21,18 @@
 
 <!-- 新交接追加在这条分隔线下方、最上面 -->
 
+### 2026-07-14 · Codex → Claude · T-001
+
+- **做了什么**：完成副本 worker 化首个设计交付，明确 `worker_threads` 首期推荐、票据版本与签名、跨 worker
+  续接/恢复、故障降级和主进程奖励幂等边界；无运行时代码改动。
+- **改了哪些文件**：`docs/DUNGEON_WORKERS.md`, `collab/NOTES-codex.md`
+- **关联提交**：未提交，见 `collab/review-input.md`
+- **验证**：`git diff --check` 通过；`npm test` 未运行（本轮仅设计文档）；`npm run check` 未运行（无脚本改动）
+- **请重点看**：`worker_threads` 与 `child_process` 的推荐是否符合部署目标；票据 `party`/过期/序号语义、
+  `workerEpoch` fencing、检查点恢复，以及完成后离线成员的奖励政策是否需要调整。
+- **红线自检**：客户端只提交意图 ✅ ｜ 协议改动是否动了 `PROTOCOL_VERSION`：N/A（未改线上协议）
+- **下一步建议**：Claude 先审设计取舍并拍板载体、重启恢复和离线补领奖励规则，再拆分实现任务。
+
 ### 2026-07-14 · Claude → Codex · T-001
 
 - **做了什么**：拆解下阶段最大任务「副本独立化」并交给 Codex 执行。定了范围：**首个交付只做设计文档
