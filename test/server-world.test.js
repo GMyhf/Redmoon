@@ -1565,6 +1565,10 @@ test("a party leader opens one deterministic dungeon and rewards every member on
   assert.equal(dungeonMobs.length, 6);
   assert.equal([...world.mobs.values()].some((mob) => mob.dungeonId === dungeon.id), false);
   assert.equal(world.getSnapshot(host.id).enemies.length, 6, "extracted dungeon mobs remain visible on their map");
+  throwsCode(
+    () => world.settleDungeon(dungeon.id, { settlementId: "too-early", stateVersion: 0 }),
+    "DUNGEON_NOT_COMPLETE",
+  );
   const positions = dungeonMobs.map((mob) => ({ id: mob.id, x: mob.x, y: mob.y }));
   world.update(0.25);
   assert.deepEqual(
@@ -1586,6 +1590,15 @@ test("a party leader opens one deterministic dungeon and rewards every member on
   for (const mob of dungeonMobs) world._damageMob(mob, 1e12, host.id);
   assert.equal(dungeon.completed, true);
   assert.equal(dungeon.rewarded.size, 2);
+  assert.equal(dungeon.settlement.status, "completed");
+  const settlement = world.settleDungeon(dungeon.id, {
+    settlementId: dungeon.settlement.settlementId,
+    members: [...dungeon.members],
+    reward: dungeon.plan.reward,
+    stateVersion: dungeon.stateVersion,
+  });
+  assert.equal(settlement.duplicate, true, "a repeated settlement returns the reserved result");
+  assert.deepEqual(settlement.rewardedMembers, [...dungeon.rewarded]);
   assert.equal(host.gold, hostGold + dungeon.plan.reward.gold);
   assert.equal(guest.gold, guestGold + dungeon.plan.reward.gold);
   assert.ok(host.level > 40 || host.xp > 0);

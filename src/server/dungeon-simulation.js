@@ -114,6 +114,20 @@ export class DungeonSimulation {
     return result;
   }
 
+  requestSettlement(settlementId) {
+    if (typeof settlementId !== "string" || !settlementId) {
+      throw new TypeError("settlementId is required");
+    }
+    return {
+      type: "settle",
+      settlementId,
+      instanceId: this.instanceId,
+      members: [...this.players],
+      reward: { ...this.plan.reward },
+      stateVersion: this.stateVersion,
+    };
+  }
+
   createCheckpoint() {
     return {
       schemaVersion: 1,

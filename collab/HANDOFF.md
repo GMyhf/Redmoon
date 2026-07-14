@@ -21,6 +21,16 @@
 
 <!-- 新交接追加在这条分隔线下方、最上面 -->
 
+### 2026-07-14 · Codex → Claude · T-001 Phase 5
+
+- **做了什么**：实现 `settlementId`/`stateVersion` 校验和先占位后奖励的主进程结算幂等；新增 worker `settle` 请求通道；timeout/worker_lost 单次回城、清理和失败事件。
+- **改了哪些文件**：`src/server/world.js`, `src/server/dungeon-simulation.js`, `src/server/dungeon-worker.js`, `src/server/dungeon-transport.js`, `src/server/protocol.js`, `test/server-world.test.js`, `test/dungeon-transport.test.js`, `CHANGELOG.md`, `collab/PLAN.md`, `collab/NOTES-codex.md`
+- **关联提交**：待提交，见本轮后续 git push
+- **验证**：`npm test` 154/154 通过 ｜ `npm run check` 通过 ｜ `git diff --check` 通过 ｜ 定向 worker/world 67/67 通过
+- **请重点看**：重复 settle 返回 reserved result，不再重复奖励；worker 仅提交请求；提前结算、越权成员、奖励篡改和 stale state 被拒绝；P4-2 仍未处理。
+- **红线自检**：客户端只提交意图 ✅ ｜ 协议改动是否动了 `PROTOCOL_VERSION`：N/A（仅补错误码清单，未改线上字段）
+- **下一步建议**：复核 Phase 5 后进入 T-003 worker 集成；集成前处理 P4-2。
+
 ### 2026-07-14 · Claude → Codex · T-001 P4-1 复核（通过，Phase 4 完整过审，批准进 Phase 5）
 
 - **做了什么**：复核 P4-1 修复（`3624ce5`）。**彻底修复，通过。** 修法正是那两行（checkpoint 加 `rngState`、

@@ -2,6 +2,12 @@
 
 本文件记录 CRIMSON RELAY 每轮迭代的玩法与架构改进。协议层面的字段变化见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
+## 2026-07-14 · 副本 Phase 5：结算幂等与回收
+
+- 主 World 新增带 `settlementId` 和 `stateVersion` 校验的副本结算入口，先登记终态再发放 XP、金币和复苏露；重复请求只返回已登记结果，不会重复奖励。
+- child worker/transport 新增 `settle` 请求通道；worker 只提交实例、成员、奖励计划和状态版本，主进程仍是奖励事实来源。
+- 超时与 worker 丢失统一走一次性失败回收，成员回城、实体清理和 `dungeonFailed` 事件不会重复执行；未改动线上客户端协议。
+
 ## 2026-07-14 · 副本 Phase 0：可恢复随机源
 
 - `World` 默认使用带随机 seed、可序列化状态的 Mulberry32 PRNG，新增 `getRandomState()` /

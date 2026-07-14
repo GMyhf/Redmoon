@@ -76,6 +76,11 @@ test("child transport attaches, detaches, ticks and deduplicates input sequences
   const attached = await transport.attach("worker-player", {}, playerState, 0);
   assert.equal(attached.type, "attached");
   assert.equal(attached.snapshot.players.some((player) => player.id === "worker-player"), true);
+  const settlementRequest = await transport.settle("vault-settlement-1");
+  assert.equal(settlementRequest.type, "settle");
+  assert.deepEqual(settlementRequest.members, ["worker-player"]);
+  assert.deepEqual(settlementRequest.reward, openPayload().plan.reward);
+  assert.equal(settlementRequest.stateVersion, 0);
 
   const firstInput = await transport.input("worker-player", 1, { move: { x: 1, y: 0 } });
   assert.equal(firstInput.accepted, true);

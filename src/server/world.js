@@ -752,6 +752,8 @@ export class World {
       remaining: new Set(plan.enemies.map((enemy) => enemy.id)),
       completed: false,
       rewarded: new Set(),
+      stateVersion: 0,
+      settlement: null,
       startedAt: this.time,
       expiresAt: this.time + this.dungeonDuration,
     };
@@ -857,28 +859,66 @@ export class World {
   _expireDungeons() {
     for (const dungeon of [...this.dungeons.values()]) {
       if (this.time < dungeon.expiresAt) continue;
-      const members = [...dungeon.members];
-      for (const memberId of members) this.leaveDungeon(memberId, true);
-      // A malformed/empty instance still gets reclaimed deterministically.
-      if (this.dungeons.has(dungeon.id)) this._destroyDungeon(dungeon);
-      this._emit("dungeonFailed", {
-        dungeonId: dungeon.id,
-        name: dungeon.plan.name,
-        reason: "timeout",
-      }, { players: members });
-      const leader = members.map((memberId) => this.players.get(memberId)).find(Boolean) ?? null;
-      this._audit("dungeon_timed_out", leader, { dungeonId: dungeon.id });
+      this.failDungeon(dungeon.id, "timeout");
     }
   }
 
   _recordDungeonDefeat(dungeon, mob, ownerId) {
     dungeon.remaining.delete(mob.id);
-    if (dungeon.completed || dungeon.remaining.size > 0) return;
+    if (dungeon.settlement || dungeon.remaining.size > 0) return;
+    this.settleDungeon(dungeon.id, {
+      settlementId: `${dungeon.id}:tick-${this.tick}`,
+      members: [...dungeon.members],
+      reward: dungeon.plan.reward,
+      stateVersion: dungeon.stateVersion,
+      playerId: ownerId,
+    });
+  }
+
+  settleDungeon(id, request = {}) {
+    const dungeon = this.dungeons.get(id);
+    if (!dungeon) throw new WorldError("DUNGEON_INSTANCE_UNKNOWN", "Dungeon instance is unknown.");
+    if (dungeon.settlement) return { ...dungeon.settlement, duplicate: true };
+
+    const settlementId = request.settlementId;
+    if (typeof settlementId !== "string" || !settlementId) {
+      throw new WorldError("DUNGEON_SETTLEMENT_INVALID", "A settlement id is required.");
+    }
+    if (request.instanceId !== undefined && request.instanceId !== id) {
+      throw new WorldError("DUNGEON_SETTLEMENT_INVALID", "Settlement instance does not match the dungeon.");
+    }
+    if (request.stateVersion !== undefined
+      && (!Number.isSafeInteger(request.stateVersion) || request.stateVersion !== dungeon.stateVersion)) {
+      throw new WorldError("DUNGEON_STATE_STALE", "Dungeon settlement state is stale.");
+    }
+    if (dungeon.remaining.size > 0) {
+      throw new WorldError("DUNGEON_NOT_COMPLETE", "Dungeon settlement was requested before completion.");
+    }
+    const memberIds = request.members === undefined ? [...dungeon.members] : request.members;
+    if (!Array.isArray(memberIds) || memberIds.some((memberId) => !dungeon.members.has(memberId))) {
+      throw new WorldError("DUNGEON_MEMBER_INVALID", "Settlement contains an unauthorized member.");
+    }
+    const reward = request.reward ?? dungeon.plan.reward;
+    if (!sameDungeonReward(reward, dungeon.plan.reward)) {
+      throw new WorldError("DUNGEON_REWARD_INVALID", "Settlement reward does not match the dungeon plan.");
+    }
+
+    // Reserve the terminal record before mutating players. Retries therefore
+    // cannot enter the reward loop twice, even if a caller reuses a request.
     dungeon.completed = true;
-    for (const memberId of dungeon.members) {
+    dungeon.settlement = {
+      status: "completed",
+      settlementId,
+      instanceId: id,
+      stateVersion: dungeon.stateVersion,
+      rewardedMembers: [],
+      reward: { ...dungeon.plan.reward },
+    };
+    for (const memberId of memberIds) {
       const member = this.players.get(memberId);
       if (!member || member.mapId !== dungeon.plan.mapId || dungeon.rewarded.has(memberId)) continue;
       dungeon.rewarded.add(memberId);
+      dungeon.settlement.rewardedMembers.push(memberId);
       this._grantXp(member, dungeon.plan.reward.xp);
       member.gold += dungeon.plan.reward.gold;
       member.dew += dungeon.plan.reward.dew;
@@ -887,9 +927,41 @@ export class World {
     this._emit("dungeonCompleted", {
       dungeonId: dungeon.id,
       name: dungeon.plan.name,
-      playerId: ownerId,
+      playerId: request.playerId ?? null,
       reward: { ...dungeon.plan.reward },
     }, { players: [...dungeon.members] });
+    return { ...dungeon.settlement, duplicate: false };
+  }
+
+  failDungeon(id, reason = "worker_lost", stateVersion = undefined) {
+    const dungeon = this.dungeons.get(id);
+    if (!dungeon) throw new WorldError("DUNGEON_INSTANCE_UNKNOWN", "Dungeon instance is unknown.");
+    if (dungeon.settlement) return { ...dungeon.settlement, duplicate: true };
+    if (stateVersion !== undefined && stateVersion !== dungeon.stateVersion) {
+      throw new WorldError("DUNGEON_STATE_STALE", "Dungeon failure state is stale.");
+    }
+    const members = [...dungeon.members];
+    dungeon.settlement = {
+      status: "failed",
+      instanceId: id,
+      reason: typeof reason === "string" && reason ? reason : "worker_lost",
+      stateVersion: dungeon.stateVersion,
+      members,
+    };
+    for (const memberId of members) this.leaveDungeon(memberId, true);
+    if (this.dungeons.has(id)) this._destroyDungeon(dungeon);
+    this._emit("dungeonFailed", {
+      dungeonId: id,
+      name: dungeon.plan.name,
+      reason: dungeon.settlement.reason,
+    }, { players: members });
+    const leader = members.map((memberId) => this.players.get(memberId)).find(Boolean) ?? null;
+    this._audit(
+      dungeon.settlement.reason === "timeout" ? "dungeon_timed_out" : "dungeon_failed",
+      leader,
+      { dungeonId: id, reason: dungeon.settlement.reason },
+    );
+    return { ...dungeon.settlement, duplicate: false };
   }
 
   setInput(id, input) {
@@ -3088,6 +3160,13 @@ function emptyInput() {
     c: false,
     f: false,
   };
+}
+
+function sameDungeonReward(left, right) {
+  return left && right
+    && left.xp === right.xp
+    && left.gold === right.gold
+    && left.dew === right.dew;
 }
 
 function resolveSkillSlot(archetype, requestedSkill) {

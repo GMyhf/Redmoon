@@ -72,6 +72,10 @@ export class DungeonWorkerTransport {
     return this._request("restore", { checkpoint }, "restored");
   }
 
+  settle(settlementId) {
+    return this._request("settle", { settlementId }, "settle");
+  }
+
   async recycle(reason = "normal") {
     if (!this.child) return;
     if (!this.opened) {

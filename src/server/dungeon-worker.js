@@ -6,7 +6,7 @@ import {
 import { PROTOCOL_VERSION } from "./definitions.js";
 import { DungeonSimulation } from "./dungeon-simulation.js";
 
-const SUPPORTED_MESSAGES = new Set(["open", "attach", "detach", "input", "tick", "restore", "heartbeat", "recycle"]);
+const SUPPORTED_MESSAGES = new Set(["open", "attach", "detach", "input", "tick", "restore", "settle", "heartbeat", "recycle"]);
 const decoder = new DungeonFrameDecoder(MAX_DUNGEON_FRAME_BYTES);
 let opened = false;
 let identity = null;
@@ -135,6 +135,15 @@ async function handleMessage(message) {
       });
     } catch (error) {
       await sendError(message, "RESTORE_INVALID", error.message, false);
+    }
+    return;
+  }
+
+  if (message.type === "settle") {
+    try {
+      await send({ ...responseFields(message), ...simulation.requestSettlement(message.settlementId) });
+    } catch (error) {
+      await sendError(message, "SETTLE_INVALID", error.message, false);
     }
     return;
   }
