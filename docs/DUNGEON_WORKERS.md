@@ -177,6 +177,14 @@ export async function runDungeonWorker({ transport, rng, clock }) {
 - 结算只奖励当时仍在副本地图且未奖励的成员，离线成员不补领。
 - 验收：重复 settle、主进程重试、worker 重启后重复 settle、成员提前离开和超时测试。
 
+### T-003：主进程集成（已完成）
+
+- `GameServer` 在 `dungeonEnter` 后启动 child worker，attach 所有成员；固定主循环将已校验输入路由到 worker，
+  并把 worker snapshot/events 按原地图/成员作用域回投给客户端。
+- worker 副本实体使用 dungeon mode，不进入主 World 的普通奖励和 respawn 路径；`tickResult.stateVersion` 回写实例，
+  完成请求经 `World.settleDungeon` 幂等结算。主动离开、断线、超时、worker 失败和停服均回收 transport。
+- 集成未改变 server↔client 协议；后续 Phase 6 继续覆盖跨 worker 故障恢复和跨机调度。
+
 ### Phase 6：协议与回归闸门
 
 - 仅在需要浏览器/Godot 携带票据时，才同步修改 `PROTOCOL_VERSION`、`src/server/protocol.js`、`docs/ARCHITECTURE.md` 和 conformance tests。

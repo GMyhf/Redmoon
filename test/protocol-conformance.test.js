@@ -174,6 +174,7 @@ test("every emitted event name is documented, and vice versa", () => {
 test("every thrown error code is documented, and vice versa", () => {
   const thrown = new Set([
     ...[...worldSource.matchAll(/WorldError\(\s*"([A-Z_]+)"/g)].map((match) => match[1]),
+    ...[...serverSource.matchAll(/WorldError\(\s*"([A-Z_]+)"/g)].map((match) => match[1]),
     ...[...serverSource.matchAll(/sendError\(socket,\s*"([A-Z_]+)"/g)].map((match) => match[1]),
   ]);
   const documented = new Set(PROTOCOL.errorCodes);

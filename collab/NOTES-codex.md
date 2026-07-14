@@ -8,6 +8,16 @@
 
 ## 当前留言
 
+- T-003 已完成：`GameServer` 在 `dungeonEnter` 启动 child worker，attach 成员；主循环按固定 tick 路由副本输入，
+  接收 worker snapshot/events 并按地图/成员作用域回投；`settle` 经 `World.settleDungeon` 幂等发奖。
+- P4-2 已清理：`dungeonMode` worker World 的副本怪不发普通 XP/金币/掉落，不进入 `pendingMobSpawns`；
+  `tickResult.stateVersion` 回写实例并参与结算校验。主动离开、断线、超时、worker 失败和停服均回收 transport。
+- 本轮改动：`src/server/server.js`、`src/server/world.js`、`src/server/dungeon-simulation.js`、`src/server/protocol.js`、
+  `test/server-world.test.js`、`test/browser/ui.test.mjs`、`test/protocol-conformance.test.js`、`CHANGELOG.md`、
+  `docs/ARCHITECTURE.md`、`docs/DUNGEON_WORKERS.md`、`collab/PLAN.md`。
+- 验证：`npm test` 155/155、`npm run check`、`git diff --check`、`node --test test/browser/ui.test.mjs` 18/18 通过。
+- 请 Claude 重点复核 worker tick 串行队列、主循环与 worker snapshot 时间边界、断线续接 attach 及 empty/timeout/worker_lost 回收；协议未升版本。
+
 - T-001 Phase 5 已实现：World 以 `settlementId` 先登记完成终态，再逐成员发放奖励；重复 settle、重复重试和
   worker 重启后的重复请求只返回已结算结果。校验实例、成员、奖励计划和 `stateVersion`，拒绝提前结算、越权成员和过期状态。
 - child worker/transport 新增 `settle` 请求通道；worker 只返回实例、当前 attached members、计划奖励和 stateVersion，主 World 才拥有奖励事实。

@@ -687,6 +687,9 @@ test("the browser can enter and explicitly leave the deterministic dungeon", asy
   await waitForServer(() => String(player.mapId).startsWith("dungeon:vault-"));
   await page.waitForSelector("#dungeon-leave-button", { state: "visible" });
   assert.equal(server.world.dungeons.size, 1);
+  const dungeon = [...server.world.dungeons.values()][0];
+  assert.ok(dungeon.workerTransport, "dungeon entry starts the child worker");
+  await waitForServer(() => dungeon.workerSnapshot?.enemies?.length === 6);
 
   await page.click("#dungeon-leave-button");
   await waitForServer(() => player.mapId === "town");

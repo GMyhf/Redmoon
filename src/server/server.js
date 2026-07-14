@@ -36,6 +36,8 @@ import {
 import { BINARY_CODEC, encodeSnapshotBinary } from "./codec.js";
 import { connectPostgresAccountStore } from "./postgres-store.js";
 import { hashSecret } from "./session.js";
+import { createSeededRandom } from "./random.js";
+import { DungeonWorkerTransport } from "./dungeon-transport.js";
 import { sanitizeName, World, WorldError } from "./world.js";
 
 const DEFAULT_PUBLIC_DIR = fileURLToPath(new URL("../../public/", import.meta.url));
@@ -167,6 +169,10 @@ export class GameServer {
         manageDirectory: this.managePersistDirectory,
       }));
     this.world = options.world ?? new World({ ...options.worldOptions, accountStore });
+    this.enableDungeonWorkers = options.enableDungeonWorkers !== false;
+    this.world.dungeonWorkerEnabled = this.enableDungeonWorkers;
+    this._dungeonWorkers = new Map();
+    this._dungeonTickPromise = Promise.resolve();
     this._persistTimer = null;
     this._savePromise = Promise.resolve();
     this._securityQueue = Promise.resolve();
@@ -555,6 +561,8 @@ export class GameServer {
       clearInterval(this._persistTimer);
       this._persistTimer = null;
     }
+    await Promise.allSettled([...this._dungeonWorkers.values()].map((transport) => transport.recycle("server_shutdown")));
+    this._dungeonWorkers.clear();
     const httpClosed = this.httpServer.listening
       ? new Promise((resolve) => {
         this.httpServer.close(() => resolve());
@@ -618,6 +626,7 @@ export class GameServer {
         while (backlog >= interval) {
           backlog -= interval;
           this.world.update(1 / this.tickRate);
+          this._queueDungeonTick(1 / this.tickRate);
           tickAdvanced = true;
           this._runtime.hasSuccessfulTick = true;
           this._runtime.lastTickAt = new Date().toISOString();
@@ -673,6 +682,129 @@ export class GameServer {
       }
     }, interval);
     this._timer.unref?.();
+  }
+
+  _dungeonForPlayer(playerId) {
+    const player = this.world.players.get(playerId);
+    if (!player) return null;
+    return [...this.world.dungeons.values()].find((dungeon) => dungeon.members.has(playerId)) ?? null;
+  }
+
+  async _startDungeonWorker(dungeon) {
+    if (!this.enableDungeonWorkers || dungeon.workerTransport) return;
+    const epoch = (dungeon.workerEpoch ?? 0) + 1;
+    const transport = new DungeonWorkerTransport({
+      instanceId: dungeon.id,
+      workerEpoch: epoch,
+    });
+    try {
+      await transport.open({
+        plan: dungeon.plan,
+        rngState: this.world.getRandomState() ?? createSeededRandom(dungeon.id).getState(),
+        width: this.world.width,
+        height: this.world.height,
+        checkpointIntervalTicks: 20,
+      });
+      dungeon.workerEpoch = epoch;
+      dungeon.workerTransport = transport;
+      this._dungeonWorkers.set(dungeon.id, transport);
+      for (const memberId of dungeon.members) {
+        const player = this.world.players.get(memberId);
+        if (!player) continue;
+        const attached = await transport.attach(memberId, dungeon.ticket, player, player.inputSeq);
+        this.world.applyDungeonWorkerSnapshot(dungeon.id, attached.snapshot, attached.stateVersion);
+      }
+    } catch (error) {
+      await transport.close().catch(() => {});
+      this._dungeonWorkers.delete(dungeon.id);
+      if (this.world.dungeons.has(dungeon.id)) this.world.failDungeon(dungeon.id, "worker_lost");
+      throw new WorldError("DUNGEON_WORKER_UNAVAILABLE", `Dungeon worker failed to start: ${error.message}`);
+    }
+  }
+
+  async _attachDungeonPlayer(dungeon, playerId) {
+    const transport = dungeon?.workerTransport;
+    const player = this.world.players.get(playerId);
+    if (!transport || !player) throw new WorldError("DUNGEON_WORKER_UNAVAILABLE", "Dungeon worker is unavailable.");
+    const attached = await transport.attach(playerId, dungeon.ticket, player, player.inputSeq);
+    this.world.applyDungeonWorkerSnapshot(dungeon.id, attached.snapshot, attached.stateVersion);
+  }
+
+  async _routeDungeonInput(dungeon, playerId, message) {
+    if (!dungeon?.workerTransport) throw new WorldError("DUNGEON_WORKER_UNAVAILABLE", "Dungeon worker is unavailable.");
+    const player = this.world.players.get(playerId);
+    await dungeon.workerTransport.input(playerId, player.inputSeq, message);
+  }
+
+  async _detachDungeonPlayer(dungeon, playerId) {
+    if (!dungeon?.workerTransport) return;
+    await dungeon.workerTransport.detach(playerId, this.world.time + this.world.dungeonDuration).catch(() => {});
+    if (!this.world.dungeons.has(dungeon.id)) await this._recycleDungeonWorker(dungeon.id, "empty");
+  }
+
+  async _recycleDungeonWorker(id, reason = "normal") {
+    const transport = this._dungeonWorkers.get(id);
+    this._dungeonWorkers.delete(id);
+    const dungeon = this.world.dungeons.get(id);
+    if (dungeon) dungeon.workerTransport = null;
+    await transport?.recycle(reason).catch(() => {});
+  }
+
+  _queueDungeonTick(dt) {
+    this._dungeonTickPromise = this._dungeonTickPromise
+      .catch(() => {})
+      .then(() => this._tickDungeonWorkers(dt));
+  }
+
+  async _tickDungeonWorkers(dt) {
+    for (const dungeon of [...this.world.dungeons.values()]) {
+      const transport = dungeon.workerTransport;
+      if (!transport) continue;
+      try {
+        const result = await transport.tick(this.world.tick, dt, this.world.time, []);
+        await this._applyDungeonTickResult(dungeon, result);
+      } catch (error) {
+        await this._handleDungeonWorkerFailure(dungeon, error);
+      }
+    }
+    for (const id of [...this._dungeonWorkers.keys()]) {
+      if (!this.world.dungeons.has(id)) await this._recycleDungeonWorker(id, "instance_closed");
+    }
+  }
+
+  async _applyDungeonTickResult(dungeon, result) {
+    if (!this.world.dungeons.has(dungeon.id)) return;
+    for (const event of result.events ?? []) {
+      if (event.event === "enemyDefeated" && typeof event.enemyId === "string") {
+        dungeon.remaining.delete(event.enemyId);
+      }
+      this.world.events.push({
+        ...event,
+        tick: this.world.tick,
+        serverTime: this.world.time,
+      });
+    }
+    this.world.applyDungeonWorkerSnapshot(dungeon.id, result.snapshot, result.stateVersion);
+    if (dungeon.remaining.size === 0 && !dungeon.settlement) {
+      dungeon.settlementRequestId ??= `${dungeon.id}:state-${result.stateVersion}`;
+      const settlement = await dungeon.workerTransport.settle(dungeon.settlementRequestId);
+      this.world.settleDungeon(dungeon.id, {
+        ...settlement,
+        instanceId: dungeon.id,
+      });
+    }
+  }
+
+  async _handleDungeonWorkerFailure(dungeon, error) {
+    if (this.world.dungeons.has(dungeon.id)) {
+      try {
+        this.world.failDungeon(dungeon.id, "worker_lost", dungeon.stateVersion);
+      } catch (failure) {
+        console.error("Dungeon worker failure handling failed", failure);
+      }
+    }
+    await this._recycleDungeonWorker(dungeon.id, "worker_lost");
+    if (error) console.error("Dungeon worker failed", error);
   }
 
   _startHeartbeat() {
@@ -785,6 +917,7 @@ export class GameServer {
       // still-connected players, never a departed one.
       const cleanup = socket.commandQueue.catch(() => {}).then(async () => {
         const player = this.world.players.get(socket.playerId);
+        const dungeon = this._dungeonForPlayer(socket.playerId);
         const accountKey = player ? this.world._accountKey(player.name) : null;
         this._markAccountsDirty(accountKey ? [accountKey] : []);
         const changed = !this._closed && this.reconnectGraceMs > 0
@@ -793,6 +926,7 @@ export class GameServer {
         if (changed && !this._closed && this.reconnectGraceMs > 0) {
           this._scheduleReconnectExpiry(socket.playerId);
         }
+        if (changed) await this._detachDungeonPlayer(dungeon, socket.playerId);
         if (changed && this._persistenceEnabled() && !this._closed) {
           await this._saveAccounts({ accountKeys: accountKey ? [accountKey] : null });
         }
@@ -869,6 +1003,7 @@ export class GameServer {
 
   async _processCommandNow(socket, message) {
     const commandPlayer = this.world.players.get(socket.playerId);
+    const dungeonBeforeCommand = this._dungeonForPlayer(socket.playerId);
     const commandAccountKey = commandPlayer
       ? this.world._accountKey(commandPlayer.name)
       : null;
@@ -915,6 +1050,17 @@ export class GameServer {
         }
       }
       result ??= this.world.handleCommand(socket.playerId, message);
+      if (message.type === "dungeonEnter") {
+        await this._startDungeonWorker(this._dungeonForPlayer(result.id));
+      } else if (message.type === "input") {
+        const inputDungeon = this._dungeonForPlayer(socket.playerId);
+        if (inputDungeon) await this._routeDungeonInput(inputDungeon, socket.playerId, message);
+      } else if (message.type === "dungeonLeave" || message.type === "leave") {
+        await this._detachDungeonPlayer(dungeonBeforeCommand, socket.playerId);
+      } else if (["join", "start", "recover"].includes(message.type)) {
+        const resumedDungeon = this._dungeonForPlayer(result?.id);
+        if (resumedDungeon?.workerTransport) await this._attachDungeonPlayer(resumedDungeon, result.id);
+      }
       const resultAccountKey = result?.name ? this.world._accountKey(result.name) : null;
       this._markAccountsDirty([commandAccountKey, resultAccountKey].filter(Boolean));
       if (securityCheckpoint && !securityCheckpoint.hadPlayer && result) result.pendingAuth = true;

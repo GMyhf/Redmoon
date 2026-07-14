@@ -1565,6 +1565,20 @@ test("a party leader opens one deterministic dungeon and rewards every member on
   assert.equal(dungeonMobs.length, 6);
   assert.equal([...world.mobs.values()].some((mob) => mob.dungeonId === dungeon.id), false);
   assert.equal(world.getSnapshot(host.id).enemies.length, 6, "extracted dungeon mobs remain visible on their map");
+  dungeon.remaining.clear();
+  throwsCode(
+    () => world.settleDungeon(dungeon.id, { settlementId: "tampered-reward", reward: { xp: 1, gold: 1, dew: 1 } }),
+    "DUNGEON_REWARD_INVALID",
+  );
+  throwsCode(
+    () => world.settleDungeon(dungeon.id, { settlementId: "tampered-member", members: ["intruder"] }),
+    "DUNGEON_MEMBER_INVALID",
+  );
+  throwsCode(
+    () => world.settleDungeon(dungeon.id, { settlementId: "stale-state", stateVersion: 1 }),
+    "DUNGEON_STATE_STALE",
+  );
+  for (const mob of dungeon.plan.enemies) dungeon.remaining.add(mob.id);
   throwsCode(
     () => world.settleDungeon(dungeon.id, { settlementId: "too-early", stateVersion: 0 }),
     "DUNGEON_NOT_COMPLETE",
@@ -1659,6 +1673,33 @@ test("dungeon entry enforces same-map parties, capacity, respawn cleanup, and ti
     "timeout removes all dungeon enemies",
   );
   assert.ok(world.drainEvents().some((event) => event.event === "dungeonFailed"));
+});
+
+test("worker dungeon mode keeps defeated enemies out of normal rewards and respawns", () => {
+  const world = new World({ rng: () => 0.5, dungeonMode: true, spawnMobs: false, mobTargetCount: 0 });
+  const player = world.addPlayer("worker-dungeon-player", {
+    name: "WorkerDelver", archetype: "vanguard",
+  });
+  player.mapId = "dungeon:worker-vault";
+  const xpBefore = player.xp;
+  const goldBefore = player.gold;
+  const mob = world.spawnMob({
+    id: "worker-vault-enemy",
+    dungeonId: "worker-vault",
+    mapId: player.mapId,
+    type: "riftling",
+    x: player.x,
+    y: player.y,
+    level: 10,
+  });
+
+  world._damageMob(mob, 1e12, player.id);
+
+  assert.equal(world.mobs.has(mob.id), false);
+  assert.equal(player.xp, xpBefore);
+  assert.equal(player.gold, goldBefore);
+  assert.equal(world.pendingMobSpawns.some((spawn) => spawn.mapId === player.mapId), false);
+  assert.equal(world.drainEvents().find((event) => event.event === "enemyDefeated").xp, 0);
 });
 
 test("shops refuse buyers standing on another map", () => {

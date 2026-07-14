@@ -197,6 +197,8 @@ export class World {
     this._partySequence = 0;
     this.dungeons = new Map();
     this._dungeonSequence = 0;
+    this.dungeonWorkerEnabled = options.dungeonWorkerEnabled === true;
+    this.dungeonMode = options.dungeonMode === true;
     this.dungeonDuration = positiveNumber(options.dungeonDuration, DEFAULT_DUNGEON_DURATION);
     this.maxDungeons = Math.max(1, nonNegativeInteger(options.maxDungeons, DEFAULT_MAX_DUNGEONS));
     this.dungeonTicketSecret = options.dungeonTicketSecret
@@ -752,6 +754,9 @@ export class World {
       remaining: new Set(plan.enemies.map((enemy) => enemy.id)),
       completed: false,
       rewarded: new Set(),
+      workerManaged: this.dungeonWorkerEnabled,
+      workerSnapshot: null,
+      workerTransport: null,
       stateVersion: 0,
       settlement: null,
       startedAt: this.time,
@@ -766,7 +771,9 @@ export class World {
       member.moveTarget = null;
       member.attackTarget = null;
     }
-    for (const enemy of plan.enemies) this.spawnMob(enemy);
+    if (!this.dungeonWorkerEnabled) {
+      for (const enemy of plan.enemies) this.spawnMob(enemy);
+    }
     this._emit("dungeonStarted", {
       dungeonId: instanceId,
       name: plan.name,
@@ -838,6 +845,32 @@ export class World {
       if (dungeon) return dungeon;
     }
     return { mobs: this.mobs, projectiles: this.projectiles, drops: this.drops };
+  }
+
+  _isWorkerDungeonMap(mapId) {
+    return [...this.dungeons.values()].some((dungeon) => (
+      dungeon.workerManaged && dungeon.plan.mapId === mapId
+    ));
+  }
+
+  applyDungeonWorkerSnapshot(id, snapshot, stateVersion) {
+    const dungeon = this.dungeons.get(id);
+    if (!dungeon || !snapshot || typeof snapshot !== "object") return false;
+    dungeon.workerSnapshot = structuredClone(snapshot);
+    if (Number.isSafeInteger(stateVersion) && stateVersion >= dungeon.stateVersion) {
+      dungeon.stateVersion = stateVersion;
+    }
+    for (const state of snapshot.players ?? []) {
+      const player = this.players.get(state.id);
+      if (!player) continue;
+      for (const field of ["x", "y", "hp", "mp", "alive", "running", "facing", "mapId"]) {
+        if (state[field] !== undefined) player[field] = structuredClone(state[field]);
+      }
+      if (Number.isSafeInteger(state.inputSeq)) player.inputSeq = state.inputSeq;
+      if (Number.isFinite(state.respawnIn)) player.respawnAvailableAt = this.time + state.respawnIn;
+      player.attackTarget = state.targetId ?? null;
+    }
+    return true;
   }
 
   _findMob(id) {
@@ -1697,7 +1730,7 @@ export class World {
       ? []
       : this.zones.filter((zone) => zone.id === mapId).map((zone) => ({ ...zone }));
     const entityStore = this._entityStoreForMap(mapId);
-    const enemies = [...entityStore.mobs.values()].filter(visible).map((mob) => ({
+    const localEnemies = [...entityStore.mobs.values()].filter(visible).map((mob) => ({
       id: mob.id,
       type: mob.type,
       name: mob.name,
@@ -1720,7 +1753,7 @@ export class World {
       alive: true,
     }));
 
-    const drops = [...entityStore.drops.values()].filter(visible).map((drop) => ({
+    const localDrops = [...entityStore.drops.values()].filter(visible).map((drop) => ({
       id: drop.id,
       x: round(drop.x),
       y: round(drop.y),
@@ -1730,7 +1763,7 @@ export class World {
       name: drop.item.name,
     }));
 
-    const projectiles = [...entityStore.projectiles.values()].filter((projectile) => {
+    const localProjectiles = [...entityStore.projectiles.values()].filter((projectile) => {
       if (!mapId) return true;
       return projectile.mapId === mapId;
     }).map((projectile) => ({
@@ -1745,6 +1778,10 @@ export class World {
       color: projectile.color,
     }));
 
+    const workerSnapshot = dungeon?.workerSnapshot;
+    const enemies = workerSnapshot?.enemies ?? localEnemies;
+    const projectiles = workerSnapshot?.projectiles ?? localProjectiles;
+    const drops = workerSnapshot?.drops ?? localDrops;
     const onlinePlayersByName = this._onlinePlayersByName();
     return {
       world: {
@@ -1873,7 +1910,7 @@ export class World {
       throw new WorldError("DUPLICATE_ENTITY", `A mob with id ${mob.id} already exists.`);
     }
     const store = mob.dungeonId ? this.dungeons.get(mob.dungeonId) : null;
-    if (mob.dungeonId && !store) {
+    if (mob.dungeonId && !store && !this.dungeonMode) {
       throw new TypeError(`Dungeon ${mob.dungeonId} does not exist.`);
     }
     (store?.mobs ?? this.mobs).set(mob.id, mob);
@@ -1933,6 +1970,7 @@ export class World {
   _updatePlayers(dt) {
     for (const player of this.players.values()) {
       if (player.pendingAuth || player.connectionDetached || !player.alive) continue;
+      if (this._isWorkerDungeonMap(player.mapId)) continue;
       const manualMove = player.input.move.x !== 0 || player.input.move.y !== 0;
       const runFactor = player.input.sprint && manualMove ? SPRINT_FACTOR : 1;
       player.running = runFactor > 1;
@@ -2349,7 +2387,8 @@ export class World {
       if (other.attackTarget === mob.id) other.attackTarget = null;
     }
     const dungeon = mob.dungeonId ? this.dungeons.get(mob.dungeonId) : null;
-    if (mob.boss && !dungeon) {
+    const workerDungeon = this.dungeonMode && Boolean(mob.dungeonId);
+    if (mob.boss && !dungeon && !workerDungeon) {
       this._dropBossHoard(mob);
       this._bossRespawns.set(mob.id, this.time + BOSS_RESPAWN_DELAY);
       this._emit("bossSlain", {
@@ -2360,11 +2399,11 @@ export class World {
         x: round(mob.x),
         y: round(mob.y),
       });
-    } else if (!dungeon) {
+    } else if (!dungeon && !workerDungeon) {
       this._maybeDropLoot(mob);
     }
     const player = this.players.get(ownerId);
-    if (player && !dungeon) {
+    if (player && !dungeon && !workerDungeon) {
       this._grantXp(player, mob.xp);
       player.will += mob.level;
       player.gold += Math.round(GOLD_PER_MOB_LEVEL * mob.level * (mob.boss ? 10 : mob.elite ? 2 : 1));
@@ -2386,12 +2425,12 @@ export class World {
       }
     }
     if (dungeon) this._recordDungeonDefeat(dungeon, mob, ownerId);
-    else this.pendingMobSpawns.push({ at: this.time + MOB_RESPAWN_DELAY, mapId: mob.mapId });
+    else if (!workerDungeon) this.pendingMobSpawns.push({ at: this.time + MOB_RESPAWN_DELAY, mapId: mob.mapId });
     this._emit("enemyDefeated", {
       enemyId: mob.id,
       enemyType: mob.type,
       playerId: ownerId,
-      xp: dungeon ? 0 : mob.xp,
+      xp: dungeon || workerDungeon ? 0 : mob.xp,
       x: round(mob.x),
       y: round(mob.y),
     }, { mapId: mob.mapId });

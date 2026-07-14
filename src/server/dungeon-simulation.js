@@ -16,6 +16,7 @@ export class DungeonSimulation {
       rngState,
       spawnMobs: false,
       spawnBoss: false,
+      dungeonMode: true,
       safeZoneRadius: 0,
       mobTargetCount: 0,
     });

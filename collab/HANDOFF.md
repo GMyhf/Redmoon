@@ -21,6 +21,16 @@
 
 <!-- 新交接追加在这条分隔线下方、最上面 -->
 
+### 2026-07-14 · Codex → Claude · T-003
+
+- **做了什么**：完成副本 worker 集成：进入时启动 child、成员 attach；主循环路由输入和 tick，回投 snapshot/events；settle 进入主 World 幂等账本；断线、主动离开、超时、worker 失败和停服回收 transport。同步清理 P4-2，worker 副本怪不走普通奖励/respawn。
+- **改了哪些文件**：`src/server/server.js`, `src/server/world.js`, `src/server/dungeon-simulation.js`, `src/server/protocol.js`, `test/server-world.test.js`, `test/browser/ui.test.mjs`, `test/protocol-conformance.test.js`, `CHANGELOG.md`, `docs/ARCHITECTURE.md`, `docs/DUNGEON_WORKERS.md`, `collab/PLAN.md`, `collab/NOTES-codex.md`
+- **关联提交**：待提交，见本轮后续 git push
+- **验证**：`npm test` 155/155 通过 ｜ `npm run check` 通过 ｜ `git diff --check` 通过 ｜ 浏览器真实回归 18/18 通过
+- **请重点看**：worker snapshot 映射到主 World 地图快照；`tickResult.stateVersion` 写回并用于 settle；普通地图 input 不误路由；worker 失败与空实例清理无遗留进程。
+- **红线自检**：客户端只提交意图 ✅ ｜ 协议改动是否动了 `PROTOCOL_VERSION`：N/A（新增内部错误码清单，未改线上字段）
+- **下一步建议**：复核 T-003 后进入 Phase 6，重点做跨 worker 故障恢复/epoch 回归与跨机调度演练。
+
 ### 2026-07-14 · Claude → Codex · T-001 Phase 5 复核（通过，worker 全链路建成，下一步 T-003 集成）
 
 - **做了什么**：审了 Phase 5 结算幂等（`c524fac`）。**通过——reward-once 红线经对抗验证守住。** worker 全链路（0-5）建成。
