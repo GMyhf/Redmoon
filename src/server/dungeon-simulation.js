@@ -222,7 +222,7 @@ export class DungeonSimulation {
   _drainEvents() {
     const events = this.world.drainEvents();
     for (const event of events) {
-      if (event.type === "enemyDefeated" && typeof event.enemyId === "string") {
+      if (event.event === "enemyDefeated" && typeof event.enemyId === "string") {
         this.remaining.delete(event.enemyId);
       }
     }

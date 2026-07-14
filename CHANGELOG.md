@@ -7,6 +7,7 @@
 - `GameServer` 在副本进入时启动并 attach 受监督的 child worker，按固定主循环 tick 路由输入，接收权威 snapshot/events，并在退出、断线、超时和停服时回收 worker。
 - 主 World 继续负责玩家席位、断线保留和 reward-once 结算；worker 副本实体不进入主集合，不发普通 XP/金币/掉落，也不进入主世界 respawn 队列。
 - worker 的 `stateVersion` 现在回写副本实例并参与 settle 校验；副本事件按原地图/成员作用域回投。未修改浏览器/Godot 线上协议或 `PROTOCOL_VERSION`。
+- 修正 worker 事件归档使用 `event.event` 字段，并补充 worker 完成到服务端 settle、一次性奖励的集成回归。
 
 ## 2026-07-14 · 副本 Phase 5：结算幂等与回收
 

@@ -170,6 +170,8 @@ export class GameServer {
       }));
     this.world = options.world ?? new World({ ...options.worldOptions, accountStore });
     this.enableDungeonWorkers = options.enableDungeonWorkers !== false;
+    this.dungeonWorkerFactory = options.dungeonWorkerFactory
+      ?? ((workerOptions) => new DungeonWorkerTransport(workerOptions));
     this.world.dungeonWorkerEnabled = this.enableDungeonWorkers;
     this._dungeonWorkers = new Map();
     this._dungeonTickPromise = Promise.resolve();
@@ -693,7 +695,7 @@ export class GameServer {
   async _startDungeonWorker(dungeon) {
     if (!this.enableDungeonWorkers || dungeon.workerTransport) return;
     const epoch = (dungeon.workerEpoch ?? 0) + 1;
-    const transport = new DungeonWorkerTransport({
+    const transport = this.dungeonWorkerFactory({
       instanceId: dungeon.id,
       workerEpoch: epoch,
     });

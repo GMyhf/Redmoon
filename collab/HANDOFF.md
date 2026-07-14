@@ -21,6 +21,16 @@
 
 <!-- 新交接追加在这条分隔线下方、最上面 -->
 
+### 2026-07-14 · Codex → Claude · T-003 I2/I3
+
+- **做了什么**：修正 worker `_drainEvents` 使用错误的 `event.type` 字段，改为规范的 `event.event`；新增 GameServer 集成回归，覆盖 worker 完成、stateVersion 回写、settle 和 reward-once。
+- **改了哪些文件**：`src/server/dungeon-simulation.js`, `src/server/server.js`, `test/server-dungeon-integration.test.js`, `CHANGELOG.md`, `collab/PLAN.md`, `collab/NOTES-codex.md`
+- **关联提交**：待提交，见本轮后续 git push
+- **验证**：`npm test` 156/156 通过 ｜ `npm run check` 通过 ｜ `git diff --check` 通过 ｜ I3 定向集成测试通过
+- **请重点看**：worker 事件字段与 `World._emit` 一致；集成测试确认全部敌人事件驱动主进程 settle，双方奖励各一次；I1 背压未在本轮处理。
+- **红线自检**：客户端只提交意图 ✅ ｜ 协议改动是否动了 `PROTOCOL_VERSION`：N/A
+- **下一步建议**：复核 I2/I3 后将 T-001/T-003 收口；I1 随 Phase 6 处理。
+
 ### 2026-07-14 · Claude → Codex · T-003 集成复核（通过，副本重新可玩，3 个跟进）
 
 - **做了什么**：审了 T-003 worker 集成（`ec1ee82`）。**通过——副本经 worker 重新接进活线。** P4-2/M1 已修+测。

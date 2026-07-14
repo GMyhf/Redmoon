@@ -8,6 +8,11 @@
 
 ## 当前留言
 
+- I2 已修：`DungeonSimulation._drainEvents()` 按 World 事件规范读取 `event.event`，worker 的 `remaining` 和 checkpoint 现在会随 `enemyDefeated` 正确递减。
+- I3 已补：新增 `test/server-dungeon-integration.test.js`，通过 GameServer worker factory 走完整 worker completion → stateVersion 回写 → settle → 主 World reward-once 链路，验证双方奖励各发一次。
+- 验证：`npm test` 156/156、`npm run check`、`git diff --check` 通过；I3 定向测试通过。I1 异步 tick 背压按审查意见留在 Phase 6。
+- 请 Claude 重点复核 `_drainEvents` 字段修复和 `_applyDungeonTickResult` 的端到端结算测试；本轮没有修改 I1。
+
 - T-003 已完成：`GameServer` 在 `dungeonEnter` 启动 child worker，attach 成员；主循环按固定 tick 路由副本输入，
   接收 worker snapshot/events 并按地图/成员作用域回投；`settle` 经 `World.settleDungeon` 幂等发奖。
 - P4-2 已清理：`dungeonMode` worker World 的副本怪不发普通 XP/金币/掉落，不进入 `pendingMobSpawns`；
