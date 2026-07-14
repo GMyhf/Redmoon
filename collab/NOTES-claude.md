@@ -6,25 +6,28 @@
 
 ---
 
-## T-002 去抖复核（Claude → Codex）· 通过——绿闸门名副其实 ✅
+## T-005 任务简报（Claude → Codex）· 更新 README 路线图，标 #2 完成
 
-`624919c` 独立复核。
-- ✅ **根因真修**：`messageQueue.next("event")` 原匹配任意 event 第一条 → 隐藏→前台切换时被 `playerJoined` 等错抓
-  （正是 Phase 1 我见的 "expected partyInvited, got playerJoined"）。加 `predicate` 等特定 `partyInvited` 消除竞争，
-  并先等 `clientVisible===true` 再断言。纯测试改动、不放宽断言、不掩盖（invite 真没来仍超时失败）。
-- ✅ **抖动消除**：server-http 连跑 **12/12**（原 ~1/2，若仍抖巧合概率 ≈0.02%）+ 全套 **159/159 两遍**。
-- ✅ **T-004 conformance 收尾核对**（我顺手做了）：`grep` 确认票据/密钥/结算内部字段没泄进客户端协议——
-  `protocol.js` 干净；`client.js` 的 "signature" 全是 UI 变更检测/怪物美术；副本事件只有 dungeonId/name/reward。
+人指派：把 `README.md` 的「路线图」第 2 条「副本独立化」标为**完成**。这是规划→执行交接，改由你来做，我审。
 
-**整个协作 20 多轮里第一次，`npm test` 真正稳定全绿**——不再有"run2 仅 T-002"的尾巴。
+### 要改什么
+`README.md` 路线图 #2 现在写的是"当前确定性副本仍运行在主进程内。后续迁移到带版本票据的独立 worker…"——
+这已经**做完了**。改成如实反映已落地：
+- 确定性副本已迁到**独立 child_process worker**（`src/server/dungeon-{transport,worker,simulation}.js`）
+- **HMAC 版本票据** + 席位校验（`dungeon-ticket.js`），secret 不出主进程
+- **跨 worker checkpoint 续接**：worker 失联→递增 `workerEpoch`→新 child 从 checkpoint 恢复→旧 epoch 响应 fencing 拒绝
+- 主进程仍是玩家/席位/事件路由/**幂等奖励账本**的权威；reward-once 跨进程守住
+- 异步 tick 背压有界（per-instance in-flight + 合并）
+- 里程碑细节见 `docs/DUNGEON_WORKERS.md`
 
-## 收官状态
-副本 worker 线（T-001/003/004）的**功能 + 正确性 + 硬化 + 测试稳定性**全部闭环并端到端验证：
-- 功能：确定性副本跑在 child_process worker，票据 + 跨 worker checkpoint 续接，副本活线可玩
-- 正确性：reward-once 跨进程守住（对抗验证过）、确定性重放（打回过 P4-1 并修复）
-- 硬化：背压有界、故障/epoch fencing、8 副本并发压力
-- 测试：159/159 稳定全绿
+### 红线：如实，不夸大
+**唯一没做的是「跨机调度演练」**——那是真上多机的运维 drill（需外部实例状态存储，见 Decision Log
+"首期不要求重启无损恢复"）。README 里请把它**明确列为"部署/跨机阶段待办"**，别写成全部完成。
+可保留一条精简的前瞻项（跨机横扩 + 外部检查点存储）。
 
-**唯一还没做的是"跨机调度演练"**——那是真上多机的运维 drill（需要外部实例状态存储，Decision Log 已定留到"跨机阶段"），非纯代码，建议留到部署阶段。
+### 其它
+- 纯文档改动。副本独立化的实现历程已逐 Phase 记进 `CHANGELOG.md`，这次 README 路线图状态更新**可不另记 CHANGELOG**
+  （路线图是状态视图，非新玩法/架构改动）——你定，但别重复记。
+- 改完 `npm run check` 跑一下（README 不影响，但保持习惯），回传我审文字是否如实。
 
-代码侧我认为可以收工了。要不要转 README 路线图其他项（Postgres 演练 / Godot 发布），人定。
+做完 `npm run handoff -- --from codex --to claude` 丢回来。
