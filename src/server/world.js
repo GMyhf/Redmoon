@@ -543,8 +543,10 @@ export class World {
     if (String(player.mapId).startsWith("dungeon:")) this.leaveDungeon(id, true);
     this.leaveParty(id, true);
     this.players.delete(id);
-    for (const [projectileId, projectile] of this.projectiles) {
-      if (projectile.ownerId === id) this.projectiles.delete(projectileId);
+    for (const store of this._entityStores()) {
+      for (const [projectileId, projectile] of store.projectiles) {
+        if (projectile.ownerId === id) store.projectiles.delete(projectileId);
+      }
     }
     this._emit("playerLeft", { playerId: id, name: player.name });
     return true;
@@ -743,6 +745,9 @@ export class World {
       id: instanceId,
       plan,
       ticket,
+      mobs: new Map(),
+      projectiles: new Map(),
+      drops: new Map(),
       members: new Set(members.map((member) => member.id)),
       remaining: new Set(plan.enemies.map((enemy) => enemy.id)),
       completed: false,
@@ -772,17 +777,11 @@ export class World {
   }
 
   validateDungeonTicket(ticket, memberId) {
-    let validated;
-    try {
-      validated = validateTicket(ticket, {
-        secret: this.dungeonTicketSecret,
-        protocolVersion: PROTOCOL_VERSION,
-        now: this._dungeonTicketTime(),
-      });
-    } catch (error) {
-      if (error instanceof DungeonTicketError) throw error;
-      throw error;
-    }
+    const validated = validateTicket(ticket, {
+      secret: this.dungeonTicketSecret,
+      protocolVersion: PROTOCOL_VERSION,
+      now: this._dungeonTicketTime(),
+    });
     const dungeon = this.dungeons.get(validated.instanceId);
     if (!dungeon) throw new DungeonTicketError("TICKET_INSTANCE_UNKNOWN", "Dungeon ticket instance is unknown.");
     if (!dungeon.members.has(memberId) || !validated.party.includes(memberId)) {
@@ -817,16 +816,42 @@ export class World {
   }
 
   _destroyDungeon(dungeon) {
+    for (const dropId of [...dungeon.drops.keys()]) this._removeDrop(dropId);
     this.dungeons.delete(dungeon.id);
-    for (const [mobId, mob] of this.mobs) {
-      if (mob.dungeonId === dungeon.id) this.mobs.delete(mobId);
+    dungeon.mobs.clear();
+    dungeon.projectiles.clear();
+    dungeon.drops.clear();
+  }
+
+  _entityStores() {
+    return [
+      { mobs: this.mobs, projectiles: this.projectiles, drops: this.drops },
+      ...[...this.dungeons.values()].map((dungeon) => dungeon),
+    ];
+  }
+
+  _entityStoreForMap(mapId) {
+    if (typeof mapId === "string" && mapId.startsWith("dungeon:")) {
+      const dungeon = [...this.dungeons.values()].find((entry) => entry.plan.mapId === mapId);
+      if (dungeon) return dungeon;
     }
-    for (const [projectileId, projectile] of this.projectiles) {
-      if (projectile.mapId === dungeon.plan.mapId) this.projectiles.delete(projectileId);
+    return { mobs: this.mobs, projectiles: this.projectiles, drops: this.drops };
+  }
+
+  _findMob(id) {
+    for (const store of this._entityStores()) {
+      const mob = store.mobs.get(id);
+      if (mob) return { mob, store };
     }
-    for (const [dropId, drop] of this.drops) {
-      if (drop.mapId === dungeon.plan.mapId) this._removeDrop(dropId);
+    return null;
+  }
+
+  _findDrop(id) {
+    for (const store of this._entityStores()) {
+      const drop = store.drops.get(id);
+      if (drop) return { drop, store };
     }
+    return null;
   }
 
   _expireDungeons() {
@@ -1599,7 +1624,8 @@ export class World {
     const mapZones = mapId === "town"
       ? []
       : this.zones.filter((zone) => zone.id === mapId).map((zone) => ({ ...zone }));
-    const enemies = [...this.mobs.values()].filter(visible).map((mob) => ({
+    const entityStore = this._entityStoreForMap(mapId);
+    const enemies = [...entityStore.mobs.values()].filter(visible).map((mob) => ({
       id: mob.id,
       type: mob.type,
       name: mob.name,
@@ -1622,7 +1648,7 @@ export class World {
       alive: true,
     }));
 
-    const drops = [...this.drops.values()].filter(visible).map((drop) => ({
+    const drops = [...entityStore.drops.values()].filter(visible).map((drop) => ({
       id: drop.id,
       x: round(drop.x),
       y: round(drop.y),
@@ -1632,7 +1658,7 @@ export class World {
       name: drop.item.name,
     }));
 
-    const projectiles = [...this.projectiles.values()].filter((projectile) => {
+    const projectiles = [...entityStore.projectiles.values()].filter((projectile) => {
       if (!mapId) return true;
       return projectile.mapId === mapId;
     }).map((projectile) => ({
@@ -1771,10 +1797,14 @@ export class World {
       attackTargetId: null,
       attackResolveAt: 0,
     };
-    if (this.mobs.has(mob.id)) {
+    if (this._findMob(mob.id)) {
       throw new WorldError("DUPLICATE_ENTITY", `A mob with id ${mob.id} already exists.`);
     }
-    this.mobs.set(mob.id, mob);
+    const store = mob.dungeonId ? this.dungeons.get(mob.dungeonId) : null;
+    if (mob.dungeonId && !store) {
+      throw new TypeError(`Dungeon ${mob.dungeonId} does not exist.`);
+    }
+    (store?.mobs ?? this.mobs).set(mob.id, mob);
     return mob;
   }
 
@@ -1871,7 +1901,7 @@ export class World {
   _advanceAutoOrders(player, speed, dt) {
     let destination = null;
     if (player.attackTarget) {
-      const mob = this.mobs.get(player.attackTarget);
+      const mob = this._findMob(player.attackTarget)?.mob;
       if (!mob || mob.mapId !== player.mapId) {
         player.attackTarget = null;
       } else {
@@ -2204,7 +2234,7 @@ export class World {
       hitIds: new Set(),
       color: options.color,
     };
-    this.projectiles.set(id, projectile);
+    this._entityStoreForMap(player.mapId).projectiles.set(id, projectile);
     return projectile;
   }
 
@@ -2236,12 +2266,13 @@ export class World {
   }
 
   _damageMob(mob, damage, ownerId) {
-    if (!this.mobs.has(mob.id)) return;
+    const found = this._findMob(mob.id);
+    if (!found || found.mob !== mob) return;
     const mitigation = Math.min(0.55, mob.defense / (mob.defense + 80));
     mob.hp -= Math.max(1, damage * (1 - mitigation));
     if (mob.hp > 0) return;
 
-    this.mobs.delete(mob.id);
+    found.store.mobs.delete(mob.id);
     for (const other of this.players.values()) {
       if (other.attackTarget === mob.id) other.attackTarget = null;
     }
@@ -2743,7 +2774,7 @@ export class World {
 
   _placeDrop(x, y, item, mapId = "town") {
     const id = `drop-${++this._dropSequence}`;
-    this.drops.set(id, {
+    this._entityStoreForMap(mapId).drops.set(id, {
       id,
       mapId,
       x: clamp(x, PLAYER_RADIUS, this.width - PLAYER_RADIUS),
@@ -2767,9 +2798,10 @@ export class World {
   }
 
   _removeDrop(id) {
-    const drop = this.drops.get(id);
-    if (!drop) return false;
-    this.drops.delete(id);
+    const found = this._findDrop(id);
+    if (!found) return false;
+    const { drop, store } = found;
+    store.drops.delete(id);
     if (drop.item.dropClass && Object.hasOwn(this.specialDropActive, drop.item.dropClass)) {
       this.specialDropActive[drop.item.dropClass] = Math.max(0, this.specialDropActive[drop.item.dropClass] - 1);
     }
@@ -2847,7 +2879,7 @@ export class World {
     const range = ARCHETYPES[player.archetype].primary.range * 0.95;
     let nearest = null;
     let nearestSquared = range * range;
-    for (const mob of this.mobs.values()) {
+    for (const mob of this._entityStoreForMap(player.mapId).mobs.values()) {
       if (mob.mapId !== player.mapId) continue;
       const dx = mob.x - player.x;
       const dy = mob.y - player.y;

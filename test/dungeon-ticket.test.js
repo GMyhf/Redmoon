@@ -93,6 +93,14 @@ test("World binds tickets to one instance, party seat, and sequence", () => {
     expiresAt: 10_000,
   }));
   ticketError(() => world.validateDungeonTicket(unknownInstanceTicket, host.id), "TICKET_INSTANCE_UNKNOWN");
+  const staleSequenceTicket = createDungeonTicket(ticketOptions({
+    instanceId: ticket.instanceId,
+    party: [host.id, guest.id],
+    issuedAt: 0,
+    expiresAt: 10_000,
+    sequence: ticket.sequence + 1,
+  }));
+  ticketError(() => world.validateDungeonTicket(staleSequenceTicket, host.id), "TICKET_SEQUENCE_INVALID");
   assert.throws(
     () => world.enterDungeon(host.id),
     (error) => error instanceof WorldError && error.code === "DUNGEON_ACTIVE",

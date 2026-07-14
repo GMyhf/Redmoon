@@ -1561,8 +1561,27 @@ test("a party leader opens one deterministic dungeon and rewards every member on
   assert.equal(host.mapId, guest.mapId);
   assert.match(host.mapId, /^dungeon:vault-/);
   const dungeon = [...world.dungeons.values()][0];
-  const dungeonMobs = [...world.mobs.values()].filter((mob) => mob.dungeonId === dungeon.id);
+  const dungeonMobs = [...dungeon.mobs.values()];
   assert.equal(dungeonMobs.length, 6);
+  assert.equal([...world.mobs.values()].some((mob) => mob.dungeonId === dungeon.id), false);
+  assert.equal(world.getSnapshot(host.id).enemies.length, 6, "extracted dungeon mobs remain visible on their map");
+  const positions = dungeonMobs.map((mob) => ({ id: mob.id, x: mob.x, y: mob.y }));
+  world.update(0.25);
+  assert.deepEqual(
+    dungeonMobs.map((mob) => ({ id: mob.id, x: mob.x, y: mob.y })),
+    positions,
+    "the main World tick does not advance extracted dungeon mobs",
+  );
+  const projectile = world._spawnProjectile(host, { x: 1, y: 0 }, {
+    damage: 1,
+    speed: 100,
+    range: 100,
+  });
+  assert.equal(dungeon.projectiles.has(projectile.id), true);
+  assert.equal(world.projectiles.has(projectile.id), false);
+  const dungeonDropId = world._placeDrop(host.x, host.y, junkItem("dungeon-drop"), dungeon.plan.mapId);
+  assert.equal(dungeon.drops.has(dungeonDropId), true);
+  assert.equal(world.drops.has(dungeonDropId), false);
 
   for (const mob of dungeonMobs) world._damageMob(mob, 1e12, host.id);
   assert.equal(dungeon.completed, true);

@@ -146,7 +146,13 @@ export async function runDungeonWorker({ transport, rng, clock }) {
 - `dungeonEnter` 生成票据并建立 `instanceId -> workerEpoch` 路由；重复票据不能创建第二个实例。
 - 验收：合法票据、旧版本、篡改、过期、错误成员、重放和容量满测试；暂不改变线上客户端协议，除非明确升级。
 
-### Phase 3：tick、attach、detach 和状态投递
+### Phase 3a：副本实体抽离（已完成）
+
+- 每个实例拥有独立的 `mobs`、`projectiles`、`drops` 集合；副本实体不再进入主 `World` 的共享集合。
+- 主 World 的普通地图维护、tick、投射物和掉落循环只遍历主集合；副本地图快照从实例集合读取，保持线上实体形状兼容。
+- 验收：副本进入后主集合没有 `dungeonId` 实体，`world.update(dt)` 不移动副本敌人，副本投射物/掉落进入实例集合并在销毁时清理。
+
+### Phase 3b：tick、attach、detach 和状态投递
 
 - 将副本输入按 `playerId` 路由到 child process；主进程先做身份/席位校验，worker 只执行批准意图。
 - 实现 `tick`/`tickResult`，`seq` 单调去重；同一意图即使同时出现在 `input` 流和 tick 批次中也只能应用一次。

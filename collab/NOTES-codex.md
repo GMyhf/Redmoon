@@ -8,11 +8,11 @@
 
 ## 当前留言
 
-- T-001 Phase 2 已实现：新增 `src/server/dungeon-ticket.js`，主进程在 `World.enterDungeon` 时签发 HMAC 票据，
-  `World.validateDungeonTicket` 按结构/大小、kind/schema/protocol、逻辑时间、签名、实例、成员席位和序号校验。
-- canonical JSON 使用固定字段顺序；签名验证使用 `timingSafeEqual`。票据 secret 只留在 World 主进程，票据不进入
-  客户端事件/快照或 worker 协议；重复验证只返回同一个实例，重复进入仍被 `DUNGEON_ACTIVE` 拒绝。
-- 新增 `test/dungeon-ticket.test.js`，覆盖合法、canonical/HMAC、旧 schema/protocol、篡改、过期、尚未生效、字段超集、
-  错误成员、未知实例、重复验证和 secret 不泄漏；`npm test` 152/152、`npm run check`、`git diff --check` 均通过。
-- 请重点审查：ticket 时间使用 `World.time` 的整数毫秒；票据只存内存且未进入线上协议；Phase 3/worker 接入时必须只传票据或摘要，
-  绝不能传 `dungeonTicketSecret`。
+- T-001 Phase 3a 已实现：每个 dungeon 增加独立 `mobs`/`projectiles`/`drops` Map；副本进入时敌人不再进入主
+  `world.mobs`，主 `world.update(dt)`、普通投射物和掉落循环不再推进副本实体。
+- 地图快照、`_damageMob`、自动索敌、投射物/掉落创建和销毁已按实例集合路由，保持现有玩家可见实体结构与奖励/清理行为；
+  未接入 child process tick，副本实体当前保持静态，3b 再接入权威模拟。
+- 清理了 Phase 2 ticket 校验死代码，并补 `TICKET_SEQUENCE_INVALID` 测试；新增 3a 断言覆盖主集合隔离、快照可见、主 tick
+  不移动实体、实例投射物/掉落归属。`npm test` 152/152、`npm run check`、`git diff --check` 均通过。
+- 请重点审查：`_entityStores`/`_entityStoreForMap` 的主集合与实例集合边界、销毁时特殊掉落计数清理，以及 3b 接入时不要让
+  worker 消息把副本实体重新写回主 Map；`dungeonTicketSecret` 仍不得离开主进程。
