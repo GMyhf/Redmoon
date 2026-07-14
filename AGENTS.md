@@ -2,6 +2,14 @@
 
 > **CRIMSON RELAY** 是一个 Node.js 20+ 的在线动作 RPG 原型。浏览器只负责输入与渲染；服务端是唯一的游戏事实来源。
 
+## 与 Claude 协作
+
+本仓库已搭好 Claude ⇄ Codex 迭代脚手架，事实源在 `collab/`——每次开工先读它。
+改代码**之前**先在 `collab/PLAN.md` 认领任务（状态改 `In progress`、署名 `Codex`），避免两个 agent 改同一段。
+交接时：把「做了什么 / 哪里没把握 / 请重点看哪」写进 `collab/NOTES-codex.md`，
+按模板往 `collab/HANDOFF.md` 追加一条，再跑 `npm run handoff -- --from codex --to claude` 生成 review 包。
+Claude 的回话看 `collab/NOTES-claude.md`。完整流程见 `collab/README.md`。
+
 ## Directory Map
 
 | Path | Purpose |

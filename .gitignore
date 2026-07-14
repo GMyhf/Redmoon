@@ -14,3 +14,6 @@ tmp/
 .claude/
 
 data/
+
+# collab: 生成的 review 包不入库（活文档 PLAN/HANDOFF/NOTES 要提交）
+collab/review-input.md

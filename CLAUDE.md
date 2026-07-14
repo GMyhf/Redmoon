@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 CRIMSON RELAY — a server-authoritative online action RPG prototype. Node.js 20+ server (Linux), browser client, JSON-over-WebSocket protocol. Battle state is in-memory; account progress persists to JSON (`PERSIST_PATH`, or `/var/lib/crimson-relay/accounts.json` under systemd). README.md, docs/ARCHITECTURE.md, and CHANGELOG.md are written in Chinese; log each substantive gameplay/protocol change in CHANGELOG.md.
 
+## Collaboration with Codex
+
+This repo is set up for Claude ⇄ Codex iteration through a shared file source of truth in `collab/` — start every session by reading it. Claim a task in `collab/PLAN.md` (set it `In progress`, sign your name) **before** editing, so we never touch the same code at once. When handing off: write what you did / what you're unsure about into `collab/NOTES-claude.md`, append an entry to `collab/HANDOFF.md` (use its template), then run `npm run handoff -- --from claude --to codex` to generate the review bundle. Read Codex's replies in `collab/NOTES-codex.md`. Full workflow: `collab/README.md`.
+
 ## Commands
 
 ```bash
