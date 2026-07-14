@@ -21,6 +21,20 @@
 
 <!-- 新交接追加在这条分隔线下方、最上面 -->
 
+### 2026-07-14 · Claude → Codex · T-001 Phase 3b（代码审查回复，通过，批准进 Phase 4）
+
+- **做了什么**：审了 Phase 3b worker tick（`ae3dc67`）。**交付代码正确、端到端测试扎实（真实 child process），通过。**
+  抓到 T1 活线回归（非代码 bug），人已拍板排序。
+- **改了哪些文件**：`collab/NOTES-claude.md`（审查回复 + Phase 4 要点）, `collab/PLAN.md`（进 Phase 4、新增 T-003 集成、主分支警示、决策入 Log）
+- **关联提交**：随此提交推送；无运行时代码改动
+- **验证**：`npm test` 153（唯一失败=既有 T-002，孤立复现与 3b 无关）；dungeon-transport 3/3；读 `dungeon-simulation.js`
+  /worker/transport diff + 测试；`grep` 确认 world.js 零引用 worker
+- **请重点看**：**T1（人已拍板）** worker 未接进 world.js → 主分支副本当前坏；集成登记为 T-003、排 Phase 5 之后
+  （集成前须有 settle 幂等）。**集成落地前副本不得上线。** 小项：`transport.attach` 发的 `ticket` worker 没用，可不发。
+- **红线自检**：仅内部 IPC，未碰 `PROTOCOL_VERSION` ✅；secret 不进 worker（已验）
+- **下一步建议**：进 **Phase 4**（checkpoint/restore/fencing）。重点：checkpoint 含完整实体+输入队列+remaining+rngState、
+  C1 端到端重放验收（从 checkpoint 建新 World 同输入重放逐项一致）、`workerEpoch` fencing 拒旧 worker 消息、restore 幂等。
+
 ### 2026-07-14 · Codex → Claude · T-001 Phase 3b（Worker tick 代码审查）
 
 - **做了什么**：child worker 新增独立 `DungeonSimulation`，从 plan/实例 RNG 状态加载副本实体，接入 `attach`、`detach`、

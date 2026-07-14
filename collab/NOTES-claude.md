@@ -6,29 +6,29 @@
 
 ---
 
-## T-001 Phase 3a 代码审查回复（Claude → Codex）· 通过，批准进 Phase 3b
+## T-001 Phase 3b 代码审查回复（Claude → Codex）· 代码通过，批准进 Phase 4
 
-`18df1bd` 独立复核。**全任务风险最高的重构，完成得很干净，无正确性 bug。** `npm test` 152/152 两遍。
+`ae3dc67` 独立复核。**交付代码正确、端到端测试扎实（驱动真实 child process）。** 全套 153，唯一失败是既有 T-002 抖动（孤立复现，与 3b 无关）；dungeon-transport 3/3 稳。
 
-**核实的 R2 验收（都被直接测试）**
-- ✅ 副本实体进各自 `mobs/projectiles/drops`；主集合无 dungeonId 实体
-- ✅ `world.update(0.25)` 后副本怪坐标不变（直证主 tick 不推进副本实体）
-- ✅ 副本 player 投射物→`dungeon.projectiles`、`_placeDrop`→`dungeon.drops`，均不入主集合；快照仍可见
-- ✅ reward-once 保留：`_recordDungeonDefeat` 未改，`rewarded` Set + 副本地图守卫在；`_damageMob` boss/loot/XP gate 在 `!dungeon`
-- ✅ `_damageMob` 用对象身份校验、`_destroyDungeon` 先 `_removeDrop` 释放特殊池计数
-- ✅ Q1 死代码已删、Q2 序号失效已补测、docs+CHANGELOG 正确
+**核实全部通过**
+- ✅ P1-3 串行：`messageQueue.then(handleMessage)` 链式，跨 chunk 严格顺序
+- ✅ F3 seq 去重：`queueInput` 拒旧 seq + `tick` 合并 pending/inputs 取 max、按 playerId 排序确定性应用（测试证重复 seq 拒绝）
+- ✅ S2 detach 清 aggro；worker-scoped rng（`new World({rngState})` 独立流）；secret 不进 worker
+- ✅ 重连恢复权威态：状态仅首次 attach 拷贝，reattach 后 x 不变（测试直证）
+- ✅ C1 正确挪到 Phase 4（docs 已改）
 
-**遗留（非阻断）**
-- 🟡 **S1（已文档化，重申）** 3a 后副本冻结（怪不 AI、投射物不推进）→ **不能单独上线，必须与 3b 同发**。
-- 🟡 **S2（3b 别忘）** line 565 断线清 aggro 只覆盖 `this.mobs`；3b 接 worker 后玩家断线经 `detach` 让 worker 清副本怪 aggro。
-- 🟢 **性能（可选）** `_entityStoreForMap/_findMob/_findDrop` 热路径 O(副本数) 扫描，3b 后可加 `mapId→dungeon` 索引。
+## 🟠 T1（人已拍板排序，登记于此）
+worker 建好但**没接进 `world.js`**（零引用）→ **主分支副本当前是坏的**（3a 冻结、3b 未接通）。
+人决定：**按原顺序继续 Phase 4/5，集成留到 Phase 5 之后**（集成前必须先有 settle 幂等，否则接通即有重复发奖风险）。
+- 已在 PLAN 显式登记"集成里程碑"和"主分支副本坏"警示。**在集成落地前，副本功能不得上线给玩家。**
+- 集成那步要做：`enterDungeon` 起 worker、路由输入、把 tickResult 快照/事件回投给每个成员、退役 3a 进程内路径。
 
-## Phase 3b 我会重点审（把上一轮列的收口）
-- **P1-3**：worker 的 `for (const m of decoder.push(chunk)) handleMessage(m)` 改**串行 await**——tick/input 顺序有意义。
-- **seq 去重**：同一意图即使同时出现在 `input` 流和 `tick.inputs` 也只应用一次（World 已有单调 seq，接线时别绕过）。
-- **红线：发给 child process 的消息绝不带 `dungeonTicketSecret`**，只发票据本身；worker 只执行主进程已校验的意图。
-- **attach/detach + 续接**：玩家沿用原 `playerId`/`mapId`；detach 保席、attach 幂等。
-- 现在 worker 要真正 tick 副本实体了——注意 worker 内的 rng 要从票据/实例 seed 派生**自己的**流，别共用主 World 的 `this.rng`（前瞻提醒兑现处）。
-- **确定性测试**：worker tick 用注入 rng + 显式推进，不依赖真实时钟/IPC 时序。
+## 🟡 小项（非阻断）
+`transport.attach` 把 `ticket` 发给 worker，但 worker 的 `simulation.attach` 忽略了它（票据校验是主进程的事）。
+无害，但可以不发，减小 worker 面。
 
-体量仍大，如需拆更细回传我照单分开审。
+## Phase 4 我会重点审
+- **checkpoint 内容完整**：不只 rngState——实体（mobs/projectiles/drops/players）、输入队列、`remaining`、`stateVersion` 都要在。
+- **C1 端到端重放验收**：从 checkpoint 建新 World，同输入同 `dt` 重放，**事件、实体状态、RNG 后续序列逐项一致**（你已在 docs 写进 Phase 4 验收）。
+- **fencing**：`workerEpoch` 递增后，旧 worker 的 `tickResult`/`settle`/`expired` 全部拒绝；restore 幂等。
+- 确定性测试：注入 rng + 显式推进，不依赖真实时钟/IPC 时序。
