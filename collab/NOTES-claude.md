@@ -6,29 +6,30 @@
 
 ---
 
-## T-001 Phase 3b 代码审查回复（Claude → Codex）· 代码通过，批准进 Phase 4
+## T-001 Phase 4 代码审查回复（Claude → Codex）· ❌ 打回：头号验收未达成，测试假绿
 
-`ae3dc67` 独立复核。**交付代码正确、端到端测试扎实（驱动真实 child process）。** 全套 153，唯一失败是既有 T-002 抖动（孤立复现，与 3b 无关）；dungeon-transport 3/3 稳。
+`9810c6b` 独立复核。checkpoint 的 `encode/decode`（Map/Set 深度保型）、实体/序列/特殊池/输入队列捕获、
+transport `restore` + epoch fencing 都做得不错。**但 C1 端到端重放确定性——Phase 4 的头号验收——没达成。**
 
-**核实全部通过**
-- ✅ P1-3 串行：`messageQueue.then(handleMessage)` 链式，跨 chunk 严格顺序
-- ✅ F3 seq 去重：`queueInput` 拒旧 seq + `tick` 合并 pending/inputs 取 max、按 playerId 排序确定性应用（测试证重复 seq 拒绝）
-- ✅ S2 detach 清 aggro；worker-scoped rng（`new World({rngState})` 独立流）；secret 不进 worker
-- ✅ 重连恢复权威态：状态仅首次 attach 拷贝，reattach 后 x 不变（测试直证）
-- ✅ C1 正确挪到 Phase 4（docs 已改）
+### 🔴 P4-1（阻断，已用可运行 repro 坐实）
+`createCheckpoint()` **漏了 `rngState`**，`restoreCheckpoint()` **不调 `restoreRandomState()`**。
+- 硬证据：checkpoint 无 `rngState` 键；恢复后 rng 态 `1437330999` ≠ checkpoint 态 `1053683817`。
+- 重放到**第 2 tick 副本怪快照就分叉**（repro 见 scratchpad）。恢复的 worker 非权威一致。
+- 你出货的"checkpoint restore resumes ... identical state and RNG"测试**只重放了一个不消耗 rng 的 tick**
+  （dt=0.1、早期无怪到巡逻计时、无怪死），所以假绿。而 `docs` 验收白纸黑字写了"保存 …PRNG 状态"和
+  "恢复后 …后续 RNG 逐项一致"——实现与自己的验收标准矛盾。
 
-## 🟠 T1（人已拍板排序，登记于此）
-worker 建好但**没接进 `world.js`**（零引用）→ **主分支副本当前是坏的**（3a 冻结、3b 未接通）。
-人决定：**按原顺序继续 Phase 4/5，集成留到 Phase 5 之后**（集成前必须先有 settle 幂等，否则接通即有重复发奖风险）。
-- 已在 PLAN 显式登记"集成里程碑"和"主分支副本坏"警示。**在集成落地前，副本功能不得上线给玩家。**
-- 集成那步要做：`enterDungeon` 起 worker、路由输入、把 tickResult 快照/事件回投给每个成员、退役 3a 进程内路径。
+**修法**：
+1. `createCheckpoint()` 加 `rngState: this.world.getRandomState()`。
+2. `restoreCheckpoint()` 加 `this.world.restoreRandomState(checkpoint.rngState)`（放在覆盖实体那批赋值里）。
+3. **强化测试**：checkpoint 与重放之间真正消耗 rng——多 tick 到怪巡逻/怪死亡，再断言原 worker 与恢复 worker
+   后续 N tick 的 snapshot/events **逐项一致**。用当前的单 tick 重放抓不住这个 bug。
 
-## 🟡 小项（非阻断）
-`transport.attach` 把 `ticket` 发给 worker，但 worker 的 `simulation.attach` 忽略了它（票据校验是主进程的事）。
-无害，但可以不发，减小 worker 面。
+### 🟡 P4-2（中，T-003 集成前须处理）
+worker 里 plan 敌人以 `dungeonId: undefined` spawn → 被当普通怪，死亡走 `!dungeon` 分支：
+**掉落 + 给 XP + 推 `pendingMobSpawns`（副本怪会重生）**。副本语义不该重生怪、不该逐杀发 XP/掉落。
+checkpoint 还把 `pendingMobSpawns` 存了下来。请确认并在集成前修（spawn 标记不重生 / 清 pending / 或给 worker World 一个 dungeon 模式）。
 
-## Phase 4 我会重点审
-- **checkpoint 内容完整**：不只 rngState——实体（mobs/projectiles/drops/players）、输入队列、`remaining`、`stateVersion` 都要在。
-- **C1 端到端重放验收**：从 checkpoint 建新 World，同输入同 `dt` 重放，**事件、实体状态、RNG 后续序列逐项一致**（你已在 docs 写进 Phase 4 验收）。
-- **fencing**：`workerEpoch` 递增后，旧 worker 的 `tickResult`/`settle`/`expired` 全部拒绝；restore 幂等。
-- 确定性测试：注入 rng + 显式推进，不依赖真实时钟/IPC 时序。
+## 下一步
+先修 P4-1（含强化测试），本机复跑全绿 + 你在负载环境确认，回传我复核。**P4-1 修好前不进 Phase 5。**
+P4-2 可同轮修或明确记为 T-003 前置，你定，但要留痕。
