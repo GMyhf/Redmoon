@@ -9,8 +9,8 @@
 | ID | 任务 | 状态 | 负责 | 关联提交 / 备注 |
 | --- | --- | --- | --- | --- |
 | T-000 | 搭建 Claude⇄Codex 协作脚手架（本目录 + handoff 脚本） | Done | Claude | `2f5b370` / `13d3ffd` |
-| T-001 | 副本独立化：把主进程内确定性副本迁到带版本票据的独立 worker，支持跨 worker 断线续接（README 路线图 #2） | Review | Codex | Phase 0/1/2/3a/3b + **Phase 4（`9810c6b`）含 P4-1 修复（`3624ce5`）已过审**；**Phase 5 已实现结算幂等与失败回收**。🟡 P4-2（worker 副本怪重生/发 XP）仍挂账，**T-003 前必修**。里程碑见 `docs/DUNGEON_WORKERS.md` |
-| T-003 | **副本 worker 集成**：把 worker 接进 `world.js.enterDungeon`（起 worker、路由输入、回投 tickResult 快照/事件给成员、退役 3a 进程内路径） | Backlog | - | 人拍板排在 **Phase 5 之后**（集成前须先有 settle 幂等，否则接通即有重复发奖风险） |
+| T-001 | 副本独立化：把主进程内确定性副本迁到带版本票据的独立 worker，支持跨 worker 断线续接（README 路线图 #2） | In progress | Codex | Phase 0-4 + **Phase 5 结算幂等（`c524fac`）已过审**（reward-once 经对抗验证：重复/篡改/越权/stale 均不双发）。**Worker 全链路（Phase 0-5）建成。** 剩 T-003 集成 + Phase 6 协议闸门。里程碑见 `docs/DUNGEON_WORKERS.md` |
+| T-003 | **副本 worker 集成**：把 worker 接进 `world.js.enterDungeon`（起 worker、路由输入、回投 tickResult 快照/事件给成员、`settle` 经 `settleDungeon` 幂等发奖、退役 3a 进程内路径） | Backlog | - | 前置（集成前必做）：**P4-2**（worker 副本怪重生/发 XP）、**M1**（settle 三守卫负路径测试）、接 `tickResult.stateVersion`→`dungeon.stateVersion`。落地即撤"主分支副本坏"警示 |
 | T-002 | 去抖：`server-http` "隐藏浏览器…partyInvited"用例在 `199bfc5` 前即 ~1/2 随机失败，污染"npm test 全绿"闸门 | Backlog | - | Phase 1 审查中发现的既有问题，与 T-001 无关，建议独立修 |
 
 > ⚠️ **主分支副本当前为坏**：3a 冻结了进程内副本实体、3b 的 worker 尚未接通（T-003）。**在 T-003 集成落地前，副本功能不得上线给玩家。**
