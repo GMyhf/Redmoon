@@ -1,7 +1,12 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 
 import { rollItem, rollPotion, rollRelic, rollSpecialDrop } from "./loot.js";
 import { createDungeonPlan } from "./dungeon.js";
+import {
+  createDungeonTicket,
+  DungeonTicketError,
+  validateDungeonTicket as validateTicket,
+} from "./dungeon-ticket.js";
 import { createRandomFromState, createSeededRandom } from "./random.js";
 import {
   createRecoveryCode,
@@ -194,6 +199,8 @@ export class World {
     this._dungeonSequence = 0;
     this.dungeonDuration = positiveNumber(options.dungeonDuration, DEFAULT_DUNGEON_DURATION);
     this.maxDungeons = Math.max(1, nonNegativeInteger(options.maxDungeons, DEFAULT_MAX_DUNGEONS));
+    this.dungeonTicketSecret = options.dungeonTicketSecret
+      ?? randomBytes(32).toString("base64url");
     this.shops = SHOPS.map((shop) => ({
       ...shop,
       mapId: "town",
@@ -723,9 +730,19 @@ export class World {
     const averageLevel = Math.round(members.reduce((sum, member) => sum + member.level, 0) / members.length);
     const instanceId = `vault-${++this._dungeonSequence}`;
     const plan = createDungeonPlan({ instanceId, averageLevel, width: this.width, height: this.height });
+    const ticket = createDungeonTicket({
+      secret: this.dungeonTicketSecret,
+      instanceId,
+      protocolVersion: PROTOCOL_VERSION,
+      averageLevel,
+      party: members.map((member) => member.id),
+      issuedAt: this._dungeonTicketTime(),
+      expiresAt: this._dungeonTicketTime() + Math.round(this.dungeonDuration * 1000),
+    });
     const dungeon = {
       id: instanceId,
       plan,
+      ticket,
       members: new Set(members.map((member) => member.id)),
       remaining: new Set(plan.enemies.map((enemy) => enemy.id)),
       completed: false,
@@ -752,6 +769,33 @@ export class World {
     }, { players: [...dungeon.members] });
     this._audit("dungeon_started", player, { dungeonId: instanceId, members: members.length, level: plan.level });
     return player;
+  }
+
+  validateDungeonTicket(ticket, memberId) {
+    let validated;
+    try {
+      validated = validateTicket(ticket, {
+        secret: this.dungeonTicketSecret,
+        protocolVersion: PROTOCOL_VERSION,
+        now: this._dungeonTicketTime(),
+      });
+    } catch (error) {
+      if (error instanceof DungeonTicketError) throw error;
+      throw error;
+    }
+    const dungeon = this.dungeons.get(validated.instanceId);
+    if (!dungeon) throw new DungeonTicketError("TICKET_INSTANCE_UNKNOWN", "Dungeon ticket instance is unknown.");
+    if (!dungeon.members.has(memberId) || !validated.party.includes(memberId)) {
+      throw new DungeonTicketError("TICKET_MEMBER_UNAUTHORIZED", "Player is not authorized for this dungeon seat.");
+    }
+    if (dungeon.ticket.sequence !== validated.sequence) {
+      throw new DungeonTicketError("TICKET_SEQUENCE_INVALID", "Dungeon ticket sequence is no longer current.");
+    }
+    return dungeon;
+  }
+
+  _dungeonTicketTime() {
+    return Math.round(this.time * 1000);
   }
 
   leaveDungeon(id, silent = false) {
