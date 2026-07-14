@@ -349,17 +349,25 @@ test("a hidden browser pauses world traffic and receives a fresh snapshot when v
   hostSocket.send(JSON.stringify({
     type: "partyInvite", target: backgroundSnapshot.selfId,
   }));
-  const hiddenInvite = await messages.next("event");
+  const hiddenInvite = await messages.next(
+    "event",
+    1500,
+    (event) => event.event === "partyInvited",
+  );
   assert.equal(hiddenInvite.event, "partyInvited");
   assert.equal(hiddenInvite.fromName, "Inviter");
 
   socket.send(JSON.stringify({ type: "clientState", visible: true }));
-  await messages.next("snapshot");
-  const reminder = await messages.next("event");
   for (let attempt = 0; attempt < 50 && serverSocket.clientVisible !== true; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   assert.equal(serverSocket.clientVisible, true);
+  await messages.next("snapshot");
+  const reminder = await messages.next(
+    "event",
+    1500,
+    (event) => event.event === "partyInvited",
+  );
   assert.equal(reminder.event, "partyInvited", "foregrounding repeats the still-valid invite");
   assert.equal(reminder.from, hiddenInvite.from);
 });
@@ -461,7 +469,9 @@ function messageQueue(socket) {
   const waiters = [];
   socket.on("message", (data) => {
     const message = JSON.parse(data.toString());
-    const matchingIndex = waiters.findIndex((waiter) => waiter.type === message.type);
+    const matchingIndex = waiters.findIndex((waiter) => (
+      waiter.type === message.type && waiter.predicate(message)
+    ));
     if (matchingIndex >= 0) {
       const [waiter] = waiters.splice(matchingIndex, 1);
       clearTimeout(waiter.timer);
@@ -472,11 +482,13 @@ function messageQueue(socket) {
   });
 
   return {
-    next(type, timeout = 1500) {
-      const matchingIndex = buffered.findIndex((message) => message.type === type);
+    next(type, timeout = 1500, predicate = () => true) {
+      const matchingIndex = buffered.findIndex((message) => (
+        message.type === type && predicate(message)
+      ));
       if (matchingIndex >= 0) return Promise.resolve(buffered.splice(matchingIndex, 1)[0]);
       return new Promise((resolve, reject) => {
-        const waiter = { type, resolve, reject, timer: null };
+        const waiter = { type, predicate, resolve, reject, timer: null };
         waiter.timer = setTimeout(() => {
           const index = waiters.indexOf(waiter);
           if (index >= 0) waiters.splice(index, 1);

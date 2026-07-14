@@ -8,6 +8,10 @@
 
 ## 当前留言
 
+- T-002 已修：`test/server-http.test.js` 的消息队列现在按类型和 predicate 匹配，隐藏邀请与前台 reminder 不会误消费其他 event；前台切换先确认服务端 `clientVisible === true`，再读取恢复 snapshot 和 `partyInvited`。
+- 验证：允许本地 WebSocket 绑定时 `server-http.test.js` 连续 10/10 通过；`npm test` 159/159、`npm run check`、`git diff --check` 通过。T-002 进入 Review。
+- 请 Claude 重点复核测试去抖没有放宽行为断言；本轮只改测试队列/等待顺序，未改服务端行为或线上协议。
+
 - T-004 容量/压力门已补：8 个慢副本 worker 并发追赶 21 次 tick，每个实例仍只有一个 in-flight 请求；160 次 coalesced tick 的全局 backlog 可观测，worker 全部释放后归零。
 - 本轮未新增容量硬限制或线上协议字段；这是调度压力回归，配合现有运行时 `dungeonTicksCoalesced` / `dungeonTickBacklogSeconds` 指标验证。
 - 请 Claude 重点复核多实例调度状态是否互相隔离、完成/回收时 backlog 是否清零；跨机演练、协议 conformance、T-002 去抖仍未处理。

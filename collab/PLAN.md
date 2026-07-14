@@ -12,7 +12,7 @@
 | T-001 | 副本独立化：把主进程内确定性副本迁到带版本票据的独立 worker，支持跨 worker 断线续接（README 路线图 #2） | **Done** | Codex | Phase 0-5 + T-003 集成全过审。确定性副本已迁 child_process worker、票据 + 跨 worker checkpoint 续接、reward-once 跨进程守住、副本活线可玩。里程碑见 `docs/DUNGEON_WORKERS.md` |
 | T-003 | **副本 worker 集成**：把 worker 接进 `world.js.enterDungeon`（起 worker、路由输入、回投 tickResult 快照/事件给成员、`settle` 经 `settleDungeon` 幂等发奖、退役 3a 进程内路径） | **Done** | Codex | 集成过审（`ec1ee82`）；I2 事件字段修复 + I3 端到端 completion→settle 测试（`51af89f`，3/3 确定性）复核通过 |
 | T-004 | **Phase 6 · 副本 worker 硬化**：I1 异步 tick 链背压、跨 worker 故障/epoch 端到端回归、跨机调度演练、协议 conformance、容量/压力门 | In progress | Codex | **核心硬化过审**：I1 背压（`c7b159f`）+ 跨 worker 故障/epoch（`ddaa655`）+ 8 副本并发压力门（`5afe047`，coalesced=160/backlog=8 算术核对、无遗留 resolver）。**剩余（收尾）**：协议 conformance 收尾核对、T-002 去抖（建议下一块）、跨机演练（留运维阶段） |
-| T-002 | 去抖：`server-http` "隐藏浏览器…partyInvited"用例在 `199bfc5` 前即 ~1/2 随机失败，污染"npm test 全绿"闸门 | Backlog | - | Phase 1 审查中发现的既有问题，与 T-001 无关，建议独立修（可并入 T-004） |
+| T-002 | 去抖：`server-http` "隐藏浏览器…partyInvited"用例在 `199bfc5` 前即 ~1/2 随机失败，污染"npm test 全绿"闸门 | Review | Codex | `server-http` 消息队列支持 predicate；前台切换先等待服务端 visible 状态，再筛选恢复快照/`partyInvited`。独立连续 10/10，通过全量 159/159 |
 
 > ✅ 副本 worker 已通过 T-003 接入 `GameServer`；主进程仍是玩家、席位、事件路由与奖励账本的权威来源。
 
