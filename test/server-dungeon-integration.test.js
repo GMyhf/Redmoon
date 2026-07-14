@@ -52,6 +52,29 @@ class ScriptedDungeonWorker {
   async detach() {}
 }
 
+class SlowDungeonWorker extends ScriptedDungeonWorker {
+  constructor(options) {
+    super(options);
+    this.tickCalls = 0;
+    this.tickResolvers = [];
+  }
+
+  tick() {
+    this.tickCalls += 1;
+    return new Promise((resolve) => this.tickResolvers.push(resolve));
+  }
+
+  releaseTick() {
+    const resolve = this.tickResolvers.shift();
+    resolve?.({
+      type: "tickResult",
+      stateVersion: this.tickCalls,
+      events: [],
+      snapshot: { players: [], enemies: [], projectiles: [], drops: [] },
+    });
+  }
+}
+
 test("worker completion flows through server settlement and rewards once", async () => {
   let worker;
   const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
@@ -91,5 +114,49 @@ test("worker completion flows through server settlement and rewards once", async
   assert.equal(host.gold, hostGold + dungeon.plan.reward.gold);
   assert.equal(guest.gold, guestGold + dungeon.plan.reward.gold);
   assert.equal(world.drainEvents().filter((event) => event.event === "dungeonCompleted").length, 1);
+  await server.close();
+});
+
+test("slow dungeon workers coalesce ticks instead of growing an async chain", async () => {
+  let worker;
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
+  const server = createGameServer({
+    persistPath: "",
+    world,
+    dungeonWorkerFactory: (options) => {
+      worker = new SlowDungeonWorker(options);
+      return worker;
+    },
+  });
+  const player = world.addPlayer("backpressure-player", {
+    name: "BackpressureDelver", archetype: "vanguard",
+  });
+  const socket = {
+    playerId: player.id,
+    readyState: 1,
+    clientVisible: true,
+    deliveryPaused: false,
+    backpressureSkips: 0,
+    bufferedAmount: 0,
+    send() {},
+  };
+  await server._processCommandNow(socket, { type: "dungeonEnter" });
+  const dungeon = [...world.dungeons.values()][0];
+
+  server._queueDungeonTick(0.05);
+  for (let index = 0; index < 100; index += 1) server._queueDungeonTick(0.05);
+  const state = server._dungeonTickStates.get(dungeon.id);
+  assert.equal(worker.tickCalls, 1);
+  assert.equal(state.inFlight, true);
+  assert.ok(Math.abs(state.pendingDt - 5) < 1e-9);
+  assert.equal(server._runtime.dungeonTicksCoalesced, 100);
+
+  worker.releaseTick();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(worker.tickCalls, 2, "one coalesced tick follows the in-flight request");
+  assert.equal(state.pendingDt, 0);
+  worker.releaseTick();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(server._runtime.dungeonTickBacklogSeconds, 0);
   await server.close();
 });

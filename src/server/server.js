@@ -174,7 +174,7 @@ export class GameServer {
       ?? ((workerOptions) => new DungeonWorkerTransport(workerOptions));
     this.world.dungeonWorkerEnabled = this.enableDungeonWorkers;
     this._dungeonWorkers = new Map();
-    this._dungeonTickPromise = Promise.resolve();
+    this._dungeonTickStates = new Map();
     this._persistTimer = null;
     this._savePromise = Promise.resolve();
     this._securityQueue = Promise.resolve();
@@ -228,6 +228,8 @@ export class GameServer {
       consecutiveTickErrors: 0,
       totalTickErrors: 0,
       lastTickError: null,
+      dungeonTicksCoalesced: 0,
+      dungeonTickBacklogSeconds: 0,
       eventLoopLagMs: new SampleWindow(RUNTIME_SAMPLE_LIMIT),
       snapshotDurationMs: new SampleWindow(RUNTIME_SAMPLE_LIMIT),
       snapshotsSent: 0,
@@ -747,31 +749,72 @@ export class GameServer {
   async _recycleDungeonWorker(id, reason = "normal") {
     const transport = this._dungeonWorkers.get(id);
     this._dungeonWorkers.delete(id);
+    this._dungeonTickStates.delete(id);
     const dungeon = this.world.dungeons.get(id);
     if (dungeon) dungeon.workerTransport = null;
     await transport?.recycle(reason).catch(() => {});
   }
 
   _queueDungeonTick(dt) {
-    this._dungeonTickPromise = this._dungeonTickPromise
-      .catch(() => {})
-      .then(() => this._tickDungeonWorkers(dt));
+    for (const dungeon of this.world.dungeons.values()) {
+      if (!dungeon.workerTransport) continue;
+      const state = this._dungeonTickStates.get(dungeon.id) ?? {
+        inFlight: false,
+        pendingDt: 0,
+        latestTickId: this.world.tick,
+        latestServerTime: this.world.time,
+      };
+      state.pendingDt += dt;
+      state.latestTickId = this.world.tick;
+      state.latestServerTime = this.world.time;
+      if (state.inFlight) this._runtime.dungeonTicksCoalesced += 1;
+      this._dungeonTickStates.set(dungeon.id, state);
+      if (!state.inFlight) this._startDungeonTick(dungeon, state);
+    }
+    this._updateDungeonTickBacklogMetric();
+  }
+
+  _startDungeonTick(dungeon, state) {
+    state.inFlight = true;
+    const dt = state.pendingDt;
+    const tickId = state.latestTickId;
+    const serverTime = state.latestServerTime;
+    state.pendingDt = 0;
+    this._updateDungeonTickBacklogMetric();
+    this._tickDungeonWorker(dungeon, dt, tickId, serverTime).finally(() => {
+      state.inFlight = false;
+      if (!this.world.dungeons.has(dungeon.id)) {
+        this._dungeonTickStates.delete(dungeon.id);
+      } else if (state.pendingDt > 0 && dungeon.workerTransport) {
+        this._startDungeonTick(dungeon, state);
+      }
+      this._updateDungeonTickBacklogMetric();
+    });
+  }
+
+  async _tickDungeonWorker(dungeon, dt, tickId = this.world.tick, serverTime = this.world.time) {
+    const transport = dungeon.workerTransport;
+    if (!transport) return;
+    try {
+      const result = await transport.tick(tickId, dt, serverTime, []);
+      await this._applyDungeonTickResult(dungeon, result);
+    } catch (error) {
+      await this._handleDungeonWorkerFailure(dungeon, error);
+    }
   }
 
   async _tickDungeonWorkers(dt) {
     for (const dungeon of [...this.world.dungeons.values()]) {
-      const transport = dungeon.workerTransport;
-      if (!transport) continue;
-      try {
-        const result = await transport.tick(this.world.tick, dt, this.world.time, []);
-        await this._applyDungeonTickResult(dungeon, result);
-      } catch (error) {
-        await this._handleDungeonWorkerFailure(dungeon, error);
-      }
+      if (dungeon.workerTransport) await this._tickDungeonWorker(dungeon, dt);
     }
     for (const id of [...this._dungeonWorkers.keys()]) {
       if (!this.world.dungeons.has(id)) await this._recycleDungeonWorker(id, "instance_closed");
     }
+  }
+
+  _updateDungeonTickBacklogMetric() {
+    this._runtime.dungeonTickBacklogSeconds = [...this._dungeonTickStates.values()]
+      .reduce((total, state) => total + state.pendingDt, 0);
   }
 
   async _applyDungeonTickResult(dungeon, result) {
@@ -1404,6 +1447,8 @@ export class GameServer {
       consecutiveTickErrors: this._runtime.consecutiveTickErrors,
       totalTickErrors: this._runtime.totalTickErrors,
       lastTickError: this._runtime.lastTickError,
+      dungeonTicksCoalesced: this._runtime.dungeonTicksCoalesced,
+      dungeonTickBacklogSeconds: this._runtime.dungeonTickBacklogSeconds,
       memory: {
         rssBytes: memory.rss,
         heapUsedBytes: memory.heapUsed,

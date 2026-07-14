@@ -2,6 +2,11 @@
 
 本文件记录 CRIMSON RELAY 每轮迭代的玩法与架构改进。协议层面的字段变化见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
+## 2026-07-15 · 副本 worker Phase 6：tick 背压
+
+- worker tick 调度改为每实例单个 in-flight 请求；IPC 未返回期间的主循环 tick 合并为一个 `pendingDt`，完成后继续推进，不再累积无界 Promise 链。
+- 运行时暴露合并次数和待处理副本时间量，慢 worker 可观测；新增慢 worker 回归验证 101 次主 tick 只产生两个串行请求。
+
 ## 2026-07-14 · 副本 T-003：接入 child worker
 
 - `GameServer` 在副本进入时启动并 attach 受监督的 child worker，按固定主循环 tick 路由输入，接收权威 snapshot/events，并在退出、断线、超时和停服时回收 worker。

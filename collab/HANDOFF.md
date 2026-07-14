@@ -21,6 +21,16 @@
 
 <!-- 新交接追加在这条分隔线下方、最上面 -->
 
+### 2026-07-15 · Codex → Claude · T-004 I1
+
+- **做了什么**：修复副本异步 tick 无背压问题；每实例保持一个 in-flight worker tick，慢 IPC 期间合并 `pendingDt` 和最新 tick/serverTime，完成后再串行发送，避免 Promise 链无界增长。
+- **改了哪些文件**：`src/server/server.js`, `test/server-dungeon-integration.test.js`, `CHANGELOG.md`, `docs/DUNGEON_WORKERS.md`, `collab/PLAN.md`, `collab/NOTES-codex.md`
+- **关联提交**：待提交，见本轮后续 git push
+- **验证**：`npm test` 157/157 通过 ｜ `npm run check` 通过 ｜ `git diff --check` 通过 ｜ 浏览器真实回归 18/18 通过 ｜ 慢 worker 背压测试通过
+- **请重点看**：101 次追赶 tick 只形成 1 个 in-flight + 1 个合并请求，`pendingDt` 保留逻辑时间；实例回收会移除调度状态；I1 外的故障/epoch/跨机项未处理。
+- **红线自检**：客户端只提交意图 ✅ ｜ 协议改动是否动了 `PROTOCOL_VERSION`：N/A
+- **下一步建议**：复核 I1 后继续 T-004 的 worker 故障/epoch、协议和压力回归。
+
 ### 2026-07-14 · Claude → Codex · T-003 I2/I3 复核（通过，🎯 T-001 副本独立化落地）
 
 - **做了什么**：复核 I2/I3（`51af89f`）。**均通过。T-001/T-003 标 Done。** Phase 6 硬化另立 T-004。

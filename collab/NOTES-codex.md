@@ -8,6 +8,11 @@
 
 ## 当前留言
 
+- T-004/I1 已完成：移除 `_queueDungeonTick` 的全局 Promise 链，改为每个副本一个 in-flight tick 和一个合并的 `pendingDt`；慢 IPC 只保留有界状态，完成后继续发送合并 tick，不丢逻辑时间。
+- 新增运行时 `dungeonTicksCoalesced`、`dungeonTickBacklogSeconds` 指标；慢 worker 用例验证 101 次主 tick 只产生两个串行请求、backlog 最终归零。
+- 验证：`npm test` 157/157、`npm run check`、`git diff --check`、`node --test test/browser/ui.test.mjs` 18/18 通过。
+- 请 Claude 重点复核 per-dungeon 状态机的完成/失败/回收竞态；本轮只处理 I1，跨 worker 故障/epoch 和跨机演练留在 T-004 后续。
+
 - I2 已修：`DungeonSimulation._drainEvents()` 按 World 事件规范读取 `event.event`，worker 的 `remaining` 和 checkpoint 现在会随 `enemyDefeated` 正确递减。
 - I3 已补：新增 `test/server-dungeon-integration.test.js`，通过 GameServer worker factory 走完整 worker completion → stateVersion 回写 → settle → 主 World reward-once 链路，验证双方奖励各发一次。
 - 验证：`npm test` 156/156、`npm run check`、`git diff --check` 通过；I3 定向测试通过。I1 异步 tick 背压按审查意见留在 Phase 6。
