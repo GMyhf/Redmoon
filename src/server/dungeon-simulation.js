@@ -3,11 +3,12 @@ import { createHash } from "node:crypto";
 import { World } from "./world.js";
 
 export class DungeonSimulation {
-  constructor({ plan, rngState, width, height }) {
+  constructor({ instanceId, plan, rngState, width, height, checkpointIntervalTicks }) {
     if (!plan || typeof plan !== "object" || !Array.isArray(plan.enemies)) {
       throw new TypeError("dungeon plan is required");
     }
     if (!rngState || typeof rngState !== "object") throw new TypeError("dungeon rngState is required");
+    this.instanceId = typeof instanceId === "string" && instanceId ? instanceId : plan.id;
     this.plan = plan;
     this.world = new World({
       width: positiveNumber(width, 4800),
@@ -32,6 +33,8 @@ export class DungeonSimulation {
     this.lastInputSeq = new Map();
     this.stateVersion = 0;
     this.lastTickId = 0;
+    this.checkpointIntervalTicks = positiveInteger(checkpointIntervalTicks, 20);
+    this.remaining = new Set(plan.enemies.map((enemy) => enemy.id));
   }
 
   attach(playerId, playerState = {}, lastInputSeq = 0) {
@@ -100,15 +103,91 @@ export class DungeonSimulation {
     this.world.update(dt);
     this.lastTickId = tickId;
     this.stateVersion += 1;
-    return {
+    const result = {
       stateVersion: this.stateVersion,
       snapshot: this.snapshot(),
-      events: this.world.drainEvents(),
-      checkpoint: {
-        stateVersion: this.stateVersion,
-        rngState: this.world.getRandomState(),
-      },
+      events: this._drainEvents(),
     };
+    if (this.stateVersion % this.checkpointIntervalTicks === 0) {
+      result.checkpoint = this.createCheckpoint();
+    }
+    return result;
+  }
+
+  createCheckpoint() {
+    return {
+      schemaVersion: 1,
+      instanceId: this.instanceId,
+      plan: this.plan,
+      width: this.world.width,
+      height: this.world.height,
+      stateVersion: this.stateVersion,
+      lastTickId: this.lastTickId,
+      checkpointIntervalTicks: this.checkpointIntervalTicks,
+      remaining: [...this.remaining],
+      attachedPlayerIds: [...this.players],
+      pendingInputs: encodeValue([...this.pendingInputs.entries()]),
+      lastInputSeq: encodeValue([...this.lastInputSeq.entries()]),
+      world: encodeValue({
+        players: this.world.players,
+        mobs: this.world.mobs,
+        projectiles: this.world.projectiles,
+        drops: this.world.drops,
+        pendingMobSpawns: this.world.pendingMobSpawns,
+        events: this.world.events,
+        auditLog: this.world.auditLog,
+        auditDropped: this.world.auditDropped,
+        time: this.world.time,
+        tick: this.world.tick,
+        mobSequence: this.world._mobSequence,
+        projectileSequence: this.world._projectileSequence,
+        dropSequence: this.world._dropSequence,
+        itemSequence: this.world._itemSequence,
+        specialDropActive: this.world.specialDropActive,
+        bossRespawns: this.world._bossRespawns,
+        accountStore: this.world.accountStore,
+        parties: this.world.parties,
+        partyInvites: this.world._partyInvites,
+        partySequence: this.world._partySequence,
+      }),
+    };
+  }
+
+  restoreCheckpoint(checkpoint) {
+    validateCheckpoint(checkpoint, this.instanceId);
+    const state = decodeValue(checkpoint.world);
+    if (!state || typeof state !== "object") throw new TypeError("checkpoint world state is required");
+    for (const field of ["players", "mobs", "projectiles", "drops", "bossRespawns", "parties", "partyInvites"]) {
+      if (!(state[field] instanceof Map)) throw new TypeError(`checkpoint ${field} must be a Map`);
+    }
+    this.world.players = state.players;
+    this.world.mobs = state.mobs;
+    this.world.projectiles = state.projectiles;
+    this.world.drops = state.drops;
+    this.world.pendingMobSpawns = state.pendingMobSpawns;
+    this.world.events = state.events;
+    this.world.auditLog = state.auditLog;
+    this.world.auditDropped = state.auditDropped;
+    this.world.time = state.time;
+    this.world.tick = state.tick;
+    this.world._mobSequence = state.mobSequence;
+    this.world._projectileSequence = state.projectileSequence;
+    this.world._dropSequence = state.dropSequence;
+    this.world._itemSequence = state.itemSequence;
+    this.world.specialDropActive = state.specialDropActive;
+    this.world._bossRespawns = state.bossRespawns;
+    this.world.accountStore = state.accountStore;
+    this.world.parties = state.parties;
+    this.world._partyInvites = state.partyInvites;
+    this.world._partySequence = state.partySequence;
+    this.stateVersion = checkpoint.stateVersion;
+    this.lastTickId = checkpoint.lastTickId;
+    this.checkpointIntervalTicks = positiveInteger(checkpoint.checkpointIntervalTicks, 20);
+    this.remaining = new Set(checkpoint.remaining);
+    this.players = new Set(checkpoint.attachedPlayerIds);
+    this.pendingInputs = new Map(decodeValue(checkpoint.pendingInputs));
+    this.lastInputSeq = new Map(decodeValue(checkpoint.lastInputSeq));
+    return this.snapshot();
   }
 
   snapshot(playerId = null) {
@@ -118,14 +197,19 @@ export class DungeonSimulation {
 
   stateHash() {
     return createHash("sha256")
-      .update(JSON.stringify({
-        stateVersion: this.stateVersion,
-        rngState: this.world.getRandomState(),
-        mobs: [...this.world.mobs.values()].map((mob) => [mob.id, mob.x, mob.y, mob.hp]),
-        players: [...this.world.players.values()].map((player) => [player.id, player.x, player.y, player.hp]),
-      }))
+      .update(JSON.stringify(this.createCheckpoint()))
       .digest("hex")
       .slice(0, 16);
+  }
+
+  _drainEvents() {
+    const events = this.world.drainEvents();
+    for (const event of events) {
+      if (event.type === "enemyDefeated" && typeof event.enemyId === "string") {
+        this.remaining.delete(event.enemyId);
+      }
+    }
+    return events;
   }
 }
 
@@ -156,4 +240,40 @@ function emptyInput() {
 function positiveNumber(value, fallback) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? number : fallback;
+}
+
+function positiveInteger(value, fallback) {
+  return Number.isSafeInteger(value) && value > 0 ? value : fallback;
+}
+
+function encodeValue(value) {
+  if (value === undefined) return ["$undefined"];
+  if (value === null || typeof value !== "object") return value;
+  if (value instanceof Set) return ["$set", [...value].map(encodeValue)];
+  if (value instanceof Map) return ["$map", [...value].map(([key, entry]) => [encodeValue(key), encodeValue(entry)])];
+  if (Array.isArray(value)) return value.map(encodeValue);
+  return ["$object", Object.entries(value).map(([key, entry]) => [key, encodeValue(entry)])];
+}
+
+function decodeValue(value) {
+  if (!Array.isArray(value)) return value;
+  if (value[0] === "$undefined") return undefined;
+  if (value[0] === "$set") return new Set(value[1].map(decodeValue));
+  if (value[0] === "$map") return new Map(value[1].map(([key, entry]) => [decodeValue(key), decodeValue(entry)]));
+  if (value[0] === "$object") return Object.fromEntries(value[1].map(([key, entry]) => [key, decodeValue(entry)]));
+  return value.map(decodeValue);
+}
+
+function validateCheckpoint(checkpoint, instanceId) {
+  if (!checkpoint || checkpoint.schemaVersion !== 1) throw new TypeError("unsupported dungeon checkpoint");
+  if (checkpoint.instanceId !== instanceId) throw new TypeError("checkpoint instance mismatch");
+  if (!Number.isSafeInteger(checkpoint.stateVersion) || checkpoint.stateVersion < 0) {
+    throw new TypeError("checkpoint stateVersion is required");
+  }
+  if (!Number.isSafeInteger(checkpoint.lastTickId) || checkpoint.lastTickId < 0) {
+    throw new TypeError("checkpoint lastTickId is required");
+  }
+  if (!Array.isArray(checkpoint.remaining) || !Array.isArray(checkpoint.attachedPlayerIds)) {
+    throw new TypeError("checkpoint membership state is required");
+  }
 }

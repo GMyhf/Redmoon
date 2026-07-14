@@ -6,12 +6,14 @@ import {
 import { PROTOCOL_VERSION } from "./definitions.js";
 import { DungeonSimulation } from "./dungeon-simulation.js";
 
-const SUPPORTED_MESSAGES = new Set(["open", "attach", "detach", "input", "tick", "heartbeat", "recycle"]);
+const SUPPORTED_MESSAGES = new Set(["open", "attach", "detach", "input", "tick", "restore", "heartbeat", "recycle"]);
 const decoder = new DungeonFrameDecoder(MAX_DUNGEON_FRAME_BYTES);
 let opened = false;
 let identity = null;
 let simulation = null;
 let messageQueue = Promise.resolve();
+
+process.stdin.resume();
 
 process.stdin.on("data", (chunk) => {
   let messages;
@@ -59,6 +61,7 @@ async function handleMessage(message) {
     }
     try {
       simulation = new DungeonSimulation(message);
+      if (message.checkpoint) simulation.restoreCheckpoint(message.checkpoint);
     } catch (error) {
       await sendError(message, "INVALID_OPEN", error.message, false);
       return;
@@ -120,6 +123,22 @@ async function handleMessage(message) {
     return;
   }
 
+  if (message.type === "restore") {
+    try {
+      const snapshot = simulation.restoreCheckpoint(message.checkpoint);
+      await send({
+        ...responseFields(message),
+        type: "restored",
+        snapshot,
+        stateHash: simulation.stateHash(),
+        stateVersion: simulation.stateVersion,
+      });
+    } catch (error) {
+      await sendError(message, "RESTORE_INVALID", error.message, false);
+    }
+    return;
+  }
+
   if (message.type === "heartbeat") {
     await send({
       ...responseFields(message),
@@ -133,7 +152,7 @@ async function handleMessage(message) {
   await send({
     ...responseFields(message),
     type: "recycleAck",
-    stateVersion: 0,
+    stateVersion: simulation.stateVersion,
   });
   process.exitCode = 0;
   setImmediate(() => process.exit(0));

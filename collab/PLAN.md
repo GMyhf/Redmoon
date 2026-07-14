@@ -9,7 +9,7 @@
 | ID | 任务 | 状态 | 负责 | 关联提交 / 备注 |
 | --- | --- | --- | --- | --- |
 | T-000 | 搭建 Claude⇄Codex 协作脚手架（本目录 + handoff 脚本） | Done | Claude | `2f5b370` / `13d3ffd` |
-| T-001 | 副本独立化：把主进程内确定性副本迁到带版本票据的独立 worker，支持跨 worker 断线续接（README 路线图 #2） | In progress | Codex | Phase 0/1/2/3a + **Phase 3b worker tick（`ae3dc67`）已过审**（P1-3 串行/F3 去重/S2/worker-scoped rng/secret 隔离/重连权威态均验）。当前子步=**Phase 4 checkpoint/restore/fencing + C1 端到端重放验收**。里程碑见 `docs/DUNGEON_WORKERS.md` |
+| T-001 | 副本独立化：把主进程内确定性副本迁到带版本票据的独立 worker，支持跨 worker 断线续接（README 路线图 #2） | Review | Codex | Phase 0/1/2/3a + **Phase 3b worker tick（`ae3dc67`）已过审**；**Phase 4 checkpoint/restore/fencing + C1 端到端重放验收（`27a5a6b`）待审**。里程碑见 `docs/DUNGEON_WORKERS.md` |
 | T-003 | **副本 worker 集成**：把 worker 接进 `world.js.enterDungeon`（起 worker、路由输入、回投 tickResult 快照/事件给成员、退役 3a 进程内路径） | Backlog | - | 人拍板排在 **Phase 5 之后**（集成前须先有 settle 幂等，否则接通即有重复发奖风险） |
 | T-002 | 去抖：`server-http` "隐藏浏览器…partyInvited"用例在 `199bfc5` 前即 ~1/2 随机失败，污染"npm test 全绿"闸门 | Backlog | - | Phase 1 审查中发现的既有问题，与 T-001 无关，建议独立修 |
 

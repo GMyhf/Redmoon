@@ -158,16 +158,17 @@ export async function runDungeonWorker({ transport, rng, clock }) {
 - 实现 `tick`/`tickResult`，`seq` 单调去重；同一意图即使同时出现在 `input` 流和 tick 批次中也只能应用一次。
 - 实现 detached 席位、原 `playerId`/`mapId` 续接和快照/事件回传。
 - worker 在 child 内以独立 `DungeonSimulation` 推进 plan 实体和玩家状态，使用实例自己的 `rngState`；主进程 secret 不下发。
-- 当前 worker checkpoint 只返回 RNG 状态和版本元数据，完整实体 checkpoint 与跨 worker restore 属于 Phase 4。
+- Phase 3b 的 checkpoint 只返回 RNG 状态和版本元数据；Phase 4 改为保存完整实体、输入和实例状态。
 - 验收：断线保席、错误 bearer、重复 seq、输入跨 tick、主动离开和实例销毁测试。
 
 ### Phase 4：周期检查点、restore 与 fencing
 
-- 按固定周期或显式请求生成检查点，不在每个 20Hz `tickResult` 中全量携带；检查点包含实体、输入队列、remaining、PRNG 状态和 `stateVersion`。
-- worker 失联后递增 `workerEpoch`，启动新 child process 并 restore；旧进程的迟到 `tickResult`/`settle`/`expired` 全部拒绝。
+- worker 检查点保存完整 `World` 运行态：players、mobs、projectiles、drops、pending 输入、`remaining`、逻辑时间/ tick、实体序列、特殊掉落计数、事件队列和 PRNG 状态；内容通过 JSON-safe 的 `Map`/`Set` 编解码跨 IPC。
+- 新 child process 可在 `open({ checkpoint })` 或已打开 worker 的 `restore(checkpoint)` 中恢复；恢复后继续 tick 必须与原 worker 的 snapshot、事件和后续 RNG 逐项一致。
+- worker 失联后递增 `workerEpoch`，启动新 child process 并 restore；transport 对 `protocolVersion`、`instanceId`、`workerEpoch` 和 `requestId` 做响应 fencing，旧进程的迟到响应全部拒绝。
 - 首期检查点只保存在主进程内存；主进程重启时未恢复实例失败、成员回城、不发奖励。
-- 验收：杀 worker、超时、恢复后继续战斗、旧 epoch 消息、检查点周期和状态 hash 测试。
-- 追加验收：从 checkpoint 创建新 World，使用相同输入和 `dt` 重放，事件、实体状态和 RNG 后续序列逐项一致。
+- 验收：真实 child restore、恢复后继续战斗、epoch 身份拒绝、检查点大小/版本和状态 hash 测试。
+- 追加验收：从 checkpoint 创建新 worker，使用相同输入和 `dt` 重放，事件、实体状态和 RNG 后续序列逐项一致。
 
 ### Phase 5：结算幂等与回收
 

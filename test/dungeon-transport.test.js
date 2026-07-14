@@ -20,6 +20,7 @@ function openPayload() {
     rngState: rng.getState(),
     width: 4800,
     height: 2700,
+    checkpointIntervalTicks: 1,
   };
 }
 
@@ -51,7 +52,7 @@ test("child transport opens, heartbeats, rejects unsupported messages, and recyc
   const heartbeat = await transport.heartbeat();
   assert.equal(heartbeat.type, "heartbeat");
   await assert.rejects(
-    transport._request("restore", {}, "restoreAck"),
+    transport._request("unknown", {}, "unknownAck"),
     /worker UNSUPPORTED_MESSAGE/,
   );
   await transport.recycle("test");
@@ -100,6 +101,38 @@ test("child transport attaches, detaches, ticks and deduplicates input sequences
     result.snapshot.players.find((player) => player.id === "worker-player").x,
     "reattach preserves worker-authoritative state");
   await transport.recycle("test");
+});
+
+test("checkpoint restore resumes a new worker with identical state and RNG", async () => {
+  const first = new DungeonWorkerTransport({ instanceId: "vault-restore", workerEpoch: 10 });
+  const payload = {
+    ...openPayload(),
+    plan: createDungeonPlan({ instanceId: "vault-restore", averageLevel: 10, width: 4800, height: 2700 }),
+  };
+  await first.open(payload);
+  const playerState = { name: "RestoreHero", archetype: "vanguard", x: 1_000, y: 1_000, hp: 100, mp: 100 };
+  await first.attach("restore-player", {}, playerState, 0);
+  const beforeRestore = await first.tick(1, 0.1, 0, [
+    { playerId: "restore-player", seq: 1, intent: { move: { x: 1, y: 0 } } },
+  ]);
+
+  const second = new DungeonWorkerTransport({ instanceId: "vault-restore", workerEpoch: 11 });
+  const ready = await second.open({ ...payload, checkpoint: beforeRestore.checkpoint });
+  assert.equal(ready.stateVersion, 1);
+  const restored = await second.attach("restore-player", {}, playerState, 1);
+  assert.deepEqual(restored.snapshot, beforeRestore.snapshot);
+
+  const firstNext = await first.tick(2, 0.1, 100, [
+    { playerId: "restore-player", seq: 2, intent: { move: { x: 0, y: 1 } } },
+  ]);
+  const secondNext = await second.tick(2, 0.1, 100, [
+    { playerId: "restore-player", seq: 2, intent: { move: { x: 0, y: 1 } } },
+  ]);
+  assert.deepEqual(secondNext.snapshot, firstNext.snapshot);
+  assert.deepEqual(secondNext.events, firstNext.events);
+  assert.deepEqual(secondNext.checkpoint, firstNext.checkpoint);
+  await first.recycle("test");
+  await second.recycle("test");
 });
 
 test("child transport supervises handshake timeout and corrupt frames", async () => {

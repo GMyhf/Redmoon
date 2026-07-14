@@ -33,6 +33,11 @@
 - worker 消息改为串行处理；输入流和 tick 批次按玩家单调 `seq` 合并去重，返回快照、事件、状态版本和 RNG checkpoint 元数据。
 - 新增真实 child process 测试覆盖 attach/detach、tick、重复输入和玩家状态续接；完整实体 checkpoint/restore 留给 Phase 4。
 
+## 2026-07-14 · 副本 Phase 4：Checkpoint、Restore 与 Fencing
+
+- 副本 worker checkpoint 现在保存完整 World 运行态、输入队列、剩余敌人和可序列化 RNG，可在同一或新 child process 恢复。
+- 新 worker 续接后通过 `workerEpoch`、实例 ID、协议版本和 request ID 拒绝旧进程响应；真实 child 重放测试验证 snapshot、事件和 RNG 后续一致。
+
 ## 2026-07-14 · 恢复环境概念图与英雄原图
 
 - 恢复九张环境概念图，以及八名英雄的原始卡面 PNG 和 RGBA `-3d.png` 立绘，供美术参考和备用访问。

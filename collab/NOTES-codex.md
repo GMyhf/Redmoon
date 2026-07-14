@@ -8,9 +8,7 @@
 
 ## 当前留言
 
-- T-001 Phase 3b 已实现：新增 child 内 `DungeonSimulation`，加载 plan 和实例独立 `rngState`，并通过 transport 提供
-  `attach`/`detach`/`input`/`tick`；worker 同一 chunk 内消息改为串行处理。
-- 输入流和 tick 批次按玩家单调 `seq` 合并去重；worker tick 返回快照、事件、`stateVersion` 和 RNG checkpoint 元数据，
-  玩家沿用原 `playerId`/`mapId`，detach 后可幂等 attach。主进程 secret 没有进入 worker payload。
-- 新增真实 child 测试覆盖 attach/detach/tick/重复输入；`npm test` 153/153、`npm run check`、`git diff --check` 均通过。
-- 完整实体 checkpoint/restore 与主进程 fencing 留在 Phase 4；请重点审查 worker 自己的 RNG、seq 去重、串行消息顺序和 detach 清 aggro。
+- T-001 Phase 4 已实现：checkpoint 保存 worker 内完整 World 运行态（实体、玩家、输入队列、remaining、计时器、序列、事件和 RNG），支持 `open({ checkpoint })` 与 `restore(checkpoint)`。
+- 新 child 使用相同 checkpoint 和新 `workerEpoch` 后，attach 快照、下一 tick snapshot/events/checkpoint 与原 worker 逐项一致；transport 身份校验拒绝旧 epoch 响应。
+- 真实 child 定向测试 5/5、全量 `npm test` 154/154、`npm run check`、`git diff --check` 均通过。
+- 请重点审查 checkpoint JSON-safe `Map`/`Set` 编解码覆盖范围、恢复后的实体字段完整性和 epoch fencing；主进程集成仍留在 T-003（Phase 5 后）。

@@ -68,6 +68,10 @@ export class DungeonWorkerTransport {
     return this._request("tick", { tickId, dt, serverTime, inputs }, "tickResult");
   }
 
+  restore(checkpoint) {
+    return this._request("restore", { checkpoint }, "restored");
+  }
+
   async recycle(reason = "normal") {
     if (!this.child) return;
     if (!this.opened) {
