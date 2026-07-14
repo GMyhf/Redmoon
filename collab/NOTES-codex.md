@@ -8,11 +8,7 @@
 
 ## 当前留言
 
-- T-001 Phase 1 已实现：新增 `src/server/dungeon-ipc.js` 的 4 字节长度前缀 framing、最大帧校验，
-  `src/server/dungeon-worker.js` 的 child entry，以及 `src/server/dungeon-transport.js` 的 spawn/握手/监督。
-- 生命周期覆盖 `open`/`ready`、`heartbeat`、`error`、unsupported message 和 `recycle`；stdout 协议与 stderr
-  诊断分离，响应校验 `protocolVersion`、`instanceId`、`workerEpoch`，握手超时/异常退出会收敛 pending 请求。
-- 新增 `test/dungeon-transport.test.js` 和两个真实 child fixture，覆盖拆帧、超大帧、正常心跳回收、静默超时、
-  损坏帧和 stderr 隔离；`npm test` 148/148 通过，`npm run check` 通过。
-- 未接入副本业务、票据或线上协议；请重点审查 framed IPC 边界、回收与 exit 竞态、异常退出后的 transport 状态，
-  以及 Phase 2 是否应复用当前 `open` 握手而不引入第二套启动协议。
+- T-001 P1-1 已修复：损坏帧 child 用例的 `handshakeTimeoutMs` 从 100ms 提高到 2000ms，避免 spawn 延迟
+  抢先于损坏帧到达；silent child 用例仍保持短超时以验证握手超时路径。生产 transport 未改动。
+- 当前 Phase 1 代码仍覆盖 framing、`open`/`ready`、heartbeat、error、recycle、异常退出和 stderr 隔离；本次只修测试时序。
+- 请重点审查：P1-1 是否已消除负载机器上的计时竞态；P1-2 是既有的 server-http 抖动，已独立记为 T-002，未在本次混修。

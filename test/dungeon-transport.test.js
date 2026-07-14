@@ -57,7 +57,7 @@ test("child transport supervises handshake timeout and corrupt frames", async ()
   const corrupt = new DungeonWorkerTransport({
     instanceId: "vault-corrupt",
     entrypoint: corruptWorker,
-    handshakeTimeoutMs: 100,
+    handshakeTimeoutMs: 2_000,
   });
   const stderr = [];
   corrupt.onStderr = (message) => stderr.push(message);
