@@ -6,25 +6,22 @@
 
 ---
 
-## T-004 跨 worker 故障/epoch 回归复核（Claude → Codex）· 通过
+## T-004 并发压力门复核（Claude → Codex）· 通过
 
-`ddaa655` 独立复核。**T-001"跨 worker 断线续接"承诺至此端到端闭环。**
+`5afe047` 独立复核。集成测试（3 个）连跑 4/4 稳定，全套 159/159。
 
-**核实（逐条，非信测试绿）**
-- ✅ 真 child 故障切换：`first.close()` 杀 epoch-20 worker → `second`（epoch 21）全新 child 从死 worker checkpoint
-  恢复，`restored.stateVersion===1` 证实、`tick(2)` 证实续推进
-- ✅ fencing 真拒绝：核了 requestId 计算（`sequence+1` 与 `_request` 的 `++sequence` 对齐）→ 确实命中 pending 才走到
-  epoch 校验，`workerEpoch 20 !== 21` 抛 `worker response identity mismatch`，不是空断言
-- ✅ **transport 测试连跑 5/5 稳定**——无 P1-1 那种计时脆弱（宽松默认超时）；全套 158/158
-- ✅ `_resolve` 的拒绝在 `pending.resolve` 之前 → 旧 epoch 响应永不被 `_applyDungeonTickResult` 应用，守卫在正确位置
+**核实（核了算术，非信测试绿）**
+- ✅ per-instance 有界：21 次 queue → 每个 worker 恰 1 in-flight（非 21），`tickCalls===1`
+- ✅ 算术对：coalesced = 20×8 = **160** ✅；backlog = 8×(20×0.05) = **8.0** ✅（第 1 次 queue 进 in-flight、pendingDt 归 0，后 20 次累加）
+- ✅ 两轮 release 后 `tickResolvers.length===0` + backlog 归零 → **无遗留 resolver / 干净排空**
+- ✅ 断言非空（背压非 per-instance / 合并断 / resolver 泄漏都会挂）；确定性（setImmediate + scripted，4/4 稳）
+- ✅ **没擅自加硬容量上限**（产品决策），纪律到位
 
-**诚实观察（非问题）**：fencing 是**合成注入**（手调 `second._resolve()` 喂 epoch-20 消息），非死 worker 真发迟到消息。
-合理——物理上 worker-20 管道随 `first.close()` 已关、迟到消息到不了 `second`，epoch 检查本是纵深防御；测试在单元层
-验证了守卫正确。只覆盖了 epoch 维度（未测 protocolVersion/instanceId 维度），但 epoch 是跨 worker 的相关维度。
+这把 I1 单副本背压扩展到了真正横扩场景（8 并发慢副本各自有界、独立排空）。**T-004 核心硬化（背压 + 故障/epoch + 并发压力）收尾。**
 
-## 剩余 T-004（人拍板）
-- 协议 conformance（`protocol-conformance.test.js` 已在，确认票据未进客户端协议、错误码清单完整即可）
-- 容量/压力门（多副本并发 backlog 观测、进程数上限——`tools/stress.mjs` 可扩）
-- 跨机调度演练（偏运维 drill，非纯代码）
-- T-002 既有 flake 去抖
-worker 核心链路（0-5 + 集成 + 背压 + 故障/epoch）已全部端到端验证。剩下的偏"运营前硬化"，可按优先级挑或收工。
+## T-004 剩余（都偏收尾，非核心）
+- 协议 conformance：`protocol-conformance.test.js` 已在，T-001 未改客户端协议（票据内部），基本已满足——建议做一次"确认票据/续接字段没泄进客户端协议 + 错误码清单完整"的收尾核对即可。
+- T-002 既有 flake 去抖（唯一还在污染"全绿"的东西）——建议作为最后一个**代码**项清掉。
+- 跨机调度演练：偏运维 drill，非纯代码，可留到真上多机时做。
+
+建议下一块清 **T-002**（让 `npm test` 真正稳定全绿），然后 T-004 可标 Done、整个副本 worker 线收工。跨机演练留运维阶段。人定。

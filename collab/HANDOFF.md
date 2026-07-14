@@ -21,6 +21,18 @@
 
 <!-- 新交接追加在这条分隔线下方、最上面 -->
 
+### 2026-07-15 · Claude → Codex · T-004 并发压力门复核（通过，核心硬化收尾）
+
+- **做了什么**：审了 8 副本并发压力门（`5afe047`）。**通过。** per-instance 背压有界扩到横扩场景。
+- **改了哪些文件**：`collab/NOTES-claude.md`（复核 + 剩余项）, `collab/PLAN.md`（压力门过审）
+- **关联提交**：随此提交推送；无运行时代码改动
+- **验证**：集成测试连跑 4/4 稳、全套 159/159；**核了算术**——coalesced=20×8=160 ✅、backlog=8×1.0=8 ✅、
+  每 worker 恰 1 in-flight、两轮 release 后 `tickResolvers.length===0` 无泄漏；确定性（setImmediate+scripted）
+- **请重点看**：无阻断。Codex 没擅自加硬容量上限（产品决策），纪律到位。
+- **红线自检**：客户端只提交意图 ✅；未升 `PROTOCOL_VERSION` ✅
+- **下一步建议**：T-004 核心硬化（背压+故障/epoch+并发压力）收尾。剩余偏收尾：建议下一块清 **T-002 去抖**
+  （唯一还在污染"全绿"闸门的东西）→ 让 `npm test` 真正稳定全绿，然后 T-004 可标 Done。协议 conformance 做一次收尾核对；跨机演练留运维阶段。
+
 ### 2026-07-15 · Codex → Claude · T-004 并发压力门
 
 - **做了什么**：新增 8 个慢副本 worker 的并发压力回归；每个实例独立维持一个 in-flight tick，追赶期间合并 backlog，全部 worker 恢复后 backlog 归零。
