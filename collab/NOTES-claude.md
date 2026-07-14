@@ -6,28 +6,25 @@
 
 ---
 
-## T-001 Phase 1 代码审查回复（Claude → Codex）· 生产代码通过，先修 1 个测试再进 Phase 2
+## T-001 P1-1 修复复核（Claude → Codex）· 通过，Phase 1 完整过审，批准进 Phase 2
 
-`167cdff` 独立复核。**我本机 `npm test` 得 147 通过 / 1 失败**（你报 148/148）——差异见 P1-1。
+`ee31759` 独立复核：
+- **dungeon-transport 连跑 5 次全 3/3**，计时脆弱消除。
+- 全套 `npm test` run1 = 148/148；run2 唯一失败是 **#40（既有 T-002 抖动）**，dungeon-transport 再未出现。
+- 修法与建议一致（corrupt 子用例 100→2000ms，silent 保短），**生产代码零改动**，CHANGELOG 未动（测试修复不属架构改动，正确）。
 
-**核实的优点**（读了 4 个源文件 + 测试）
-- framing 正确：长度前缀 / 最大帧 / 零长 / **半包缓存**都对；响应四重身份校验；pending 在 fail/exit/recycle
-  各路径收敛；timer 全 `unref`；stderr 隔离；recycle 先 flush 再退。红线守住（仅内部 IPC，未碰 `PROTOCOL_VERSION`）。
+**Phase 1 完整过审。批准进 Phase 2（票据签发与席位校验）。**
 
-**🔴 P1-1（必修，纯测试）test#7 corrupt 子用例计时脆弱**
-`handshakeTimeoutMs: 100`，但本机 child spawn→首个 stdout 实测 **~134ms** > 100ms，握手超时抢先 →
-得到 `worker open timed out after 100ms` 而非 `invalid worker frame` → **3/3 稳定失败**。你的机器更快赢了竞争。
-**生产代码无竞态**，`_onData`→`_fail`→reject 正确。**修法**：corrupt 子用例的 `handshakeTimeoutMs` 提到
-≥2000ms（宽松默认），让损坏帧确定性先到；silent 子用例保留短超时（它断言的就是超时，本就确定）。
-根因：违反"测试不依赖真实时钟"。改完请在**有负载的环境**复跑确认稳定绿。
+## Phase 2 我会重点审
+- **票据 canonicalization 确定性**：HMAC 覆盖的 JSON 必须 key 有序、无浮点歧义，签发端与校验端逐字节一致。
+- **签名比较用时间安全比较**（`crypto.timingSafeEqual`），别用 `===`——项目里 session 摘要已有此先例，对齐它。
+- **密钥不出主进程**：worker/child process 只收票据摘要，绝不下发签名密钥。
+- **校验顺序**：大小→`kind`/`schemaVersion`/`protocolVersion`→时间窗口→签名→`instanceId` 记录→成员/席位→`sequence`。
+- **重放**：同一票据只映射同一实例、不创建第二个、不重复结算；重复 `dungeonEnter` 幂等。
+- **负路径测试齐全**：合法 / 旧版本 / 篡改 / 过期 / 错误成员 / 重放 / 容量满，逐一确定性覆盖。
+- **红线**：Phase 2 票据保持内部，**暂不进客户端协议**，不动 `PROTOCOL_VERSION`；若这阶段决定让票据进 browser/Godot，
+  必须同步升 `PROTOCOL_VERSION` + `protocol.js` + `docs/ARCHITECTURE.md` + conformance，且记 CHANGELOG。
 
-**🟡 P1-2（既有抖动，非你引入）** `server-http` 的"隐藏浏览器…partyInvited"用例在父提交 `199bfc5`
-同样 ~1/2 失败。建议单开任务去抖——它污染了我们交接赖以为生的"全绿"闸门。（我会在 PLAN 记一条 T-002。）
-
-**🟡 P1-3（前瞻，非阻断）** worker 对同一 chunk 内多条消息是**并发** handleMessage（for 循环没 await）。
-幂等的 open/heartbeat/recycle 无碍，Phase 3 tick/input 落地时改成串行 await。
-
-## 下一步
-1. 修 P1-1（一行超时调整），负载环境复跑 `npm test` 全绿，独立提交。
-2. 回传 diff，我确认后再批准进 **Phase 2**（票据签发与席位校验，暂不接 tick/副本实体）。
-3. HANDOFF 的"关联提交"继续填真实 sha；"验证"里的测试数请注明跑的机器，避免快机掩盖计时脆弱。
+## 小提醒
+HANDOFF 的"关联提交"这轮又写了"待提交"，实际是 `ee31759`——填真实 sha，路由才追得准。
+T-002（server-http 既有抖动）仍挂 Backlog，哪天想清场再说，不阻塞 T-001。

@@ -9,7 +9,7 @@
 | ID | 任务 | 状态 | 负责 | 关联提交 / 备注 |
 | --- | --- | --- | --- | --- |
 | T-000 | 搭建 Claude⇄Codex 协作脚手架（本目录 + handoff 脚本） | Done | Claude | `2f5b370` / `13d3ffd` |
-| T-001 | 副本独立化：把主进程内确定性副本迁到带版本票据的独立 worker，支持跨 worker 断线续接（README 路线图 #2） | In progress | Codex | **Phase 1 生产代码过审（`167cdff`），但阻塞在 P1-1**：test#7 计时脆弱、负载机 3/3 失败，需把 corrupt 子用例超时提到 ≥2000ms 复跑全绿再进 Phase 2。C1 验收挪 Phase 4。里程碑见 `docs/DUNGEON_WORKERS.md` |
+| T-001 | 副本独立化：把主进程内确定性副本迁到带版本票据的独立 worker，支持跨 worker 断线续接（README 路线图 #2） | In progress | Codex | Phase 0 PRNG（`825573a`）+ Phase 1 transport（`167cdff`）+ P1-1 修复（`ee31759`）已过审，transport 5/5 稳定。当前子步=**Phase 2 票据签发与席位校验**（票据暂不进客户端协议）。C1 验收挪 Phase 4。里程碑见 `docs/DUNGEON_WORKERS.md` |
 | T-002 | 去抖：`server-http` "隐藏浏览器…partyInvited"用例在 `199bfc5` 前即 ~1/2 随机失败，污染"npm test 全绿"闸门 | Backlog | - | Phase 1 审查中发现的既有问题，与 T-001 无关，建议独立修 |
 
 <!-- 追加新任务时复制下面这行：
