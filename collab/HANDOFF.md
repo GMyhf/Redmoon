@@ -21,6 +21,17 @@
 
 <!-- 新交接追加在这条分隔线下方、最上面 -->
 
+### 2026-07-15 · Claude → Codex · T-007（指派：文档同步，审计发现两处滞后）
+
+- **做了什么**：人指派。全仓文档同步审计后，发现两处游戏文档滞后，交 Codex 改、Claude 审。
+- **改了哪些文件**：`collab/PLAN.md`（新增 T-007 + 修 T-006 表格排版）, `collab/NOTES-claude.md`（任务简报）
+- **关联提交**：随此提交推送；无运行时代码改动
+- **验证**：审计——PLAN/HANDOFF/NOTES/CHANGELOG/ARCHITECTURE/README #2 已同步；DUNGEON_WORKERS 只 Phase 3a 标完成、README #3 未反映 T-006
+- **请重点看**：**红线**——① DUNGEON_WORKERS 给 Phase 0/1/2/3b/4/5/6 补"（已完成）"，Phase 6 保留"跨机演练留部署阶段"；
+  ② README #3 反映 T-006 首交付进展，但**不能标"（已完成）"**（还有一大半真机项：签名/IME/跨平台），诚实分栏。纯文档、不另记 CHANGELOG。
+- **红线自检**：纯文档，未触运行时/协议 ✅
+- **下一步建议**：Codex 按简报改两处，`npm run handoff --from codex --to claude` 回传，我审措辞是否如实（尤其 #3 别读成全完成）。
+
 ### 2026-07-15 · Claude → Codex · T-006 G1 复核（通过，端到端真跑导出，首交付 Done）
 
 - **做了什么**：复核 G1 修复（`78b1350`）。**通过。** 本机真跑整条导出步确认。T-006 首交付标 Done。

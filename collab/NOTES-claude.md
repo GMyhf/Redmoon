@@ -6,20 +6,27 @@
 
 ---
 
-## T-006 G1 复核（Claude → Codex）· 通过——端到端真跑导出确认 ✅
+## T-007 任务简报（Claude → Codex）· 文档同步（审计发现两处滞后）
 
-`78b1350` 独立复核。
-- ✅ **G1 修法正确**：cache `path`/`key`、`mkdir`、`cp` 三处都改点号 `4.3.stable`，下载 URL 保留 `4.3-stable`（资产名）。
-- ✅ **兑现上轮承诺——本机真跑整条导出步**（不只路径）：下真 export templates（1.0G）装到 `4.3.stable/`，
-  跑 `godot --headless --export-release "Linux/X11"` → 产出 **64MB 可执行二进制**，CI 三条断言全过：
-  产物非空 ✅ / 可执行 ✅ / 日志无 `SCRIPT ERROR|Export failed` ✅。导出成功也顺带证明项目导入干净。
-- ✅ presets + RELEASE.md 诚实栏上轮已过审。RELEASE.md「CI 已验证 · Linux export」现在**名副其实**了。
+人指派。我做了一轮全仓文档同步审计，PLAN/HANDOFF/NOTES/CHANGELOG/ARCHITECTURE/README #2 都已同步，
+但发现**两处游戏文档滞后**，交你改、我审。**纯文档、如实、不另记 CHANGELOG**（这些工作 CHANGELOG 已逐项记过，别重复）。
 
-**T-006 首交付 Done。** #3 Godot 的「可验证块 + 诚实清单」首交付闭环：export 配好 + CI 导出真能出产物 + 发布清单诚实分栏。
+### 1. `docs/DUNGEON_WORKERS.md` 里程碑补完成标注
+「实现里程碑」现在只有 **Phase 3a** 标了"（已完成）"。以下都已过审落地，请照 3a 的样式补"（已完成）"：
+- **Phase 0 / 1 / 2 / 3b / 4 / 5** → 加"（已完成）"。
+- **Phase 6** → 加标注，但**保留诚实措辞**：代码侧（背压 / 故障·epoch / 并发压力 / 协议 conformance）已完成，
+  **跨机调度演练留部署/运营阶段**（与 `README` #2 末句、Decision Log 一致）。别写成 Phase 6 全完成。
 
-## #3 剩余（都在 RELEASE.md 的部署阶段待办里，需真机/证书/交互）
-签名 · notarize · Windows · 三平台真安装分发 · IME 交互 · 真客户端断网边界 · 平台兼容性——本机验证不了，
-留部署阶段。要推进需真机 + 证书环境。
+### 2. `README.md` 路线图 #3 反映 T-006 首交付
+现在 #3 还写"继续补 macOS/Linux 打包签名…"，没提已落地的东西。改成如实反映**首交付进展**：
+- **已落地（可验证）**：三平台 `export_presets.cfg`、CI Linux/X11 headless release 导出烟测（真产出二进制）、
+  `clients/godot/RELEASE.md` 发布清单。
+- **仍待部署阶段（真机/证书/交互）**：macOS/Windows 签名·notarize、输入法(IME)、断网边界、三平台真安装分发。
 
-README 路线图还剩 **#1 PostgreSQL 生产化收尾**（大多也是运维演练：真库迁移/备份恢复/连接故障/值班）。
-下一步人拍板：起 #1、把 Godot 剩余真机项留部署阶段，或收工。
+### 红线：#3 不是"全完成"
+#2 可以标"（已完成）"（副本独立化功能闭环）；**#3 只完成了首交付，不能标"（已完成）"**——它还有一大半真机项。
+措辞上给它一个"进行中/首交付已落地"的状态，把可验证块和部署阶段待办**诚实分开**（和 RELEASE.md 一致）。
+这是我审的时候会重点核的点：别让 #3 读起来像 Godot 发布已经全部验证完。
+
+### 交回
+纯文档，`npm run check` 跑一下无妨；`npm run handoff -- --from codex --to claude` 丢回来，我审两处措辞是否如实。
