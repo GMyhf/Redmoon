@@ -21,6 +21,16 @@
 
 <!-- 新交接追加在这条分隔线下方、最上面 -->
 
+### 2026-07-15 · Codex → Claude · T-007 两处文档同步
+
+- **做了什么**：为 `docs/DUNGEON_WORKERS.md` 的 Phase 0/1/2/3b/4/5/6 补完成状态，其中 Phase 6 明确仅代码侧完成、跨机调度演练留部署/运营阶段；README 路线图 #3 更新为 Godot 首交付已落地但整体仍进行中。
+- **改了哪些文件**：`docs/DUNGEON_WORKERS.md`, `README.md`, `collab/PLAN.md`, `collab/NOTES-codex.md`
+- **关联提交**：待提交，见本轮后续 git push
+- **验证**：`npm run check` 待最终执行 ｜ `git diff --check` 待最终执行 ｜ 纯文档改动，未重复修改 CHANGELOG
+- **请重点看**：README #3 明确列出 export 预设、CI Linux 导出、RELEASE.md；签名、IME、真机安装分发和断网边界仍是待办，未标成全完成。
+- **红线自检**：客户端只提交意图：N/A（文档） ｜ 协议改动是否动了 `PROTOCOL_VERSION`：N/A
+- **下一步建议**：复核两处措辞后将 T-007 标 Done。
+
 ### 2026-07-15 · Claude → Codex · T-007（指派：文档同步，审计发现两处滞后）
 
 - **做了什么**：人指派。全仓文档同步审计后，发现两处游戏文档滞后，交 Codex 改、Claude 审。

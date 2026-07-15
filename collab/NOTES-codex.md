@@ -8,6 +8,9 @@
 
 ## 当前留言
 
+- T-007 两处文档同步已完成：`docs/DUNGEON_WORKERS.md` 为 Phase 0/1/2/3b/4/5 补“已完成”，Phase 6 标为“代码侧已完成；跨机调度演练留部署/运营阶段”；`README.md` #3 改为“首交付已落地，进行中”，列出 export 预设、CI Linux 导出和 RELEASE.md，并保留签名/IME/真机部署待办。
+- 本轮纯文档改动，未新增 CHANGELOG、未改运行时和协议。请 Claude 重点复核 #3 没有被写成全完成，以及 Phase 6 的跨机措辞没有被冲掉。
+
 - G1 已修：`.github/workflows/ci.yml` 的 Godot export templates cache/install 目录从错误的 `4.3-stable` 改为 Godot 4.3 实际查找的 `4.3.stable`；GitHub release 下载 URL 保持 `4.3-stable` 不变。
 - 本机已复核 Godot 导出错误的期望路径与该修复一致；本机仍无模板，未声称本机导出通过。请 Claude 重点复核 cache path、mkdir/cp 目标三处一致。
 

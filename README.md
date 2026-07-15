@@ -97,5 +97,5 @@ sudo systemctl enable --now crimson-relay
 
 1. **PostgreSQL 生产化收尾**：基础存储、schema migration、JSON 导入、事务审计、备份轮转和健康指标已具备；公开运营前仍需完成真实数据库迁移、备份恢复、连接故障、审计保留和恢复/轮换值班演练，并持续观察容量。
 2. **副本独立化（已完成）**：确定性副本已迁移到受监督的 child process worker；主进程负责连接、席位、事件路由和 reward-once 结算，支持带版本票据的跨 worker checkpoint 续接、epoch fencing、背压和并发压力观测。跨机调度演练仍属于后续运营阶段。
-3. **Godot 发布验证**：协议接入、主要玩法、账号/队伍/副本功能和无头烟测已完成；继续补 macOS/Linux 打包签名、输入法、断网边界和跨平台发布验证，不再优先做纯视觉装饰。
+3. **Godot 发布验证（首交付已落地，进行中）**：已具备三平台 `export_presets.cfg`、CI 可验证的 Linux/X11 headless release 导出烟测，以及 `clients/godot/RELEASE.md` 发布清单；部署阶段仍需完成 macOS/Windows 签名与 notarize、IME、三平台真安装分发和断网边界验证。
 4. **长线玩法暂缓**：PvP、赛季、拍卖行与更多地图暂缓，待账号安全、容量观测和副本路由经过长期运行验证后再排期。

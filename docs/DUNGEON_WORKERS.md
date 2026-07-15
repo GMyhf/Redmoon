@@ -127,20 +127,20 @@ export async function runDungeonWorker({ transport, rng, clock }) {
 
 每个阶段都应保持可回滚；除 Phase 0 外，不先引入客户端票据字段。阶段之间的依赖和验收标准如下：
 
-### Phase 0：可 seed、可恢复的 PRNG
+### Phase 0：可 seed、可恢复的 PRNG（已完成）
 
 - 将副本使用的 `World` 随机源从不透明函数改成带 seed、可读取/恢复状态的 PRNG；保留测试注入 RNG 的能力。
 - 盘点并覆盖副本 tick 中全部随机调用（掉落、伤害浮动、怪物巡逻和复苏露等），禁止 restore 后隐式回到 `Math.random`。
 - 新增确定性测试：相同 seed 的 RNG 序列一致，保存并恢复 PRNG 状态后后续序列一致；完整 World tick 重放留到 Phase 4。
 - 验收：`npm test`、`npm run check`，并确认现有 `dungeon.js` 纯函数测试不变。
 
-### Phase 1：child process transport 与握手
+### Phase 1：child process transport 与握手（已完成）
 
 - 新增 transport、worker 入口和 framed IPC；实现 `open`、`ready`、`heartbeat`、`error`、正常 `recycle`。
 - 主进程监督启动超时、异常退出、stdout/stderr 隔离、帧大小和协议版本；worker 只接受受支持的消息型别。
 - 验收：真实 child process 的启动/关闭/损坏帧/超时测试；迟到消息不会影响其他实例。
 
-### Phase 2：票据签发与席位校验
+### Phase 2：票据签发与席位校验（已完成）
 
 - 主进程实现票据 canonicalization、HMAC、`schemaVersion`/`protocolVersion`、过期和序列号校验；签名密钥不出主进程。
 - `dungeonEnter` 生成票据并建立 `instanceId -> workerEpoch` 路由；重复票据不能创建第二个实例。
@@ -152,7 +152,7 @@ export async function runDungeonWorker({ transport, rng, clock }) {
 - 主 World 的普通地图维护、tick、投射物和掉落循环只遍历主集合；副本地图快照从实例集合读取，保持线上实体形状兼容。
 - 验收：副本进入后主集合没有 `dungeonId` 实体，`world.update(dt)` 不移动副本敌人，副本投射物/掉落进入实例集合并在销毁时清理。
 
-### Phase 3b：tick、attach、detach 和状态投递
+### Phase 3b：tick、attach、detach 和状态投递（已完成）
 
 - 将副本输入按 `playerId` 路由到 child process；主进程先做身份/席位校验，worker 只执行批准意图。
 - 实现 `tick`/`tickResult`，`seq` 单调去重；同一意图即使同时出现在 `input` 流和 tick 批次中也只能应用一次。
@@ -161,7 +161,7 @@ export async function runDungeonWorker({ transport, rng, clock }) {
 - Phase 3b 的 checkpoint 只返回 RNG 状态和版本元数据；Phase 4 改为保存完整实体、输入和实例状态。
 - 验收：断线保席、错误 bearer、重复 seq、输入跨 tick、主动离开和实例销毁测试。
 
-### Phase 4：周期检查点、restore 与 fencing
+### Phase 4：周期检查点、restore 与 fencing（已完成）
 
 - worker 检查点保存完整 `World` 运行态：players、mobs、projectiles、drops、pending 输入、`remaining`、逻辑时间/ tick、实体序列、特殊掉落计数、事件队列和 PRNG 状态；内容通过 JSON-safe 的 `Map`/`Set` 编解码跨 IPC。
 - 新 child process 可在 `open({ checkpoint })` 或已打开 worker 的 `restore(checkpoint)` 中恢复；恢复后继续 tick 必须与原 worker 的 snapshot、事件和后续 RNG 逐项一致。
@@ -170,7 +170,7 @@ export async function runDungeonWorker({ transport, rng, clock }) {
 - 验收：真实 child restore、恢复后继续战斗、epoch 身份拒绝、检查点大小/版本和状态 hash 测试。
 - 追加验收：从 checkpoint 创建新 worker，使用相同输入和 `dt` 重放，事件、实体状态和 RNG 后续序列逐项一致。
 
-### Phase 5：结算幂等与回收
+### Phase 5：结算幂等与回收（已完成）
 
 - 实现 `settlementId` 生成、主进程幂等记录、`stateVersion` 校验和一次性奖励发放；worker 的 `settle` 永远只是请求。
 - 实现完成/超时/worker_lost 的单次事件、成员回城、mob/projectile/drop 清理和 child process 回收。
@@ -185,7 +185,7 @@ export async function runDungeonWorker({ transport, rng, clock }) {
   完成请求经 `World.settleDungeon` 幂等结算。主动离开、断线、超时、worker 失败和停服均回收 transport。
 - 集成未改变 server↔client 协议；后续 Phase 6 继续覆盖跨 worker 故障恢复和跨机调度。
 
-### Phase 6：协议与回归闸门
+### Phase 6：协议与回归闸门（代码侧已完成；跨机调度演练留部署/运营阶段）
 
 - 副本 tick 调度必须对每个实例保持单个 in-flight IPC 请求；主循环追赶期间合并逻辑 `dt`，不得追加无界 Promise 链，并暴露合并/落后度量。
 - 真实 child process 回归覆盖旧 worker 关闭、新 `workerEpoch` 从 checkpoint 恢复、恢复后继续 tick，以及旧 epoch 迟到响应被 fencing 拒绝。

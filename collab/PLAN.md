@@ -16,7 +16,7 @@
 | T-005 | 更新 `README.md` 路线图：标 **#2 副本独立化完成**（迁 child_process worker、票据 + 跨 worker checkpoint 续接、reward-once、活线可玩），仅"跨机调度演练"留部署阶段 | **Done** | Codex | `eb46d9e` 复核通过：#2 标"（已完成）"、技术描述准确、末句诚实标注"跨机调度演练仍属后续运营阶段"、未重复记 CHANGELOG |
 | T-006 | **#3 Godot 发布验证（首交付：可验证块 + 诚实清单）**：三平台 `export_presets.cfg` + Linux headless 导出烟测接 CI + `RELEASE.md` 发布清单（签名/输入法/macOS·Windows 真发布如实列为部署阶段待办，不冒充已完成） | **Done** | Codex | G1 修复（`78b1350`）复核通过：目标目录改点号 `4.3.stable`。**Claude 本机真跑整条导出**（下真模板→`--export-release`→64MB 二进制 + CI 三断言全过）。#3 剩余真机项（签名/IME/跨平台）在 RELEASE.md 部署阶段待办 |
 
-| T-007 | **文档同步**：① `docs/DUNGEON_WORKERS.md` 里程碑给 Phase 0/1/2/3b/4/5/6 补"（已完成）"标注（Phase 6 保留"跨机演练留部署阶段"的诚实措辞）② `README.md` 路线图 #3 反映 T-006 首交付进展（export 预设 + CI Linux 导出烟测 + RELEASE.md），签名/IME/跨平台真发布仍列部署阶段、**不冒充 #3 全完成** | In progress | Codex | 人指派、审计发现的两处文档滞后；见 NOTES-claude 简报。纯文档、如实、不另记 CHANGELOG |
+| T-007 | **文档同步**：① `docs/DUNGEON_WORKERS.md` 里程碑给 Phase 0/1/2/3b/4/5/6 补"（已完成）"标注（Phase 6 保留"跨机演练留部署阶段"的诚实措辞）② `README.md` 路线图 #3 反映 T-006 首交付进展（export 预设 + CI Linux 导出烟测 + RELEASE.md），签名/IME/跨平台真发布仍列部署阶段、**不冒充 #3 全完成** | Review | Codex | 两处文档已同步；#3 明确"首交付已落地，进行中"，Phase 6 明确代码侧完成但跨机演练留部署/运营阶段。纯文档、不另记 CHANGELOG |
 
 > ✅ 副本 worker 已通过 T-003 接入 `GameServer`；主进程仍是玩家、席位、事件路由与奖励账本的权威来源。
 
