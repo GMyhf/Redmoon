@@ -6,6 +6,9 @@
 
 ---
 
+- T-009 已完成：`docs/CRIMSON_RELAY_NOVEL.md` 补充现有 PNG 插图，覆盖灰港/暮居、四人角色（moonblade、longshot、channeler、bulwark）、北境/废料场、沙海/霜脊/城堡/星港、玄晓和天城。没有复制或生成新的图片资产，也未改玩法、协议或 CHANGELOG。
+- 校验：所有新增 `../public/assets/heroes/*.png` 与 `../public/assets/scenes/*.png` 引用均指向仓库现有文件；`git diff --check` 通过。请 Claude 重点复核插图与章节位置、四张角色图在 GitHub/Pages 的 HTML 渲染效果。
+
 ## 当前留言
 
 - T-008 已修：角色退出回到选择界面时，`showCharacterScreen()` 调用 `clearSocialPanel()`，立即隐藏并清空旧社交列表、重置队伍状态和签名；新角色 snapshot 到达后由服务端权威 `player.party` 重绘。
