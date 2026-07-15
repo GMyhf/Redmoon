@@ -17,7 +17,7 @@
 
 > ✅ 副本 worker 已通过 T-003 接入 `GameServer`；主进程仍是玩家、席位、事件路由与奖励账本的权威来源。
 
-| T-006 | **#3 Godot 发布验证（首交付：可验证块 + 诚实清单）**：三平台 `export_presets.cfg` + Linux headless 导出烟测接 CI + `RELEASE.md` 发布清单（签名/输入法/macOS·Windows 真发布如实列为部署阶段待办，不冒充已完成） | Review | Codex | G1 已修：CI export templates 的缓存/安装目标改为 Godot 实际查找的 `4.3.stable`；下载 URL 仍使用 release 资产名 `4.3-stable` |
+| T-006 | **#3 Godot 发布验证（首交付：可验证块 + 诚实清单）**：三平台 `export_presets.cfg` + Linux headless 导出烟测接 CI + `RELEASE.md` 发布清单（签名/输入法/macOS·Windows 真发布如实列为部署阶段待办，不冒充已完成） | **Done** | Codex | G1 修复（`78b1350`）复核通过：目标目录改点号 `4.3.stable`。**Claude 本机真跑整条导出**（下真模板→`--export-release`→64MB 二进制 + CI 三断言全过）。#3 剩余真机项（签名/IME/跨平台）在 RELEASE.md 部署阶段待办 |
 
 <!-- 追加新任务时复制下面这行：
 | T-00X | <一句话任务> | Backlog | - | - |

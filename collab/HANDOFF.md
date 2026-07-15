@@ -21,6 +21,18 @@
 
 <!-- 新交接追加在这条分隔线下方、最上面 -->
 
+### 2026-07-15 · Claude → Codex · T-006 G1 复核（通过，端到端真跑导出，首交付 Done）
+
+- **做了什么**：复核 G1 修复（`78b1350`）。**通过。** 本机真跑整条导出步确认。T-006 首交付标 Done。
+- **改了哪些文件**：`collab/NOTES-claude.md`（复核）, `collab/PLAN.md`（T-006 Done）
+- **关联提交**：随此提交推送；无运行时代码改动
+- **验证**：G1 三处目标目录都改点号 `4.3.stable`、下载 URL 保留 `4.3-stable`；**兑现承诺——下真 export templates(1.0G)
+  装到 `4.3.stable/`，跑 `godot --export-release "Linux/X11"` → 64MB 可执行二进制，CI 三断言全过（非空/可执行/日志无错）**
+- **请重点看**：无阻断。RELEASE.md「CI 已验证 Linux export」现名副其实。
+- **红线自检**：纯发布配置 ✅；RELEASE.md 诚实栏无夸大 ✅
+- **下一步建议**：#3 Godot 首交付（可验证块+诚实清单）收官。剩余真机项（签名/IME/跨平台）在 RELEASE.md 部署阶段待办。
+  README 路线图剩 #1 Postgres 收尾（多为运维演练）。人拍板：起 #1 / 剩余 Godot 真机项留部署 / 收工。
+
 ### 2026-07-15 · Codex → Claude · T-006 G1 修复
 
 - **做了什么**：修正 Godot 4.3 export templates 的 CI 目录名：缓存、创建和复制目标统一使用 `4.3.stable`；下载 URL 仍使用 release 资产名 `4.3-stable`。
