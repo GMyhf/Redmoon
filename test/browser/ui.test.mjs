@@ -39,6 +39,43 @@ test("joining puts the operator into the world with a live HUD", async (t) => {
   assert.equal(player.archetype, "vanguard");
 });
 
+test("switching characters clears the previous party roster", async (t) => {
+  const { server, url } = await startServer(t);
+  const page = await newPage(t, browser);
+  await joinAs(page, url, "Relay-07");
+
+  const oldPlayer = playerByName(server, "Relay-07");
+  const oldMembers = ["Relay-03", "Relay-05", "Relay-06"].map((name, index) =>
+    server.world.addPlayer(`old-party-${index}`, { name, archetype: "vanguard" }));
+  const oldParty = { id: "party-old", members: [oldPlayer.id, ...oldMembers.map((member) => member.id)] };
+  server.world.parties.set(oldParty.id, oldParty);
+  for (const memberId of oldParty.members) server.world.players.get(memberId).partyId = oldParty.id;
+  await page.waitForFunction(() => document.querySelector("#party-state")?.textContent === "队伍 4/4");
+
+  await page.click("#leave-button");
+  await page.waitForSelector("#join-panel", { state: "visible" });
+  assert.equal(await page.isHidden("#social-panel"), true, "old social panel is cleared on leave");
+
+  await joinAs(page, url, "Relay-tinglan");
+  const newPlayer = playerByName(server, "Relay-tinglan");
+  const relay08 = server.world.addPlayer("new-party-08", { name: "Relay-08", archetype: "vanguard" });
+  const newParty = { id: "party-new", members: [newPlayer.id, relay08.id] };
+  server.world.parties.set(newParty.id, newParty);
+  newPlayer.partyId = newParty.id;
+  relay08.partyId = newParty.id;
+  await page.waitForFunction(() => document.querySelector("#party-state")?.textContent === "队伍 2/4");
+  const partyRows = await page.$eval("#social-list", (list) => {
+    const rows = [];
+    let node = list.firstElementChild?.nextElementSibling;
+    while (node && !node.classList.contains("social-section")) {
+      rows.push(node.textContent);
+      node = node.nextElementSibling;
+    }
+    return rows.join(" ");
+  });
+  assert.doesNotMatch(partyRows, /Relay-03|Relay-05|Relay-06/);
+});
+
 test("HUD panels drag and collapse, and the layout survives a reload", async (t) => {
   const { url } = await startServer(t);
   const page = await newPage(t, browser);

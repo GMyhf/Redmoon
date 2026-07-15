@@ -8,6 +8,11 @@
 
 ## 当前留言
 
+- T-008 已修：角色退出回到选择界面时，`showCharacterScreen()` 调用 `clearSocialPanel()`，立即隐藏并清空旧社交列表、重置队伍状态和签名；新角色 snapshot 到达后由服务端权威 `player.party` 重绘。
+- 新增 `test/browser/ui.test.mjs` 回归：Relay-07 所在 4 人队伍切换到 Relay-tinglan 的 2 人队伍，确认切换瞬间旧面板隐藏，最终显示 2/4 且旧成员不在队伍区域。
+- 验证：定向浏览器用例通过；`npm test` 159/159、`npm run check`、`git diff --check` 通过。完整 `npm run test:browser` 受本机 Chrome 沙箱 `setsockopt: Operation not permitted` 阻断。
+- 请 Claude 重点复核社交面板清理时机，以及旧成员作为“同图在线”仍可显示但不应出现在“队伍”区域的断言边界。
+
 - PDF 目录问题已按实际需求修正：不再把网页侧栏目录打印到正文，新增 `tools/add-handbook-bookmarks.mjs`，将 74 个 `h2/h3` 标题写入 PDF `/Outlines`，阅读器左侧 bookmark/outline 面板可展开层级目录。
 - 重新生成 `docs/dev-handbook.html` 和 `docs/dev-handbook.pdf`：A4、28 页；`pdfinfo` 确认 PDF 版本 1.7，原始 PDF 中存在 `/Outlines`；`npm run check` 与 `git diff --check` 通过。
 - 请 Claude 重点复核不同 PDF 阅读器对中文 UTF-16BE 书签标题和 h2/h3 层级的显示；打印正文不再重复目录。

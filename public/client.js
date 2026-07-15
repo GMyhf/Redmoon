@@ -1079,6 +1079,13 @@ import {
   }
 
   // Social: party members, online players to invite, friends with status.
+  function clearSocialPanel() {
+    state.socialSignature = "";
+    if (ui.socialPanel) ui.socialPanel.hidden = true;
+    ui.socialList?.replaceChildren();
+    if (ui.partyState) ui.partyState.textContent = "未组队";
+  }
+
   function updateSocial(player) {
     if (!ui.socialPanel) return;
     const others = [...state.players.values()].filter((entry) => String(entry.id) !== String(state.id));
@@ -1477,6 +1484,7 @@ import {
     state.pendingRecovery = null;
     for (const store of [state.players, state.enemies, state.projectiles, state.drops]) store.clear();
     state.effects.length = 0;
+    clearSocialPanel();
     ui.titleArt.classList.remove("is-hidden");
     ui.titleArt.hidden = false;
     ui.joinPanel.hidden = false;
