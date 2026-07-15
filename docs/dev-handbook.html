@@ -1,0 +1,759 @@
+<title>CRIMSON RELAY 游戏开发教学手册</title>
+<style>
+  :root {
+    --ground: #f7f4f2;
+    --surface: #ffffff;
+    --surface-2: #fbf8f6;
+    --ink: #201a1b;
+    --ink-soft: #5f5455;
+    --ink-faint: #8a7d7e;
+    --line: #e7ded9;
+    --line-soft: #f0e9e5;
+    --accent: #c01e34;
+    --accent-strong: #9a1729;
+    --accent-soft: #f8e8e8;
+    --accent-tint: #fdf5f4;
+    --code-bg: #191416;
+    --code-ink: #e9e0dd;
+    --code-line: #2c2325;
+    --code-accent: #ff8f9c;
+    --mast-bg: #150a0d;
+    --mast-ink: #f3eae8;
+    --shadow: 0 1px 2px rgba(40,20,22,.05), 0 8px 30px rgba(40,20,22,.06);
+    --font-sans: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif;
+    --font-mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", "Menlo", "Consolas", "Liberation Mono", monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #141011;
+      --surface: #1b1617;
+      --surface-2: #201a1b;
+      --ink: #ece4e2;
+      --ink-soft: #b3a4a1;
+      --ink-faint: #8a7b79;
+      --line: #2e2526;
+      --line-soft: #261f20;
+      --accent: #ec4a5d;
+      --accent-strong: #f4707f;
+      --accent-soft: #2c191c;
+      --accent-tint: #1f1719;
+      --code-bg: #0f0c0d;
+      --code-ink: #e7dedb;
+      --code-line: #241d1f;
+      --code-accent: #ff9ba7;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 34px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"] {
+    --ground: #f7f4f2; --surface: #ffffff; --surface-2: #fbf8f6;
+    --ink: #201a1b; --ink-soft: #5f5455; --ink-faint: #8a7d7e;
+    --line: #e7ded9; --line-soft: #f0e9e5;
+    --accent: #c01e34; --accent-strong: #9a1729; --accent-soft: #f8e8e8; --accent-tint: #fdf5f4;
+    --code-bg: #191416; --code-ink: #e9e0dd; --code-line: #2c2325; --code-accent: #ff8f9c;
+    --shadow: 0 1px 2px rgba(40,20,22,.05), 0 8px 30px rgba(40,20,22,.06);
+  }
+  :root[data-theme="dark"] {
+    --ground: #141011; --surface: #1b1617; --surface-2: #201a1b;
+    --ink: #ece4e2; --ink-soft: #b3a4a1; --ink-faint: #8a7b79;
+    --line: #2e2526; --line-soft: #261f20;
+    --accent: #ec4a5d; --accent-strong: #f4707f; --accent-soft: #2c191c; --accent-tint: #1f1719;
+    --code-bg: #0f0c0d; --code-ink: #e7dedb; --code-line: #241d1f; --code-accent: #ff9ba7;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 34px rgba(0,0,0,.35);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 16.5px;
+    line-height: 1.78;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Masthead — a committed "night before the red moon" band */
+  .masthead {
+    position: relative;
+    overflow: hidden;
+    background: var(--mast-bg);
+    color: #f3eae8;
+    border-bottom: 2px solid var(--accent);
+  }
+  .masthead::after {
+    content: "";
+    position: absolute;
+    top: -120px; right: -60px;
+    width: 340px; height: 340px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 50% 50%, rgba(224,40,58,.55), rgba(224,40,58,.10) 55%, transparent 70%);
+    filter: blur(4px);
+    pointer-events: none;
+  }
+  .masthead-inner {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 46px 40px 40px;
+    position: relative;
+    z-index: 1;
+  }
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: .32em;
+    text-transform: uppercase;
+    color: #e79aa3;
+    margin: 0 0 14px;
+  }
+  .wordmark {
+    font-size: clamp(1.9rem, 4vw, 2.9rem);
+    font-weight: 800;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    margin: 0;
+    color: #fbeeec;
+    text-wrap: balance;
+  }
+  .wordmark .cn {
+    display: block;
+    font-size: clamp(1.05rem, 2.2vw, 1.4rem);
+    font-weight: 600;
+    letter-spacing: .04em;
+    text-transform: none;
+    color: #f0d9d7;
+    margin-top: 8px;
+  }
+  .subtitle {
+    max-width: 62ch;
+    margin: 20px 0 0;
+    color: #d9c4c2;
+    font-size: 1rem;
+    line-height: 1.7;
+  }
+  .mast-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    margin-top: 22px;
+  }
+  .chip {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: .04em;
+    padding: 5px 11px;
+    border-radius: 999px;
+    background: rgba(255,255,255,.06);
+    border: 1px solid rgba(231,154,163,.28);
+    color: #eec7c9;
+  }
+
+  /* Shell */
+  .shell {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 40px 96px;
+    display: grid;
+    grid-template-columns: 262px minmax(0, 1fr);
+    gap: 52px;
+    align-items: start;
+  }
+
+  /* Sidebar */
+  .sidebar {
+    position: sticky;
+    top: 0;
+    align-self: start;
+    max-height: 100vh;
+    overflow-y: auto;
+    padding: 34px 8px 40px 0;
+    scrollbar-width: thin;
+  }
+  .toc-title {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: .28em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin: 0 0 16px 12px;
+  }
+  .nav-group { margin-bottom: 2px; }
+  .nav-top {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 7px 12px;
+    border-radius: 8px;
+    text-decoration: none;
+    color: var(--ink-soft);
+    font-weight: 600;
+    font-size: .93rem;
+    line-height: 1.4;
+    transition: background .15s, color .15s;
+  }
+  .nav-num {
+    font-family: var(--font-mono);
+    font-size: .74rem;
+    color: var(--accent);
+    min-width: 1.6em;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .nav-top:hover { background: var(--accent-tint); color: var(--ink); }
+  .nav-children {
+    margin: 2px 0 8px 30px;
+    display: flex;
+    flex-direction: column;
+    border-left: 1px solid var(--line);
+    padding-left: 2px;
+  }
+  .nav-sub {
+    display: flex;
+    gap: 8px;
+    padding: 4px 10px;
+    margin-left: -1px;
+    border-left: 2px solid transparent;
+    text-decoration: none;
+    color: var(--ink-faint);
+    font-size: .84rem;
+    line-height: 1.4;
+    transition: color .15s, border-color .15s;
+  }
+  .nav-sub-num {
+    font-family: var(--font-mono);
+    font-size: .72rem;
+    color: var(--ink-faint);
+    font-variant-numeric: tabular-nums;
+  }
+  .nav-sub:hover { color: var(--accent); }
+  .nav-top.active { color: var(--accent-strong); background: var(--accent-soft); }
+  .nav-sub.active { color: var(--accent-strong); border-left-color: var(--accent); font-weight: 600; }
+
+  /* Content */
+  .content { min-width: 0; padding-top: 12px; }
+  .content > :first-child { margin-top: 22px; }
+
+  h2 {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    font-size: clamp(1.5rem, 2.6vw, 1.92rem);
+    font-weight: 750;
+    line-height: 1.28;
+    letter-spacing: .005em;
+    margin: 70px 0 8px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+    text-wrap: balance;
+    scroll-margin-top: 24px;
+  }
+  h2:first-of-type { border-top: none; margin-top: 14px; padding-top: 0; }
+  .h-num {
+    font-family: var(--font-mono);
+    font-size: .95rem;
+    font-weight: 700;
+    color: #fff;
+    background: var(--accent);
+    padding: 3px 10px;
+    border-radius: 7px;
+    line-height: 1.5;
+    flex: none;
+    align-self: center;
+    font-variant-numeric: tabular-nums;
+  }
+  .h-text { min-width: 0; }
+  h3 {
+    font-size: 1.24rem;
+    font-weight: 700;
+    line-height: 1.4;
+    margin: 42px 0 6px;
+    color: var(--ink);
+    scroll-margin-top: 24px;
+    text-wrap: balance;
+  }
+  .h3-num {
+    font-family: var(--font-mono);
+    font-size: .82em;
+    color: var(--accent);
+    margin-right: .5em;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  h4 {
+    font-size: 1.02rem;
+    font-weight: 700;
+    margin: 30px 0 4px;
+    color: var(--ink);
+    scroll-margin-top: 24px;
+  }
+
+  p { margin: 14px 0; max-width: 42em; }
+  .content > p:first-child { max-width: 42em; }
+
+  a { color: var(--accent); text-decoration: none; border-bottom: 1px solid color-mix(in srgb, var(--accent) 32%, transparent); transition: border-color .15s, color .15s; }
+  a:hover { color: var(--accent-strong); border-bottom-color: var(--accent); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+
+  strong { font-weight: 700; color: var(--ink); }
+
+  ul, ol { margin: 14px 0; padding-left: 1.4em; max-width: 42em; }
+  li { margin: 7px 0; }
+  li::marker { color: var(--accent); }
+  ul ul { margin: 6px 0; }
+  ol { counter-reset: none; }
+
+  /* Inline code + file:line refs */
+  code {
+    font-family: var(--font-mono);
+    font-size: .855em;
+    background: var(--accent-tint);
+    color: var(--accent-strong);
+    border: 1px solid var(--line-soft);
+    padding: 1px 5px;
+    border-radius: 5px;
+    word-break: break-word;
+  }
+  @media (prefers-color-scheme: dark) { code { background: var(--accent-soft); } }
+  :root[data-theme="dark"] code { background: var(--accent-soft); }
+
+  /* Code blocks — committed dark terminal, both themes */
+  .code-wrap { margin: 20px 0; border-radius: 12px; overflow: hidden; box-shadow: var(--shadow); }
+  pre.code {
+    margin: 0;
+    background: var(--code-bg);
+    color: var(--code-ink);
+    padding: 18px 20px;
+    overflow-x: auto;
+    border: 1px solid var(--code-line);
+    border-radius: 12px;
+    line-height: 1.62;
+    font-size: .86rem;
+  }
+  pre.code code {
+    background: none;
+    border: none;
+    color: inherit;
+    padding: 0;
+    font-size: inherit;
+    white-space: pre;
+  }
+  pre.lang-text code { color: #d7cbc9; }
+
+  /* Tables */
+  .table-wrap {
+    margin: 22px 0;
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    background: var(--surface);
+  }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; min-width: 520px; }
+  thead th {
+    text-align: left;
+    background: var(--accent-tint);
+    color: var(--accent-strong);
+    font-weight: 700;
+    padding: 11px 16px;
+    border-bottom: 2px solid var(--accent-soft);
+    white-space: nowrap;
+  }
+  @media (prefers-color-scheme: dark) { thead th { background: var(--surface-2); } }
+  :root[data-theme="dark"] thead th { background: var(--surface-2); }
+  tbody td { padding: 10px 16px; border-bottom: 1px solid var(--line-soft); vertical-align: top; line-height: 1.6; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:nth-child(even) { background: var(--surface-2); }
+  td code, th code { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+
+  /* Blockquotes / callouts */
+  blockquote {
+    margin: 22px 0;
+    padding: 4px 20px;
+    border-left: 3px solid var(--accent);
+    background: var(--surface);
+    border-radius: 0 10px 10px 0;
+    box-shadow: var(--shadow);
+    max-width: 44em;
+  }
+  blockquote p { margin: 12px 0; color: var(--ink-soft); }
+  blockquote.note { border-left-color: var(--ink-faint); }
+  blockquote.discuss { border-left-color: var(--accent); background: var(--accent-tint); }
+  blockquote.lab { border-left-color: #2f9e7a; }
+  blockquote.lab p { color: var(--ink-soft); }
+  blockquote.teacher { border-left-color: var(--accent-strong); background: var(--accent-tint); }
+  @media (prefers-color-scheme: dark) {
+    blockquote.discuss, blockquote.teacher { background: var(--accent-soft); }
+  }
+  :root[data-theme="dark"] blockquote.discuss,
+  :root[data-theme="dark"] blockquote.teacher { background: var(--accent-soft); }
+
+  hr { border: none; height: 0; margin: 8px 0; }
+
+  /* Mobile TOC toggle */
+  .toc-toggle { display: none; }
+
+  @media (max-width: 940px) {
+    .shell { grid-template-columns: 1fr; gap: 0; padding: 0 22px 72px; }
+    .masthead-inner { padding: 36px 24px 30px; }
+    .sidebar {
+      position: static;
+      max-height: none;
+      overflow: visible;
+      padding: 0;
+      margin: 20px 0 8px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--surface);
+    }
+    .toc-toggle {
+      display: flex;
+      width: 100%;
+      align-items: center;
+      justify-content: space-between;
+      background: none;
+      border: none;
+      color: var(--ink);
+      font-family: var(--font-sans);
+      font-size: .95rem;
+      font-weight: 700;
+      padding: 14px 16px;
+      cursor: pointer;
+    }
+    .toc-toggle::after { content: "▾"; color: var(--accent); transition: transform .2s; }
+    .sidebar[data-open="false"] .toc-toggle::after { transform: rotate(-90deg); }
+    .toc-title { display: none; }
+    .nav-scroll { padding: 4px 10px 14px; }
+    .sidebar[data-open="false"] .nav-scroll { display: none; }
+    .content { padding-top: 6px; }
+    h2 { margin-top: 52px; }
+    body { font-size: 16px; }
+  }
+  @media (min-width: 941px) { .toc-toggle { display: none; } .nav-scroll { display: block !important; } }
+</style>
+
+<header class="masthead">
+  <div class="masthead-inner">
+    <p class="eyebrow">游戏开发教学手册 · Teaching Handbook</p>
+    <h1 class="wordmark">Crimson Relay<span class="cn">红月中继 · 用一个真实在线游戏学计算机</span></h1>
+    <p class="subtitle">一份以服务器权威在线动作 RPG 为案例的计算机课程教学手册，把「计算概论 / 程序设计 / 数据结构与算法 / 软件工程 / 操作系统 / 计算机网络 / 数据库 / 计算机安全 / 计算机图形学 / 分布式系统」的知识点逐一落到真实、可断点、可修改的代码上。</p>
+    <div class="mast-meta">
+      <span class="chip">Node.js 20 · ESM</span>
+      <span class="chip">~20,000 行源码</span>
+      <span class="chip">10 门课程</span>
+      <span class="chip">20 个实验</span>
+      <span class="chip">文件:行号 全锚定</span>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" data-open="true">
+    <button class="toc-toggle" aria-expanded="true">目录</button>
+    <p class="toc-title">目录 · Contents</p>
+    <nav class="nav-scroll">
+      <div class="nav-group"><a class="nav-top" href="#0-导言为什么用一个在线游戏来教计算机" data-target="0-导言为什么用一个在线游戏来教计算机"><span class="nav-num">0</span><span class="nav-label">导言：为什么用一个在线游戏来教计算机</span></a><div class="nav-children"><a class="nav-sub" href="#01-项目是什么" data-target="01-项目是什么"><span class="nav-sub-num">0.1</span>项目是什么</a><a class="nav-sub" href="#02-为什么它特别适合教学" data-target="02-为什么它特别适合教学"><span class="nav-sub-num">0.2</span>为什么它特别适合教学</a><a class="nav-sub" href="#03-技术栈速览" data-target="03-技术栈速览"><span class="nav-sub-num">0.3</span>技术栈速览</a><a class="nav-sub" href="#04-怎么读这份手册" data-target="04-怎么读这份手册"><span class="nav-sub-num">0.4</span>怎么读这份手册</a></div></div>
+      <div class="nav-group"><a class="nav-top" href="#1-课程知识点全景图" data-target="1-课程知识点全景图"><span class="nav-num">1</span><span class="nav-label">课程知识点全景图</span></a></div>
+      <div class="nav-group"><a class="nav-top" href="#2-计算概论与程序设计基础" data-target="2-计算概论与程序设计基础"><span class="nav-num">2</span><span class="nav-label">计算概论与程序设计基础</span></a><div class="nav-children"><a class="nav-sub" href="#21-数位与字节序" data-target="21-数位与字节序"><span class="nav-sub-num">2.1</span>数、位与字节序</a><a class="nav-sub" href="#22-闭式公式循环不变式与数值守卫" data-target="22-闭式公式循环不变式与数值守卫"><span class="nav-sub-num">2.2</span>闭式公式、循环不变式与数值守卫</a><a class="nav-sub" href="#23-模块化纯函数与不可变数据" data-target="23-模块化纯函数与不可变数据"><span class="nav-sub-num">2.3</span>模块化、纯函数与不可变数据</a><a class="nav-sub" href="#24-向量与几何线性代数的第一次应用" data-target="24-向量与几何线性代数的第一次应用"><span class="nav-sub-num">2.4</span>向量与几何（线性代数的第一次应用）</a></div></div>
+      <div class="nav-group"><a class="nav-top" href="#3-数据结构与算法" data-target="3-数据结构与算法"><span class="nav-num">3</span><span class="nav-label">数据结构与算法</span></a><div class="nav-children"><a class="nav-sub" href="#31-用对容器map-set-数组-队列" data-target="31-用对容器map-set-数组-队列"><span class="nav-sub-num">3.1</span>用对容器：Map / Set / 数组 / 队列</a><a class="nav-sub" href="#32-有限状态机怪物-ai" data-target="32-有限状态机怪物-ai"><span class="nav-sub-num">3.2</span>有限状态机：怪物 AI</a><a class="nav-sub" href="#33-加权随机抽样前缀和" data-target="33-加权随机抽样前缀和"><span class="nav-sub-num">3.3</span>加权随机抽样（前缀和）</a><a class="nav-sub" href="#34-排序极值与贪心" data-target="34-排序极值与贪心"><span class="nav-sub-num">3.4</span>排序、极值与贪心</a><a class="nav-sub" href="#35-最近邻搜索与扫掠碰撞计算几何" data-target="35-最近邻搜索与扫掠碰撞计算几何"><span class="nav-sub-num">3.5</span>最近邻搜索与扫掠碰撞（计算几何）</a><a class="nav-sub" href="#36-伪随机数与可复现性" data-target="36-伪随机数与可复现性"><span class="nav-sub-num">3.6</span>伪随机数与可复现性</a><a class="nav-sub" href="#37-定步长积分游戏循环里的算法" data-target="37-定步长积分游戏循环里的算法"><span class="nav-sub-num">3.7</span>定步长积分（游戏循环里的算法）</a></div></div>
+      <div class="nav-group"><a class="nav-top" href="#4-软件工程" data-target="4-软件工程"><span class="nav-num">4</span><span class="nav-label">软件工程</span></a><div class="nav-children"><a class="nav-sub" href="#41-架构服务器权威与单一事实源" data-target="41-架构服务器权威与单一事实源"><span class="nav-sub-num">4.1</span>架构：服务器权威与单一事实源</a><a class="nav-sub" href="#42-接口契约机器可读协议-契约测试" data-target="42-接口契约机器可读协议-契约测试"><span class="nav-sub-num">4.2</span>接口契约：机器可读协议 + 契约测试</a><a class="nav-sub" href="#43-测试金字塔与可测性设计" data-target="43-测试金字塔与可测性设计"><span class="nav-sub-num">4.3</span>测试金字塔与可测性设计</a><a class="nav-sub" href="#44-可观测性" data-target="44-可观测性"><span class="nav-sub-num">4.4</span>可观测性</a><a class="nav-sub" href="#45-协作与变更管理" data-target="45-协作与变更管理"><span class="nav-sub-num">4.5</span>协作与变更管理</a></div></div>
+      <div class="nav-group"><a class="nav-top" href="#5-操作系统" data-target="5-操作系统"><span class="nav-num">5</span><span class="nav-label">操作系统</span></a><div class="nav-children"><a class="nav-sub" href="#51-事件循环定时器漂移与死亡螺旋" data-target="51-事件循环定时器漂移与死亡螺旋"><span class="nav-sub-num">5.1</span>事件循环、定时器漂移与「死亡螺旋」</a><a class="nav-sub" href="#52-进程-vs-线程spawn监督与回收" data-target="52-进程-vs-线程spawn监督与回收"><span class="nav-sub-num">5.2</span>进程 vs 线程、`spawn`、监督与回收</a><a class="nav-sub" href="#53-进程间通信管道与消息帧" data-target="53-进程间通信管道与消息帧"><span class="nav-sub-num">5.3</span>进程间通信：管道与消息帧</a><a class="nav-sub" href="#54-文件系统原子性fsync权限位" data-target="54-文件系统原子性fsync权限位"><span class="nav-sub-num">5.4</span>文件系统：原子性、fsync、权限位</a><a class="nav-sub" href="#55-背压与令牌桶" data-target="55-背压与令牌桶"><span class="nav-sub-num">5.5</span>背压与令牌桶</a><a class="nav-sub" href="#56-信号与优雅停机" data-target="56-信号与优雅停机"><span class="nav-sub-num">5.6</span>信号与优雅停机</a></div></div>
+      <div class="nav-group"><a class="nav-top" href="#6-计算机网络" data-target="6-计算机网络"><span class="nav-num">6</span><span class="nav-label">计算机网络</span></a><div class="nav-children"><a class="nav-sub" href="#61-从-tcp-到-websocket-握手" data-target="61-从-tcp-到-websocket-握手"><span class="nav-sub-num">6.1</span>从 TCP 到 WebSocket 握手</a><a class="nav-sub" href="#62-协议设计与字节序" data-target="62-协议设计与字节序"><span class="nav-sub-num">6.2</span>协议设计与字节序</a><a class="nav-sub" href="#63-可靠有序与防重放序列号" data-target="63-可靠有序与防重放序列号"><span class="nav-sub-num">6.3</span>可靠有序与防重放：序列号</a><a class="nav-sub" href="#64-实时同步客户端预测与和解" data-target="64-实时同步客户端预测与和解"><span class="nav-sub-num">6.4</span>实时同步：客户端预测与和解</a><a class="nav-sub" href="#65-断线重连心跳后台节流" data-target="65-断线重连心跳后台节流"><span class="nav-sub-num">6.5</span>断线重连、心跳、后台节流</a><a class="nav-sub" href="#66-生产网络与安全边界" data-target="66-生产网络与安全边界"><span class="nav-sub-num">6.6</span>生产网络与安全边界</a></div></div>
+      <div class="nav-group"><a class="nav-top" href="#7-数据库" data-target="7-数据库"><span class="nav-num">7</span><span class="nav-label">数据库</span></a><div class="nav-children"><a class="nav-sub" href="#71-事务与-acid" data-target="71-事务与-acid"><span class="nav-sub-num">7.1</span>事务与 ACID</a><a class="nav-sub" href="#72-schema-迁移与版本表" data-target="72-schema-迁移与版本表"><span class="nav-sub-num">7.2</span>schema 迁移与版本表</a><a class="nav-sub" href="#73-upsert参数化查询幂等键" data-target="73-upsert参数化查询幂等键"><span class="nav-sub-num">7.3</span>UPSERT、参数化查询、幂等键</a><a class="nav-sub" href="#74-投递语义与健康预检" data-target="74-投递语义与健康预检"><span class="nav-sub-num">7.4</span>投递语义与健康预检</a></div></div>
+      <div class="nav-group"><a class="nav-top" href="#8-计算机安全与密码学" data-target="8-计算机安全与密码学"><span class="nav-num">8</span><span class="nav-label">计算机安全与密码学</span></a><div class="nav-children"><a class="nav-sub" href="#81-凭据的单向哈希与恒定时间比较" data-target="81-凭据的单向哈希与恒定时间比较"><span class="nav-sub-num">8.1</span>凭据的单向哈希与恒定时间比较</a><a class="nav-sub" href="#82-令牌一次性恢复码凭据轮换" data-target="82-令牌一次性恢复码凭据轮换"><span class="nav-sub-num">8.2</span>令牌、一次性恢复码、凭据轮换</a><a class="nav-sub" href="#83-先写后提交跨越丢包的凭据一致性" data-target="83-先写后提交跨越丢包的凭据一致性"><span class="nav-sub-num">8.3</span>先写后提交：跨越丢包的凭据一致性</a><a class="nav-sub" href="#84-输入不可信注入穿越污染dos" data-target="84-输入不可信注入穿越污染dos"><span class="nav-sub-num">8.4</span>输入不可信：注入、穿越、污染、DoS</a><a class="nav-sub" href="#85-能力令牌与-fencing分布式安全" data-target="85-能力令牌与-fencing分布式安全"><span class="nav-sub-num">8.5</span>能力令牌与 fencing（分布式安全）</a></div></div>
+      <div class="nav-group"><a class="nav-top" href="#9-计算机图形学与人机交互" data-target="9-计算机图形学与人机交互"><span class="nav-num">9</span><span class="nav-label">计算机图形学与人机交互</span></a><div class="nav-children"><a class="nav-sub" href="#91-渲染循环与等距投影" data-target="91-渲染循环与等距投影"><span class="nav-sub-num">9.1</span>渲染循环与等距投影</a><a class="nav-sub" href="#92-离屏缓存脏矩形剔除深度排序" data-target="92-离屏缓存脏矩形剔除深度排序"><span class="nav-sub-num">9.2</span>离屏缓存、脏矩形、剔除、深度排序</a><a class="nav-sub" href="#93-粒子对象池与游戏手感" data-target="93-粒子对象池与游戏手感"><span class="nav-sub-num">9.3</span>粒子、对象池与「游戏手感」</a><a class="nav-sub" href="#94-事件驱动输入与人机交互" data-target="94-事件驱动输入与人机交互"><span class="nav-sub-num">9.4</span>事件驱动输入与人机交互</a><a class="nav-sub" href="#95-音频合成" data-target="95-音频合成"><span class="nav-sub-num">9.5</span>音频合成</a></div></div>
+      <div class="nav-group"><a class="nav-top" href="#10-分布式系统副本-worker-案例研究" data-target="10-分布式系统副本-worker-案例研究"><span class="nav-num">10</span><span class="nav-label">分布式系统：副本 worker 案例研究</span></a><div class="nav-children"><a class="nav-sub" href="#101-确定性状态机复制smr" data-target="101-确定性状态机复制smr"><span class="nav-sub-num">10.1</span>确定性状态机复制（SMR）</a><a class="nav-sub" href="#102-检查点快照与故障转移" data-target="102-检查点快照与故障转移"><span class="nav-sub-num">10.2</span>检查点、快照与故障转移</a><a class="nav-sub" href="#103-epoch-fencing-与脑裂防护" data-target="103-epoch-fencing-与脑裂防护"><span class="nav-sub-num">10.3</span>epoch fencing 与脑裂防护</a><a class="nav-sub" href="#104-至少一次投递-恰好一次效果" data-target="104-至少一次投递-恰好一次效果"><span class="nav-sub-num">10.4</span>至少一次投递 → 恰好一次效果</a><a class="nav-sub" href="#105-容量超时与孤儿回收" data-target="105-容量超时与孤儿回收"><span class="nav-sub-num">10.5</span>容量、超时与孤儿回收</a></div></div>
+      <div class="nav-group"><a class="nav-top" href="#11-课程实验与作业设计" data-target="11-课程实验与作业设计"><span class="nav-num">11</span><span class="nav-label">课程实验与作业设计</span></a><div class="nav-children"><a class="nav-sub" href="#111-入门级计算概论-程序设计" data-target="111-入门级计算概论-程序设计"><span class="nav-sub-num">11.1</span>入门级（计算概论 / 程序设计）</a><a class="nav-sub" href="#112-数据结构与算法" data-target="112-数据结构与算法"><span class="nav-sub-num">11.2</span>数据结构与算法</a><a class="nav-sub" href="#113-软件工程" data-target="113-软件工程"><span class="nav-sub-num">11.3</span>软件工程</a><a class="nav-sub" href="#114-操作系统" data-target="114-操作系统"><span class="nav-sub-num">11.4</span>操作系统</a><a class="nav-sub" href="#115-计算机网络" data-target="115-计算机网络"><span class="nav-sub-num">11.5</span>计算机网络</a><a class="nav-sub" href="#116-数据库-安全" data-target="116-数据库-安全"><span class="nav-sub-num">11.6</span>数据库 / 安全</a><a class="nav-sub" href="#117-综合大作业分布式-图形" data-target="117-综合大作业分布式-图形"><span class="nav-sub-num">11.7</span>综合大作业（分布式 / 图形）</a></div></div>
+      <div class="nav-group"><a class="nav-top" href="#12-术语表与延伸阅读" data-target="12-术语表与延伸阅读"><span class="nav-num">12</span><span class="nav-label">术语表与延伸阅读</span></a><div class="nav-children"><a class="nav-sub" href="#121-术语速查" data-target="121-术语速查"><span class="nav-sub-num">12.1</span>术语速查</a><a class="nav-sub" href="#122-仓库内延伸阅读" data-target="122-仓库内延伸阅读"><span class="nav-sub-num">12.2</span>仓库内延伸阅读</a><a class="nav-sub" href="#123-建议的授课路线" data-target="123-建议的授课路线"><span class="nav-sub-num">12.3</span>建议的授课路线</a></div></div>
+    </nav>
+  </aside>
+  <main class="content">
+    <blockquote class="note"><p>一份以真实项目 <strong>CRIMSON RELAY（红月中继）</strong> 为案例的计算机课程教学手册。</p><p>目标读者：正在学习「计算概论 / 程序设计 / 数据结构与算法 / 软件工程 / 操作系统 / 计算机网络 / 数据库 / 计算机安全 / 计算机图形学」的本科生，以及希望用「做一个真游戏」串联这些课程的教师。</p><p>本手册所有技术论断都指向仓库内真实代码，采用 <code>文件:行号</code> 的形式给出锚点，便于课堂现场翻阅、断点调试与布置作业。行号对应撰写时的源码，重构后可能漂移，请以函数名为准。</p></blockquote>
+<hr />
+<h2 id="0-导言为什么用一个在线游戏来教计算机"><span class="h-num">0</span><span class="h-text">导言：为什么用一个在线游戏来教计算机</span></h2>
+<h3 id="01-项目是什么"><span class="h3-num">0.1</span>项目是什么</h3>
+<p>CRIMSON RELAY 是一个<strong>从零实现、服务器权威</strong>的网页在线动作 RPG（ARPG）原型。它不是玩具 demo，而是一条完整的纵向链路：</p>
+<div class="code-wrap"><pre class="code"><code>浏览器 Canvas 客户端  ─┐                    ┌─ Godot 4.3 原生客户端
+   （只发输入、只渲染） │                    │  （复用同一版本化协议）
+                       ├── HTTP(S) + WS(S) ──┤
+                       │   JSON / 二进制帧    │
+                       v                     v
+              Linux 上的 Node.js 20 权威服务器
+      HTTP 静态服务 → WebSocket 网关 → 权威世界模拟 World
+                                          │
+                                   固定 tick + 快照广播
+                                          │
+                          账号持久化（JSON 文件 / PostgreSQL）
+                                          │
+                          确定性副本（受监督的子进程 worker）</code></pre></div>
+<p>整个仓库约 <strong>2 万行代码</strong>（<code>src/server</code> 服务端约 8000 行，<code>public</code> 浏览器客户端约 5000 行，其余为测试、工具与文档），只依赖两个第三方库：WebSocket 库 <code>ws</code> 与 PostgreSQL 驱动 <code>pg</code>。没有游戏引擎、没有打包器、没有框架黑箱——<strong>每一个数据结构、每一个算法、每一个系统调用都直接暴露在源码里可读、可改、可调试</strong>。</p>
+<h3 id="02-为什么它特别适合教学"><span class="h3-num">0.2</span>为什么它特别适合教学</h3>
+<ol><li><strong>一个项目串起一整张培养方案。</strong> 从「一个 for 循环怎么写」到「分布式系统怎么保证 exactly-once」，学生能在同一份代码里看到知识点如何层层叠加、互相咬合。</li><li><strong>核心约束天然逼出正确工程观。</strong> 项目的第一性原理是<strong>服务器权威</strong>（server-authoritative）：客户端只提交「我想移动 / 我想施法」的意图，服务器验证一切、拥有一切结果。这条约束直接教会学生「不要信任输入」「单一事实源」「关注点分离」，而不是靠说教。</li><li><strong>确定性是设计出来的，不是碰运气。</strong> 随机数可注入、时间可手动步进、世界可序列化。于是「可复现」「可测试」「可回放」从抽象原则变成能跑的代码——这是软件工程与操作系统课最难讲清、这里却随手可演示的东西。</li><li><strong>真实世界的粗糙感都在。</strong> 背压、心跳、限流、崩溃恢复、原子写、时序攻击、schema 迁移……这些「课本讲过但没见过」的东西，这里都有生产级实现和注释说明「为什么这么写」。</li></ol>
+<h3 id="03-技术栈速览"><span class="h3-num">0.3</span>技术栈速览</h3>
+<div class="table-wrap"><table><thead><tr><th>层</th><th>技术</th><th>关键文件</th></tr></thead><tbody><tr><td>运行时</td><td>Node.js 20+（ESM 模块，<code>"type":"module"</code>）</td><td><code>package.json</code></td></tr><tr><td>传输</td><td>HTTP/1.1 + WebSocket（<code>ws</code> 库）</td><td><code>src/server/server.js</code></td></tr><tr><td>序列化</td><td>UTF-8 JSON + 可选自定义二进制帧 <code>binary1</code></td><td><code>src/server/codec.js</code></td></tr><tr><td>世界模拟</td><td>纯 JS 定步长模拟</td><td><code>src/server/world.js</code></td></tr><tr><td>规则数据</td><td>冻结的声明式配置表</td><td><code>src/server/definitions.js</code></td></tr><tr><td>持久化</td><td>原子 JSON 文件 / PostgreSQL</td><td><code>src/server/server.js</code>, <code>postgres-store.js</code></td></tr><tr><td>副本</td><td><code>child_process</code> 子进程 + 管道 IPC</td><td><code>src/server/dungeon-*.js</code></td></tr><tr><td>客户端</td><td>原生 Canvas 2D + Web Audio + DOM HUD</td><td><code>public/client.js</code></td></tr><tr><td>测试</td><td><code>node:test</code> 确定性单测 + 自研 CDP 浏览器驱动</td><td><code>test/</code></td></tr></tbody></table></div>
+<h3 id="04-怎么读这份手册"><span class="h3-num">0.4</span>怎么读这份手册</h3>
+<p>后续每一章对应一门课，结构统一为：<strong>知识点 → 代码锚点（<code>文件:行号</code>）→ 一段解释 → 📎 课堂讨论 / 🧪 实验建议</strong>。教师可以直接抽取任意一节作为一次课的案例；学生可以带着 <code>git</code> 检出仓库，边读边设断点。建议先通读<a href="#1-课程知识点全景图">第 1 章的全景图</a>，再按自己课程挑章节。</p>
+<hr />
+<h2 id="1-课程知识点全景图"><span class="h-num">1</span><span class="h-text">课程知识点全景图</span></h2>
+<p>下表把每门课的典型知识点映射到项目里最有代表性的落点。<strong>这是全书的索引</strong>。</p>
+<div class="table-wrap"><table><thead><tr><th>课程</th><th>知识点</th><th>代码落点</th></tr></thead><tbody><tr><td><strong>计算概论 / 程序设计</strong></td><td>数据类型、定点/浮点、位运算、字节序</td><td><code>codec.js</code>（二进制帧、<code>writeFloatLE</code>）、<code>random.js</code>（<code>Math.imul</code>、无符号右移）</td></tr><tr><td></td><td>循环不变式、闭式公式、数值守卫</td><td><code>xpRequiredForLevel</code>、<code>_grantXp</code>（<code>world.js</code>）</td></tr><tr><td></td><td>模块化、纯函数、不可变数据</td><td><code>dungeon.js</code>（纯函数）、<code>definitions.js</code>（<code>Object.freeze</code>）</td></tr><tr><td></td><td>向量/矩阵几何</td><td><code>normalizedVector</code>、<code>rotate</code>、<code>worldToScreen</code>（<code>world.js</code> / <code>client.js</code>）</td></tr><tr><td><strong>数据结构与算法</strong></td><td>哈希表 vs 数组、集合、队列、环形缓冲</td><td><code>Map</code>/<code>Set</code> 实体表、<code>pendingMobSpawns</code> 队列、<code>SampleWindow</code> 环形窗口</td></tr><tr><td></td><td>有限状态机（FSM）</td><td><code>_updateMobs</code> 怪物战斗状态机（<code>world.js</code>）</td></tr><tr><td></td><td>加权随机（前缀和抽样）</td><td><code>rollItem</code> 稀有度抽样（<code>loot.js</code>）</td></tr><tr><td></td><td>排序 / argmin / argmax / 贪心</td><td><code>autoEquip</code>、<code>_autoAllocate</code>、<code>_trySpecialDrop</code>（<code>world.js</code>）</td></tr><tr><td></td><td>最近邻搜索、扫掠碰撞、计算几何</td><td><code>_nearestLivingPlayer</code>、<code>segmentHitsCircle</code>（<code>world.js</code>）</td></tr><tr><td></td><td>伪随机数发生器（PRNG）、哈希</td><td><code>mulberry32</code>、FNV-1a <code>hashSeed</code>（<code>random.js</code>）</td></tr><tr><td><strong>软件工程</strong></td><td>分层架构、单一事实源、关注点分离</td><td>整体架构；<code>definitions.js</code> 为规则唯一来源</td></tr><tr><td></td><td>接口契约、协议版本化、契约测试</td><td><code>protocol.js</code> 机器可读 schema + <code>protocol-conformance.test.js</code></td></tr><tr><td></td><td>测试金字塔、依赖注入、可测性设计</td><td>确定性 <code>World</code> 单测 + CDP 浏览器 E2E</td></tr><tr><td></td><td>可观测性（liveness/readiness/metrics）</td><td><code>/health</code> <code>/ready</code> <code>/metrics</code>（<code>server.js</code>）</td></tr><tr><td></td><td>协作流程、变更日志</td><td><code>collab/</code>、<code>CHANGELOG.md</code></td></tr><tr><td><strong>操作系统</strong></td><td>事件循环、非阻塞 I/O、定时器漂移</td><td><code>_startLoop</code> 时间累加器循环（<code>server.js</code>）</td></tr><tr><td></td><td>进程 vs 线程、<code>spawn</code>/<code>exec</code>、进程监督与回收</td><td><code>dungeon-transport.js</code> 子进程</td></tr><tr><td></td><td>进程间通信（管道、消息帧）</td><td><code>dungeon-ipc.js</code> 长度前缀帧</td></tr><tr><td></td><td>文件系统原子性、<code>fsync</code>、权限位</td><td><code>_writeAccounts</code> 写临时文件+rename、<code>syncDirectory</code>、0600/0700</td></tr><tr><td></td><td>流量控制 / 背压、令牌桶</td><td><code>_sendPayload</code> 背压、<code>_takeRateToken</code> 令牌桶</td></tr><tr><td></td><td>信号处理、优雅停机</td><td><code>SIGINT/SIGTERM</code>、<code>close()</code>（<code>server.js</code>）</td></tr><tr><td><strong>计算机网络</strong></td><td>TCP / HTTP / WebSocket 握手</td><td><code>upgrade</code> 事件、<code>/ws</code> 限制（<code>server.js</code>）</td></tr><tr><td></td><td>协议设计、消息帧、字节序</td><td><code>codec.js</code>、<code>dungeon-ipc.js</code></td></tr><tr><td></td><td>可靠有序、序列号、防重放</td><td><code>input.seq</code> 单调门（<code>world.js</code>）</td></tr><tr><td></td><td>实时同步：客户端预测与和解、插值</td><td><code>predictLocalPlayer</code>、<code>interpolateEntities</code>（<code>client.js</code>）</td></tr><tr><td></td><td>快照 vs 增量、二进制压缩</td><td><code>codec.js</code> <code>binary1</code>（约为 JSON 的 1/3）</td></tr><tr><td></td><td>反向代理、TLS、Origin/CSWSH 防护</td><td><code>deploy/</code>、<code>_originAllowed</code>（<code>server.js</code>）</td></tr><tr><td><strong>数据库</strong></td><td>事务、ACID、连接池、回滚</td><td><code>postgres-store.js</code> <code>BEGIN/COMMIT/ROLLBACK</code></td></tr><tr><td></td><td>schema 迁移、版本表</td><td><code>crimson_schema_migrations</code>（<code>postgres-store.js</code>）</td></tr><tr><td></td><td>UPSERT、参数化查询、幂等键</td><td><code>ON CONFLICT DO UPDATE/NOTHING</code>、<code>event_id</code> 唯一键</td></tr><tr><td></td><td>审计日志、投递语义</td><td><code>crimson_audit_log</code>、at-least-once → exactly-once</td></tr><tr><td><strong>计算机安全 / 密码学</strong></td><td>单向哈希、恒定时间比较</td><td><code>hashSecret</code>（SHA-256）、<code>timingSafeEqual</code>（<code>session.js</code>）</td></tr><tr><td></td><td>令牌、一次性恢复码、凭据轮换</td><td><code>createSessionToken</code>、<code>createRecoveryCode</code>（<code>session.js</code>）</td></tr><tr><td></td><td>先写后提交、幂等重试</td><td>nextToken 提交协议（<code>server.js</code>）</td></tr><tr><td></td><td>输入不可信、路径穿越、原型污染</td><td><code>isInside</code>、<code>validateAccountRecord</code>（<code>server.js</code>）</td></tr><tr><td></td><td>能力令牌、fencing token、时序攻击防护</td><td>副本 HMAC 票据（<code>dungeon-ticket.js</code>）</td></tr><tr><td><strong>计算机图形学 / 人机交互</strong></td><td>渲染循环、等距投影、相机</td><td><code>frame</code>、<code>worldToScreen</code>、相机平滑（<code>client.js</code>）</td></tr><tr><td></td><td>离屏缓存、脏矩形、剔除、深度排序</td><td>主题/地面缓存、<code>forEachVisibleTile</code>（<code>client.js</code>）</td></tr><tr><td></td><td>粒子系统、对象池、游戏手感</td><td>飘字、命中闪白、效果池上限（<code>client.js</code>）</td></tr><tr><td></td><td>事件驱动输入、焦点管理、响应式布局</td><td>焦点守卫、<code>matchMedia</code>、可拖拽 HUD（<code>client.js</code>）</td></tr><tr><td></td><td>音频合成（加法合成、包络）</td><td>Web Audio <code>sfx</code>（<code>client.js</code>）</td></tr><tr><td><strong>分布式系统</strong></td><td>状态机复制、确定性、总序</td><td>副本按 <code>playerId</code> 排序输入（<code>dungeon-simulation.js</code>）</td></tr><tr><td></td><td>检查点 / 快照 / 故障转移</td><td><code>createCheckpoint</code>/<code>restoreCheckpoint</code></td></tr><tr><td></td><td>fencing token、脑裂防护、epoch</td><td><code>workerEpoch</code> 身份校验（<code>server.js</code>/<code>dungeon-transport.js</code>）</td></tr><tr><td></td><td>幂等、去重账本、exactly-once 效果</td><td><code>dungeon.rewarded</code> 集合、<code>settlementId</code></td></tr></tbody></table></div>
+<hr />
+<h2 id="2-计算概论与程序设计基础"><span class="h-num">2</span><span class="h-text">计算概论与程序设计基础</span></h2>
+<p>这一章面向刚入门的学生：不谈系统架构，只谈「一段好代码长什么样」。项目里到处是可以逐字讲解的微型范例。</p>
+<h3 id="21-数位与字节序"><span class="h3-num">2.1</span>数、位与字节序</h3>
+<p><strong>二进制帧编码器</strong>（<code>src/server/codec.js</code>）是讲「计算机如何存数」的绝佳教材。它把高频实体数组打包成小端字节流：</p>
+<ul><li><code>writer.f32(x)</code> 用 <code>writeFloatLE</code>（<code>codec.js:77-81</code>）把 JS 的 64 位 double 截断成 IEEE-754 32 位单精度浮点写入缓冲区——顺势讲<strong>浮点精度损失</strong>：解码端 <code>f32()</code> 特意 <code>Math.round(value*1000)/1000</code>（<code>codec.js:264-266</code>）来让往返比较可读。</li><li>帧头是 <code>u8</code> 魔数 <code>0xB1</code> + <code>u32</code> 长度（<code>codec.js:34-35, 221-222</code>），讲<strong>小端（little-endian）字节序</strong>与「为什么要有 magic number / 版本标签」。</li><li>怪物的多个布尔标志压进<strong>一个字节</strong>：<code>(elite?1:0)|(boss?2:0)|(alive?4:0)</code>（<code>codec.js:150</code>），解码端用<strong>位与</strong>取回：<code>enemy.elite=(flags&amp;1)!==0</code>（<code>codec.js:337-339</code>）。这是位运算与位掩码的干净例子。</li></ul>
+<p><strong>PRNG</strong>（<code>src/server/random.js</code>）只有 42 行，却密集使用位运算：<code>Math.imul</code> 做 32 位整数乘法、<code>&gt;&gt;&gt; 0</code> 强制无符号、<code>^ &gt;&gt;&gt;</code> 异或移位混合。<code>hashSeed</code> 是标准 <strong>FNV-1a</strong> 哈希（<code>random.js:4-11</code>），<code>createRandomFromState</code> 是 <strong>mulberry32</strong> 发生器（<code>random.js:21-27</code>）。</p>
+<blockquote class="note discuss"><p>📎 <strong>课堂讨论</strong>：为什么游戏要自己写 PRNG，而不用 <code>Math.random()</code>？（答案：需要可<strong>播种</strong>、可<strong>序列化状态</strong>，才能复现和存档——见 <a href="#36-伪随机数与可复现性">3.6</a> 与 <a href="#10-分布式系统副本-worker-案例研究">10 章</a>。）</p></blockquote>
+<h3 id="22-闭式公式循环不变式与数值守卫"><span class="h3-num">2.2</span>闭式公式、循环不变式与数值守卫</h3>
+<p>经验值曲线是一个漂亮的<strong>闭式函数</strong>：</p>
+<div class="code-wrap"><pre class="code lang-js"><code>// world.js:3123 附近  xpRequiredForLevel(level)
+const base = 75 + (level - 1) * 55;
+return round(base * (1 + (level - 1) / 60));   // 超线性：每级所需经验单调递增</code></pre></div>
+<p>而 <code>_grantXp</code>（<code>world.js:2475</code> 附近）用一个 <strong><code>while</code> 循环</strong>把「一次击杀可能连升多级」处理干净，并在 <code>LEVEL_CAP=1000</code> 处封顶——这是讲<strong>循环不变式</strong>（每轮扣掉当前等级所需经验、等级 +1）和<strong>边界条件</strong>的现成例子。</p>
+<p>数值守卫无处不在：移动用 <code>Math.min(speed*dt, distance)</code> 防止<strong>过冲</strong>（overshoot）；伤害用 <code>Math.max(1, ...)</code> 保证至少造成 1 点；<code>clamp</code>（<code>world.js:3281</code>）把坐标钳在竞技场边界内。</p>
+<h3 id="23-模块化纯函数与不可变数据"><span class="h3-num">2.3</span>模块化、纯函数与不可变数据</h3>
+<ul><li><strong>纯函数</strong>：<code>src/server/dungeon.js</code> 顶部注释直言「本模块刻意保持纯粹，使布局、缩放、奖励都易于测试」。<code>createDungeonPlan()</code> 的输出<strong>只依赖输入参数</strong>，无副作用，返回 <code>Object.freeze(...)</code>。这是<strong>引用透明性</strong>的教科书示范。</li><li><strong>不可变数据</strong>：<code>definitions.js</code> 里所有规则表都用 <code>Object.freeze</code> 深度冻结（<code>MOB_TYPES</code>、<code>ARCHETYPES</code>、<code>SKILL_BEHAVIORS</code>……）。讲「配置即数据」「防止运行时被意外篡改」。</li><li><strong>声明式 vs 命令式</strong>：技能行为 <code>SKILL_BEHAVIORS</code>（<code>definitions.js:306</code>）是<strong>声明式</strong>的——每个技能是 <code>dash</code>/<code>fan</code>/<code>burst</code> 三种原语的序列，由 <code>World._castBehavior</code> 解释执行。改一个技能只改数据，不碰逻辑。这引出「数据驱动设计」这一核心工程思想。</li></ul>
+<h3 id="24-向量与几何线性代数的第一次应用"><span class="h3-num">2.4</span>向量与几何（线性代数的第一次应用）</h3>
+<ul><li>单位向量归一化 <code>normalizedVector</code>（<code>world.js:3234</code>）；</li><li>朝向 <code>directionTo</code>（<code>world.js:3242</code>）；</li><li><strong>2×2 旋转矩阵</strong> <code>rotate</code>（<code>world.js:3250</code>）用于把技能弹幕呈扇形/环形展开；</li><li>等距投影 <code>worldToScreen</code>（<code>client.js:1528</code>）是一个 2:1 的仿射变换。</li></ul>
+<blockquote class="note lab"><p>🧪 <strong>实验建议（入门）</strong>：让学生修改 <code>definitions.js</code> 里某职业普攻的 <code>damage</code>/<code>range</code>，重启服务器观察变化，理解「规则集中定义」；再让他们给 <code>rotate</code> 写单元测试，验证旋转 90° 后向量分量。</p></blockquote>
+<hr />
+<h2 id="3-数据结构与算法"><span class="h-num">3</span><span class="h-text">数据结构与算法</span></h2>
+<p><code>world.js</code>（约 3300 行的权威模拟）是本课程最富矿的一章。</p>
+<h3 id="31-用对容器map-set-数组-队列"><span class="h3-num">3.1</span>用对容器：Map / Set / 数组 / 队列</h3>
+<ul><li><strong>哈希表</strong>：玩家、怪物、投射物、掉落全部用 <code>Map</code> 存储，按字符串 id 做 O(1) 增删查（<code>world.js:172-175</code>）。队伍、组队邀请、副本实例同理。讲 <strong>哈希表 vs 线性数组的取舍</strong>。</li><li><strong>集合去重</strong>：每个投射物带 <code>hitIds:new Set()</code>（<code>world.js:2344</code>）对「贯穿」命中去重，O(1) 判重；副本的 <code>members</code>/<code>remaining</code>/<code>rewarded</code> 也都是 <code>Set</code>。</li><li><strong>时间有序队列</strong>：<code>pendingMobSpawns</code>（<code>world.js:176</code>）是延迟事件队列，每 tick 由 <code>_processMobSpawns</code> 过滤到期项。讲<strong>延迟任务队列 / 定时器堆</strong>的朴素实现。</li><li><strong>有界环形缓冲</strong>：审计日志用数组 + <code>shift()</code> 在超限时淘汰最旧项（<code>world.js:470-482</code>）；运行时指标用 <code>SampleWindow</code>（<code>server.js:2114</code>）维护最近 600 个样本的滑动窗口。</li></ul>
+<h3 id="32-有限状态机怪物-ai"><span class="h3-num">3.2</span>有限状态机：怪物 AI</h3>
+<p><code>_updateMobs</code>（<code>world.js:2052-2107</code>）是一台<strong>手写有限状态机</strong>，每 tick 对每只怪物跑一遍。状态与转移：</p>
+<div class="code-wrap"><pre class="code"><code>巡逻 Patrol ──发现玩家──&gt; 追击 Chase ──进入射程──&gt; 前摇 Windup ──前摇结束──&gt; 命中 Impact
+   ^                          │                                                  │
+   └──────── 脱战 Leash ◄──── 目标超出牵引半径 / 进入安全区 ◄─────────────────────┘（冷却后回到追击/巡逻）</code></pre></div>
+<ul><li><strong>前摇（windup）</strong>是一个「有预警的两段式攻击」：先广播 <code>windup</code> 事件、记 <code>attackResolveAt = time + attackWindup</code>，到时再结算 <code>impact</code>（<code>world.js:2093-2104</code> / <code>2061-2077</code>）。这让客户端能画出蓄力预警——顺带讲<strong>为什么瞬时事件在网络游戏里必须状态化</strong>。</li><li>每种怪的前摇/冷却/射程/护甲<strong>数据驱动</strong>自 <code>MOB_TYPES</code>（<code>definitions.js:21</code>）。</li></ul>
+<blockquote class="note discuss"><p>📎 <strong>课堂讨论</strong>：把这段代码和「形式语言与自动机」课的 DFA 定义对照——状态集、转移函数、每 tick 读一个「输入符号」（世界快照）。</p></blockquote>
+<h3 id="33-加权随机抽样前缀和"><span class="h3-num">3.3</span>加权随机抽样（前缀和）</h3>
+<p><code>rollItem</code>（<code>loot.js:69-93</code>）按稀有度权重抽样：权重随等级线性增长，求总权重后 <code>roll = rng()*total</code>，再<strong>线性扫描累减</strong>直到 <code>roll&lt;0</code> 命中——这正是<strong>加权随机 / 轮盘赌选择</strong>的标准算法（前缀和抽样）。紧接着用一个 <code>while(budget&gt;0)</code> 循环把属性预算随机撒到四维属性上。</p>
+<h3 id="34-排序极值与贪心"><span class="h3-num">3.4</span>排序、极值与贪心</h3>
+<ul><li><strong>多维打分归一为标量</strong>：<code>itemPower(item)</code>（<code>world.js:3133</code>）把装备的多项加成加权求和成一个可比较的分数（属性 ×10、伤害 ×400、防御 ×600……）。讲<strong>比较器设计 / 多准则决策</strong>。</li><li><strong>argmax 择优</strong>：<code>autoEquip</code>（<code>world.js:1315</code>）对每个部位在背包里做最大值扫描，只有严格更优才换装；戒指位用 <code>reduce</code> 找<strong>最弱的一枚</strong>替换。</li><li><strong>argmin 淘汰</strong>：背包满时 <code>_updateDrops</code>（<code>world.js:2813</code>）扫描最弱物品淘汰。</li><li><strong>贪心比例分配</strong>：<code>_autoAllocate</code>（<code>world.js:1254</code>）反复挑「当前 <code>已加点/权重</code> 最小」的属性加点，逼近目标权重 <code>ALLOC_WEIGHTS</code>；技能点则排序后补最低等级的技能槽。讲<strong>贪心算法</strong>。</li><li><strong>过滤 + 排序流水线</strong>：<code>_trySpecialDrop</code>（<code>world.js:2922</code>）先按 <code>minLevel</code> 过滤特殊掉落池，再按稀有度 tier 降序排序，让更稀有的池先掷。</li></ul>
+<h3 id="35-最近邻搜索与扫掠碰撞计算几何"><span class="h3-num">3.5</span>最近邻搜索与扫掠碰撞（计算几何）</h3>
+<ul><li><strong>最近邻</strong>：<code>_nearestLivingPlayer</code>（<code>world.js:2672</code>）、<code>_autoEngage</code>（<code>world.js:2989</code>）是 O(n) 线性扫描，用<strong>平方距离</strong>比较（<code>dx*dx+dy*dy &lt; best</code>）避免开方。项目<strong>刻意没有</strong>空间索引（网格/四叉树）——这是一个绝佳的<strong>复杂度权衡与优化空间</strong>讨论点。</li><li><strong>扫掠碰撞（连续碰撞检测）</strong>：<code>segmentHitsCircle</code>（<code>world.js:3259</code>）把圆心投影到投射物这一 tick 走过的线段上、参数 <code>t</code> 钳在 <code>[0,1]</code>，比较平方距离与半径。这解决了「子弹太快穿过目标」（tunneling）问题。讲<strong>点到线段距离 / 连续碰撞</strong>。</li><li><strong>椭圆命中测试</strong>：<code>_zoneAt</code>（<code>world.js:3040</code>）用 <code>(dx/rx)²+(dy/ry)²≤1</code> 判断点是否落在主题分区椭圆内。</li></ul>
+<h3 id="36-伪随机数与可复现性"><span class="h3-num">3.6</span>伪随机数与可复现性</h3>
+<p><code>random.js</code> 的 mulberry32 发生器暴露 <code>getState()/setState()</code>，因此整个世界的随机流可以<strong>保存与恢复</strong>（<code>world.js</code> 的 <code>getRandomState</code>/<code>restoreRandomState</code>）。这把「PRNG」从算法课的孤立知识点，连接到软件工程的<strong>可测性</strong>与操作系统的<strong>确定性回放</strong>。<code>test/random.test.js</code> 验证同种子重放出相同序列、状态可序列化、非法状态被拒。</p>
+<h3 id="37-定步长积分游戏循环里的算法"><span class="h3-num">3.7</span>定步长积分（游戏循环里的算法）</h3>
+<p><code>World.update(dt)</code>（<code>world.js:1616</code>）是<strong>固定步长积分 + 最大子步钳制</strong>：</p>
+<div class="code-wrap"><pre class="code lang-js"><code>const steps = Math.max(1, Math.ceil(dt / 0.05));
+const step  = Math.min(dt, 0.5) / steps;   // 0.5s 上限，防止一次卡顿让实体穿墙</code></pre></div>
+<p>每个子步按固定顺序推进：过期副本 → 玩家 → 传送门 → 怪物 → 投射物 → 掉落 → 补怪。位置更新是显式 <strong>Euler 积分</strong> <code>pos += dir*speed*dt</code>。这是数值方法与游戏引擎的交点。</p>
+<blockquote class="note lab"><p>🧪 <strong>实验建议（进阶）</strong>：让学生给 <code>world.js</code> 加一个<strong>均匀网格空间索引</strong>，把 <code>_nearestLivingPlayer</code> 从 O(n) 降到近似 O(1)，并用 <code>test/stress.test.js</code> 量化怪物数量增大时的收益。这是数据结构课的完整小项目。</p></blockquote>
+<hr />
+<h2 id="4-软件工程"><span class="h-num">4</span><span class="h-text">软件工程</span></h2>
+<h3 id="41-架构服务器权威与单一事实源"><span class="h3-num">4.1</span>架构：服务器权威与单一事实源</h3>
+<p>项目的第一性原理写在 <code>CLAUDE.md</code> 与 <code>docs/ARCHITECTURE.md</code>：<strong>客户端发送意图，服务器验证并拥有一切结果</strong>。落地方式：</p>
+<ul><li>规则只有<strong>一个</strong>来源 <code>definitions.js</code>；<code>publicArchetypes()</code>（<code>definitions.js:718</code>）在下发给客户端前<strong>主动剥离</strong>服务器专属数值（伤害、射程），从架构上杜绝「客户端成为规则来源」。</li><li>客户端 <code>public/data.js</code> 只放<strong>表现数据</strong>（中文标签、配色、精灵调色板），数值在运行时由 <code>mergeArchetypes</code>（<code>client.js:621</code>）从服务器合并。</li></ul>
+<p>讲<strong>关注点分离</strong>、<strong>信任边界</strong>、<strong>为什么反作弊的根基是架构而非补丁</strong>。</p>
+<h3 id="42-接口契约机器可读协议-契约测试"><span class="h3-num">4.2</span>接口契约：机器可读协议 + 契约测试</h3>
+<p><code>src/server/protocol.js</code> 把整个协议写成<strong>机器可读的 schema</strong>（<code>PROTOCOL</code> 常量，<code>protocol.js:259</code>）：所有客户端命令、服务器消息、事件、错误码的字段规格，配一套迷你规格语言（<code>?</code> 可选、<code>|null</code> 可空、<code>$array</code>/<code>$map</code>、strict 对象）。</p>
+<p>配套的 <code>test/protocol-conformance.test.js</code> 做三件事，堪称<strong>契约测试</strong>的范本：</p>
+<ol><li><strong>逐字段严格校验</strong>真实服务器输出——出现任何未文档化的字段即失败（<code>protocol.js:504-506</code>）。</li><li><strong>源码扫描双向对账</strong>：正则扫 <code>world.js</code> 的 <code>case "..."</code>、<code>_emit("...")</code>、<code>WorldError("...")</code>，确保「实现的命令/事件/错误码」与「文档的清单」<strong>双向一致</strong>（<code>protocol-conformance.test.js:144-187</code>）。</li><li><strong>协议版本化</strong>：<code>PROTOCOL_VERSION</code>（<code>definitions.js:3</code>）在破坏性变更时递增，握手不一致返回 <code>PROTOCOL_MISMATCH</code>。</li></ol>
+<blockquote class="note discuss"><p>📎 <strong>课堂讨论</strong>：这是「文档会腐烂」的工程解法——把文档变成<strong>可执行的、会自检的</strong>测试。对比 IDL（Protobuf/Thrift）的作用。</p></blockquote>
+<h3 id="43-测试金字塔与可测性设计"><span class="h3-num">4.3</span>测试金字塔与可测性设计</h3>
+<p>项目呈现清晰的<strong>测试金字塔</strong>：</p>
+<div class="table-wrap"><table><thead><tr><th>层</th><th>位置</th><th>特点</th></tr></thead><tbody><tr><td>快速确定性单测（底座）</td><td><code>test/*.test.js</code>（<code>node:test</code>）</td><td>直接驱动 <code>World</code>，注入 RNG、手动步进时间，无网络无真实时钟</td></tr><tr><td>协议契约测试（中段）</td><td><code>protocol-conformance.test.js</code></td><td>对真实服务器输出做严格校验</td></tr><tr><td>浏览器端到端（顶端）</td><td><code>test/browser/*.mjs</code></td><td>自研 CDP 驱动真实 Chrome，走真实协议</td></tr></tbody></table></div>
+<p><strong>可测性是设计出来的</strong>：因为 <code>World</code> 接受 <code>{rng, spawnMobs, mobTargetCount}</code> 等选项、<code>update(dt)</code> 手动步进、事件走同步队列 <code>drainEvents()</code>，所以「模拟 = (种子, 命令序列, dt 序列) 的纯函数」，可以 <code>assert.deepEqual</code> 两个世界的快照完全相等（<code>server-world.test.js:38</code>）。这是<strong>依赖注入</strong>与<strong>纯函数式内核</strong>带来的红利。</p>
+<p>自研 CDP 驱动（<code>test/browser/helpers.mjs</code>）本身就是一个教学案例：它用裸 <code>ws</code> 实现了一个「迷你 Playwright」，通过 Chrome DevTools Protocol 的 JSON-RPC 发真实鼠标/键盘事件、拦截资源请求、捕获运行时异常。讲<strong>端到端测试、测试隔离（随机端口 + 临时目录）、真实输入 vs 合成事件</strong>。</p>
+<h3 id="44-可观测性"><span class="h3-num">4.4</span>可观测性</h3>
+<p>三个探针分工明确，对应工业界 liveness/readiness 惯例：</p>
+<ul><li><code>/health</code>：纯存活探针，永远 200，报告进程/在线数/内存（<code>server.js:1603</code>）。</li><li><code>/ready</code>：流量就绪探针，持久化失败、tick 陈旧、事件循环 p99 超阈、快照 p99 超阈、WebSocket 积压超限任一命中即返回 503（<code>_readinessStatus</code>, <code>server.js:1479</code>）。</li><li><code>/metrics</code>：Prometheus 文本，导出 RSS/heap、tick、lag、快照耗时等（<code>server.js:1519</code>）。</li></ul>
+<h3 id="45-协作与变更管理"><span class="h3-num">4.5</span>协作与变更管理</h3>
+<p>仓库演示了 AI/人协作的<strong>基于文件的事实源</strong>流程（<code>collab/</code>）：认领任务、签名、交接说明、评审打包。<code>CHANGELOG.md</code> 只记录玩法/协议变更。这是<strong>软件配置管理 / 团队协作</strong>的现实样本。</p>
+<hr />
+<h2 id="5-操作系统"><span class="h-num">5</span><span class="h-text">操作系统</span></h2>
+<p>Node.js 单线程事件循环模型，让操作系统的很多概念以<strong>用户态可见</strong>的方式出现，特别适合教学。</p>
+<h3 id="51-事件循环定时器漂移与死亡螺旋"><span class="h3-num">5.1</span>事件循环、定时器漂移与「死亡螺旋」</h3>
+<p>服务器主循环 <code>_startLoop</code>（<code>server.js:610</code>）是一个<strong>时间累加器定步长循环</strong>：</p>
+<div class="code-wrap"><pre class="code lang-js"><code>const interval = 1000 / this.tickRate;               // 20Hz → 50ms
+this._timer = setInterval(() =&gt; {
+  const elapsed = now - lastTime;
+  this._runtime.eventLoopLagMs.add(Math.max(0, elapsed - interval));   // 测量事件循环滞后
+  backlog = Math.min(backlog + elapsed, interval * 5);                 // 追赶，但封顶 5 步
+  while (backlog &gt;= interval) { backlog -= interval; this.world.update(1/this.tickRate); }
+}, interval);</code></pre></div>
+<p>注释直言：当事件循环繁忙、定时器迟触发时，世界用<strong>额外的固定步</strong>追赶，而不是悄悄变慢；同时用 5 步上限<strong>防止死亡螺旋</strong>（每次追赶又让下次更迟）。这是讲<strong>调度延迟、定时器不精确、实时系统追帧</strong>的一流案例。事件循环滞后（event-loop lag）被采样进 <code>SampleWindow</code> 算 p99，直接接入就绪探针。</p>
+<h3 id="52-进程-vs-线程spawn监督与回收"><span class="h3-num">5.2</span>进程 vs 线程、<code>spawn</code>、监督与回收</h3>
+<p>副本系统（<code>src/server/dungeon-transport.js</code>）用 <code>child_process.spawn</code> 启动<strong>真正的操作系统子进程</strong>（独立地址空间、隔离的崩溃域）运行副本模拟：</p>
+<ul><li><code>spawn(process.execPath, [entrypoint], {stdio:["pipe","pipe","pipe"]})</code>（<code>dungeon-transport.js:106</code>）。</li><li>通过 <code>child.once("exit", ...)</code> <strong>收割</strong>子进程退出（<code>dungeon-transport.js:111</code>），<code>child.on("error")</code> 检测崩溃。</li><li>主进程用 <code>Map</code> 维护「每实例一个 transport」的<strong>监督注册表</strong>（<code>server.js:176</code>），崩溃时回收并以<strong>递增 epoch</strong> 重启（见 <a href="#10-分布式系统副本-worker-案例研究">10 章</a>）。</li><li>停服时 <code>Promise.allSettled</code> 有界地关闭全部 worker（<code>server.js:568</code>）。</li></ul>
+<blockquote class="note discuss"><p>📎 <strong>课堂讨论</strong>：代码里叫 "worker"，实际是<strong>进程</strong>不是线程——正好讲进程与线程的隔离性权衡（一个副本崩溃不拖垮主进程）。</p></blockquote>
+<h3 id="53-进程间通信管道与消息帧"><span class="h3-num">5.3</span>进程间通信：管道与消息帧</h3>
+<p>IPC 走<strong>标准输入/输出管道的字节流</strong>（不是共享内存）。<code>dungeon-ipc.js</code> 实现<strong>长度前缀帧</strong>：4 字节大端头 + JSON 负载（<code>dungeon-ipc.js:14-17</code>），接收端在 <code>while(buffer.length&gt;=header)</code> 里<strong>跨 chunk 重组</strong>半包（<code>dungeon-ipc.js:26-46</code>），并设 1 MiB 帧上限防内存耗尽。这是「流 vs 数据报」「粘包/拆包」的干净示例。</p>
+<h3 id="54-文件系统原子性fsync权限位"><span class="h3-num">5.4</span>文件系统：原子性、fsync、权限位</h3>
+<p>账号 JSON 存档 <code>_writeAccounts</code>（<code>server.js:363</code>）是<strong>崩溃一致文件更新</strong>的经典「写临时文件 → fsync → rename」惯用法：</p>
+<div class="code-wrap"><pre class="code lang-js"><code>await writeFile(tempPath, payload, { mode: 0o600 });   // 写到 .tmp
+await syncFile(tempPath);                               // fsync 文件内容
+await copyFile(old, bakPath);                           // 旧副本留作 .bak
+await rename(tempPath, this.persistPath);               // 原子 rename(2)
+await syncDirectory(dir);                               // fsync 父目录，保住目录项</code></pre></div>
+<ul><li><strong><code>rename(2)</code> 的原子性</strong>保证进程半路死掉也不会损坏存档（注释 <code>server.js:383</code>）。</li><li><strong>为什么目录也要 fsync</strong>：<code>rename</code> 产生的新目录项本身要落盘，否则掉电可能丢（注释 <code>server.js:424</code>）。这是操作系统课「write-back cache / fsync 语义」最难讲清、这里却有真实动机的一点。</li><li><strong>Unix 权限位与最小权限</strong>：存档含凭据摘要，文件 0600、目录 0700（<code>server.js:49-50</code>），且用显式 <code>chmod</code> 修正已存在文件（<code>mkdir/writeFile</code> 的 mode 只在创建时生效且受 umask 影响）。</li></ul>
+<h3 id="55-背压与令牌桶"><span class="h3-num">5.5</span>背压与令牌桶</h3>
+<ul><li><strong>背压（flow control）</strong>：<code>_sendPayload</code>（<code>server.js:1320</code>）读 <code>socket.bufferedAmount</code>（发送队列深度）：≥256 KiB 时对<strong>可丢弃的快照帧</strong>跳帧，连续跳 50 帧后暂停该连接的事件投递，积压达 2 MiB 才硬断开。快照是「可丢弃状态帧」，慢连接绝不能拖住模拟循环。</li><li><strong>令牌桶限流</strong>：<code>_takeRateToken</code>（<code>server.js:1370</code>）是标准令牌桶——按 <code>(now-refilledAt)*refillPerSecond</code> 回填、封顶 <code>capacity=120</code>、每条消息取 1 令牌、不足则丢弃。讲<strong>流量整形</strong>。</li></ul>
+<h3 id="56-信号与优雅停机"><span class="h3-num">5.6</span>信号与优雅停机</h3>
+<p><code>close()</code>（<code>server.js:550</code>）+ <code>SIGINT/SIGTERM</code> 处理器（<code>server.js:2167</code>）：清定时器、终止套接字、等待在途的安全命令队列与连接清理、最后做一次带健康检查的存档，并用 <code>shutdownPromise</code> 保证幂等。所有定时器都 <code>unref()</code> 以便进程能干净退出。</p>
+<blockquote class="note lab"><p>🧪 <strong>实验建议</strong>：让学生在写存档的 <code>rename</code> 前 <code>kill -9</code> 服务器，验证 <code>.bak</code> 回退与 <code>.tmp</code> 残留处理；再故意注释掉 <code>syncDirectory</code>，讨论「测试能过但掉电会丢」的可怕之处。</p></blockquote>
+<hr />
+<h2 id="6-计算机网络"><span class="h-num">6</span><span class="h-text">计算机网络</span></h2>
+<h3 id="61-从-tcp-到-websocket-握手"><span class="h3-num">6.1</span>从 TCP 到 WebSocket 握手</h3>
+<ul><li>HTTP 层只接受 GET/HEAD，正确返回 <code>Allow</code> 头与状态码（<code>server.js:1589</code>）。</li><li>WebSocket 升级<strong>只允许 <code>/ws</code></strong>：<code>httpServer.on("upgrade", ...)</code>（<code>server.js:243</code>）手动路由 HTTP <code>Upgrade</code> 握手，非 <code>/ws</code> 直接写 <code>404</code> 并销毁套接字。讲<strong>协议切换（protocol switching）</strong>。</li><li>消息帧有 16 KiB 上限，库层（<code>maxPayload</code>）与应用层双重强制（<code>server.js:930</code>）。拒绝二进制、非法 JSON、非对象、未知 <code>type</code>。</li></ul>
+<h3 id="62-协议设计与字节序"><span class="h3-num">6.2</span>协议设计与字节序</h3>
+<p>见 <a href="#21-数位与字节序">2.1</a> 的 <code>codec.js</code>。要点：自定义 <code>binary1</code> 帧把高频实体数组打包成小端二进制，低频/深层部分（世界元数据、接收者自己的完整条目）仍以内嵌 JSON 承载。<strong>实测二进制约为 JSON 体积的 1/3</strong>（<code>test/codec.test.js</code>）。这是「同一协议，两种编码」的对照——讲带宽/CPU 权衡。副本 IPC 的长度前缀帧（<a href="#53-进程间通信管道与消息帧">5.3</a>）是另一种帧格式。</p>
+<h3 id="63-可靠有序与防重放序列号"><span class="h3-num">6.3</span>可靠有序与防重放：序列号</h3>
+<p><code>input.seq</code> 单调递增；<code>setInput</code>（<code>world.js:1000</code>）里 <code>if (seq &lt; player.inputSeq) return</code> <strong>丢弃过期/乱序输入</strong>。这是「在不可靠/乱序到达上重建有序语义」的最小实现，也是防重放的基础。副本票据的单调 <code>sequence</code>（<code>dungeon-ticket.js</code>）是同一思想在<strong>分布式 fencing</strong>上的应用。</p>
+<h3 id="64-实时同步客户端预测与和解"><span class="h3-num">6.4</span>实时同步：客户端预测与和解</h3>
+<p>这是网络游戏最核心的技术，<code>public/client.js</code> 有完整实现，注释块 <code>client.js:3870</code> 直接讲清了模型：</p>
+<ul><li><strong>本地预测（dead reckoning）</strong>：<code>predictLocalPlayer</code>（<code>client.js:3879</code>）用服务器权威的 <code>moveSpeed</code> 在本地立即推进自己，键盘移动 <code>speed*(sprint?1.42:1)*dt</code>（<code>SPRINT_FACTOR</code> 与服务器一致）。</li><li><strong>软和解</strong>：预测的同时以 <code>pull = 1 - exp(-Δt*0.004)</code> 轻轻拉向最新快照。</li><li><strong>硬回正（snap）</strong>：若与服务器位置差 &gt; 240 像素（传送/重生/被拒移动），直接吸附到服务器位置。</li><li><strong>其他实体插值</strong>：<code>interpolateEntities</code>（<code>client.js:3921</code>）用 <code>factor = 1 - exp(-kΔt)</code> 做<strong>帧率无关的指数平滑</strong>。</li><li><strong>输入节流 + 序列号</strong>：<code>sendInput</code>（<code>client.js:3955</code>）限 20Hz、带单调 <code>seq</code>；<code>undefined</code> 的指令字段被 <code>JSON.stringify</code> 丢弃，于是服务器保留上一条指令——一个巧妙的「缺省=保持」协议设计。</li></ul>
+<blockquote class="note discuss"><p>📎 <strong>课堂讨论</strong>：为什么客户端预测能同时给出「零延迟手感」与「服务器权威防作弊」？服务器的 <code>seq</code> 门（<a href="#63-可靠有序与防重放序列号">6.3</a>）是这份契约的权威一半。</p></blockquote>
+<h3 id="65-断线重连心跳后台节流"><span class="h3-num">6.5</span>断线重连、心跳、后台节流</h3>
+<ul><li><strong>心跳</strong>：网关每 15 秒 <code>ping</code>，下一轮未 <code>pong</code> 则强制终止（<code>server.js:855</code>）。讲<strong>keepalive / 活性检测</strong>。</li><li><strong>重连宽限</strong>：非主动断线默认保留席位 5 分钟（<code>server.js:960</code>），同名有效凭据可接管原对象。讲<strong>会话/席位预留与资源回收</strong>。</li><li><strong>客户端指数退避重连</strong>：<code>min(8000, 700*2^attempt)</code>（<code>client.js:406</code>）。</li><li><strong>Page Visibility 节流</strong>：客户端在 <code>visibilitychange</code> 时发 <code>clientState</code>，服务器把后台标签移出快照接收者，恢复时立即补发全量快照——<strong>用页面可见性 API 做资源控制</strong>。</li></ul>
+<h3 id="66-生产网络与安全边界"><span class="h3-num">6.6</span>生产网络与安全边界</h3>
+<p><code>deploy/</code> 提供 nginx/Caddy 反代样例（TLS 终止、WSS）。<code>_originAllowed</code>（<code>server.js:1364</code>）在 WS 升级时校验 <code>Origin</code>，防<strong>跨站 WebSocket 劫持（CSWSH）</strong>；反代与应用做同样检查形成纵深防御。</p>
+<hr />
+<h2 id="7-数据库"><span class="h-num">7</span><span class="h-text">数据库</span></h2>
+<p>项目提供两套存储后端，正好对照「文件 vs 数据库」。JSON 后端见 <a href="#54-文件系统原子性fsync权限位">5.4</a>；本章讲 PostgreSQL（<code>src/server/postgres-store.js</code>）。</p>
+<h3 id="71-事务与-acid"><span class="h3-num">7.1</span>事务与 ACID</h3>
+<p><code>saveAccounts()</code>（<code>postgres-store.js:82</code>）从连接池取专用连接，<code>BEGIN</code>（<code>:108</code>）… <code>COMMIT</code>（<code>:138</code>），出错 <code>ROLLBACK</code>（<code>:140</code>），<code>finally</code> 里 <code>client.release()</code>。账号与待确认审计<strong>在同一事务提交</strong>，保证原子性。讲<strong>事务、连接池、回滚</strong>。</p>
+<h3 id="72-schema-迁移与版本表"><span class="h3-num">7.2</span>schema 迁移与版本表</h3>
+<p><code>initialize()</code>（<code>postgres-store.js:20</code>）先独立创建/检查 <code>crimson_schema_migrations</code> 版本表，读 <code>MAX(version)</code>，若<strong>数据库 schema 比服务端新则拒绝启动</strong>（防止旧代码改坏新表），再创建/升级业务表并 <code>INSERT ... ON CONFLICT DO NOTHING</code> 记录已应用版本。这是 Flyway/Alembic 式<strong>迁移追踪</strong>的最小实现。</p>
+<h3 id="73-upsert参数化查询幂等键"><span class="h3-num">7.3</span>UPSERT、参数化查询、幂等键</h3>
+<ul><li><strong>集合式 UPSERT</strong>：从 JSON 数组参数 <code>jsonb_array_elements($1::jsonb)</code> 批量 <code>INSERT ... ON CONFLICT (account_key) DO UPDATE</code>（<code>postgres-store.js:110</code>）。</li><li><strong>参数化查询</strong>：一切走 <code>$1</code> 绑定，天然防 <strong>SQL 注入</strong>。</li><li><strong>幂等审计</strong>：审计表对 <code>event_id</code> 建<strong>唯一索引</strong>，插入以 <code>ON CONFLICT (event_id) DO NOTHING</code> 收尾（<code>postgres-store.js:54, 135</code>）。同一审计事件重试因唯一键去重——把「至少一次投递」变成「效果上恰好一次」。</li></ul>
+<h3 id="74-投递语义与健康预检"><span class="h3-num">7.4</span>投递语义与健康预检</h3>
+<p>即使没有东西要写，空刷也会发 <code>SELECT 1</code>（<code>postgres-store.js:99</code>）做<strong>预检/活性探测</strong>，避免「服务其实连不上库却一直报健康」。JSON 后端的审计是 <strong>at-least-once</strong>（append 成功但 fsync 结果不明时同 UUID 可能物理重复，消费者需按 <code>id</code> 去重）；PostgreSQL 由唯一键在存储层去重。这是分布式课「投递语义」在存储层的具体呈现。</p>
+<blockquote class="note lab"><p>🧪 <strong>实验建议</strong>：让学生用 <code>tools/migrate-postgres.mjs</code> 把 JSON 存档导入 PostgreSQL，再故意重放同一批审计，观察唯一键如何去重；对比 JSON 后端可能出现的重复行。</p></blockquote>
+<hr />
+<h2 id="8-计算机安全与密码学"><span class="h-num">8</span><span class="h-text">计算机安全与密码学</span></h2>
+<p>「不信任客户端」是贯穿全项目的安全公理。本章汇总密码学与安全工程落点。</p>
+<h3 id="81-凭据的单向哈希与恒定时间比较"><span class="h3-num">8.1</span>凭据的单向哈希与恒定时间比较</h3>
+<p><code>src/server/session.js</code>（仅 45 行，密度极高）：</p>
+<ul><li><code>hashSecret</code>：<code>createHash("sha256")...digest("hex")</code>（<code>session.js:28</code>）。存档<strong>只存 64 位十六进制摘要</strong>，绝不存明文令牌。</li><li><code>secretMatches</code>：用 <code>timingSafeEqual</code>（<code>session.js:38</code>）做<strong>恒定时间比较</strong>，防<strong>时序侧信道攻击</strong>。</li><li>校验时严格要求摘要形如 <code>^[0-9a-f]{64}$</code>。</li></ul>
+<blockquote class="note discuss"><p>📎 <strong>课堂讨论</strong>：这里用<strong>无盐 SHA-256</strong> 而非 bcrypt/argon2，为什么可接受？——因为令牌是 <code>randomBytes(32)</code> 的<strong>高熵随机值</strong>（256 位），不是低熵人类口令，无需抗暴力/抗彩虹表的慢哈希。这是一个很好的「密码学要看威胁模型」讨论。</p></blockquote>
+<h3 id="82-令牌一次性恢复码凭据轮换"><span class="h3-num">8.2</span>令牌、一次性恢复码、凭据轮换</h3>
+<ul><li>会话令牌 <code>createSessionToken</code>：<code>randomBytes(32).toString("base64url")</code>（<code>session.js:5</code>），256 位 bearer 令牌。</li><li>一次性恢复码 <code>createRecoveryCode</code>：随机码 + 7 天 TTL，只存哈希（<code>session.js:17</code>），使用后立即消费（<code>world.js</code> 里 <code>delete record.recovery</code>）。</li><li>轮换 <code>rotateSession</code>：立即废止旧 bearer、启用客户端预存的新令牌并审计。</li></ul>
+<h3 id="83-先写后提交跨越丢包的凭据一致性"><span class="h3-num">8.3</span>先写后提交：跨越丢包的凭据一致性</h3>
+<p>这是本项目最精巧的安全协议，讲<strong>分布式一致性遇上凭据管理</strong>：客户端<strong>先在本地生成并保存</strong> <code>nextToken</code>，服务器命令处理顺序严格为：</p>
+<div class="code-wrap"><pre class="code"><code>执行命令 → 捕获安全副作用 → 持久化到durable存储(await) → 标记committed → 才向客户端下发 session 令牌</code></pre></div>
+<p>（<code>server.js:1097-1132</code>）。于是<strong>即使「提交成功」的响应在网络上丢了</strong>，客户端仍可用预存的 <code>nextToken</code> <strong>幂等重试</strong>（<code>world.js</code> 的 <code>isRetry</code> 分支），而持久层与日志<strong>从不保存明文</strong>。<code>normalizeNextToken</code>（<code>session.js:9</code>）强制 <code>43-128</code> 位 base64url 语法。失败时 <code>_restoreSecurityCheckpoint</code>（<code>server.js:1244</code>）像事务一样<strong>回滚</strong>内存凭据。</p>
+<h3 id="84-输入不可信注入穿越污染dos"><span class="h3-num">8.4</span>输入不可信：注入、穿越、污染、DoS</h3>
+<ul><li><strong>路径穿越防护</strong>：<code>isInside</code>（<code>server.js:2030</code>）用 <code>path.relative</code> 拒绝逃出静态根的 <code>../</code> 请求。</li><li><strong>原型污染防护</strong>：加载账号时用 <code>Object.fromEntries</code> 重建对象，使 <code>__proto__</code> 成为<strong>自有数据属性</strong>而非触发原型 setter（注释 <code>server.js:1801</code>）；<code>isPlainObject</code> 拒绝非普通原型。</li><li><strong>有界数值校验</strong>：<code>optionalInteger</code>/<code>validateNumberMap</code>（<code>server.js:1947</code>）给所有持久化数值设上下界，配合 <code>Number.isSafeInteger</code> 防整数溢出。</li><li><strong>DoS 边界</strong>：16 KiB 消息上限、令牌桶、1 MiB 帧上限、背压硬断开——层层限制资源占用。</li><li><strong>世界层白名单校验</strong>：<code>sanitizeName</code>（去控制字符、截 20 字）、<code>finitePoint</code>（<code>Number.isFinite</code> + 钳到 ±10 万）、布尔用 <code>=== true</code> 强校验——服务器<strong>从不信任</strong>客户端的坐标、瞄准幅度、伤害值。</li></ul>
+<h3 id="85-能力令牌与-fencing分布式安全"><span class="h3-num">8.5</span>能力令牌与 fencing（分布式安全）</h3>
+<p>副本票据 <code>dungeon-ticket.js</code> 是 <strong>HMAC-SHA256 签名的能力令牌</strong>：<code>signTicket</code> 用 <code>createHmac("sha256", secret)</code>，校验用 <code>timingSafeEqual</code> + 过期窗口，单调 <code>sequence</code> 作为 <strong>fencing token</strong> 在准入时挡住陈旧票据（防止被替换/重放的旧 worker 抢占）。见 <a href="#10-分布式系统副本-worker-案例研究">10 章</a>。</p>
+<blockquote class="note lab"><p>🧪 <strong>实验建议（安全）</strong>：让学生扮演攻击者，直接用脚本连 <code>/ws</code> 发伪造的 <code>input</code>（超大坐标、负伤害、乱序 seq），观察服务器如何逐一拒绝；再尝试请求 <code>/../src/server/session.js</code> 观察路径穿越防护。理解「客户端是敌对的」。</p></blockquote>
+<hr />
+<h2 id="9-计算机图形学与人机交互"><span class="h-num">9</span><span class="h-text">计算机图形学与人机交互</span></h2>
+<p>浏览器客户端 <code>public/client.js</code>（约 4600 行）用<strong>原生 Canvas 2D</strong>，没有任何渲染框架，是图形学入门的透明教材。</p>
+<h3 id="91-渲染循环与等距投影"><span class="h3-num">9.1</span>渲染循环与等距投影</h3>
+<ul><li><strong>单一 rAF 泵</strong>：<code>frame(time)</code>（<code>client.js:3991</code>）计算 <code>delta = min(50, time-last)</code>（封顶避免后台切回时的巨跳），依次做 插值 → 环境 → 发送输入 → 绘制，再 <code>requestAnimationFrame</code>。</li><li><strong>画家算法分层</strong>：<code>drawWorld</code>（<code>client.js:1550</code>）按序绘制 主题层 → 大气 → 地块 → 地标 → 角色光 → 物体 → 环境 → 调色 → 小地图 → 光标。</li><li><strong>2:1 等距投影</strong>：<code>worldToScreen</code>（<code>client.js:1528</code>）是仿射变换，<code>TILE_W=96, TILE_H=48</code>；<code>screenToWorld</code>（<code>client.js:1535</code>）反变换用于点击移动与瞄准。</li><li><strong>相机指数跟随</strong>：<code>cameraFactor = 1 - exp(-Δt*0.005)</code> 平滑跟随本地玩家。</li></ul>
+<h3 id="92-离屏缓存脏矩形剔除深度排序"><span class="h3-num">9.2</span>离屏缓存、脏矩形、剔除、深度排序</h3>
+<p>图形学性能优化在这里全是真的：</p>
+<ul><li><strong>离屏缓存</strong>：主题背景 <code>drawThemeCanvas</code>（<code>client.js:1565</code>）和地面地块 <code>rebuildGroundCache</code>（<code>client.js:2272</code>）渲染进离屏 canvas，只在相机漂出边距、主题切换、视口变化时才重建——<strong>脏矩形 / 滚动缓存</strong>。</li><li><strong>可见块剔除</strong>：<code>forEachVisibleTile</code>（<code>client.js:2249</code>）只遍历屏幕内的等距菱形块。</li><li><strong>预渲染光晕精灵</strong>：<code>glowSprite</code>（<code>client.js:1617</code>）缓存径向渐变，避免每帧昂贵的 <code>shadowBlur</code>。</li><li><strong>深度排序</strong>：<code>drawObjects</code>（<code>client.js:2882</code>）按 <code>(y+x)</code> 排序保证前后遮挡正确。</li><li><strong>程序化精灵</strong>：<code>drawHumanoid</code> 及 7+ 种怪物全用 canvas 图元（矩形、弧、二次曲线）绘制，装备从调色板叠加；若 WebP 立绘已加载则改用照片式贴图，否则回退到程序化角色。</li></ul>
+<h3 id="93-粒子对象池与游戏手感"><span class="h3-num">9.3</span>粒子、对象池与「游戏手感」</h3>
+<ul><li><strong>飘字与命中反馈</strong>：<code>updateEntities</code>（<code>client.js:741</code>）在快照间<strong>差分 HP</strong>，掉血 push 上升飘字 + 5 个火花粒子，命中怪物置 130ms 闪白。</li><li><strong>对象池上限</strong>：<code>drawEffects</code>（<code>client.js:3785</code>）过滤过期项并把效果池封顶 160，保证大范围 AoE 也不拖垮帧循环。讲<strong>对象池与预算上限</strong>。</li><li><strong>预警可视化</strong>：<code>drawEnemyWindup</code>（<code>client.js:3417</code>）把 <a href="#32-有限状态机怪物-ai">3.2</a> 的前摇状态画成虚线 + 生长的目标椭圆。</li></ul>
+<h3 id="94-事件驱动输入与人机交互"><span class="h3-num">9.4</span>事件驱动输入与人机交互</h3>
+<ul><li><strong>焦点守卫（可访问性）</strong>：<code>keydown</code>（<code>client.js:4469</code>）若事件目标是 input/textarea/select/button/contenteditable，则<strong>抑制游戏热键</strong>，Esc 失焦、Enter 聚焦聊天。这是把「玩游戏」与「填表单」正确分离的 HCI 细节。</li><li><strong>坐标空间转换</strong>：<code>currentMove</code>（<code>client.js:3939</code>）把 WASD 归一化再旋转 45° 到等距世界轴。</li><li><strong>指针捕获与点击移动</strong>：<code>pointerdown</code>（<code>client.js:4536</code>）左键 <code>pickEnemy</code>（屏幕空间最近敌人）否则下达移动指令，右键普攻；<code>setPointerCapture</code> 处理拖动。</li><li><strong>响应式/移动端</strong>：<code>matchMedia("(max-width:760px)")</code>（<code>client.js:4266</code>）切换桌面/移动 HUD 档，手风琴面板，320px 下仍可操作；可拖拽面板位置持久化。E2E 在 390px/320px 视口测试。</li></ul>
+<h3 id="95-音频合成"><span class="h3-num">9.5</span>音频合成</h3>
+<p><code>initAudio</code>/<code>sfx</code>（<code>client.js:312</code>）用 <strong>Web Audio</strong> 纯合成音效：振荡器 + 增益 + <code>exponentialRampToValueAtTime</code> 包络 + 可选滑音，<strong>无任何音频素材</strong>。升级、Boss、掉落等事件映射到不同音符（<code>client.js:1247</code>），和弦用 <code>setTimeout</code> 错开。讲<strong>加法合成、ADSR 包络、自动播放策略需手势解锁</strong>（首次 <code>pointerdown</code> 时 <code>audioCtx.resume()</code>）。</p>
+<blockquote class="note lab"><p>🧪 <strong>实验建议（图形）</strong>：让学生给 <code>glowSprite</code> 关掉缓存改成每帧 <code>shadowBlur</code>，用浏览器性能面板量化帧时间劣化，亲眼看见「缓存换填充率」的意义。（注意：本机为无 GPU 的高负载 headless 环境，性能数字仅作相对对比。）</p></blockquote>
+<hr />
+<h2 id="10-分布式系统副本-worker-案例研究"><span class="h-num">10</span><span class="h-text">分布式系统：副本 worker 案例研究</span></h2>
+<p>副本子系统（<code>dungeon-*.js</code> + <code>server.js</code> 中的调度）是一个<strong>浓缩的分布式系统案例</strong>：主进程是协调者，副本 worker 是可失败的工作副本，两者用「至少一次投递」的通道通信，却要保证「效果上恰好一次」。非常适合分布式系统课整章使用。</p>
+<h3 id="101-确定性状态机复制smr"><span class="h3-num">10.1</span>确定性状态机复制（SMR）</h3>
+<ul><li>副本模拟是<strong>确定性状态机</strong>：种子 PRNG（<a href="#36-伪随机数与可复现性">3.6</a>），且每 tick 内<strong>按 <code>playerId</code> 排序</strong>应用输入（<code>dungeon-simulation.js:97</code>），保证任何副本以相同顺序应用输入、演化出相同状态。这是 <strong>SMR / 总序（total order）</strong> 的核心要求。</li><li>实例生成是<strong>纯函数</strong>（<code>dungeon.js</code>），同 <code>instanceId</code> + 同队伍均等级 → 同一副本，测试与压测完全可复现。</li></ul>
+<h3 id="102-检查点快照与故障转移"><span class="h3-num">10.2</span>检查点、快照与故障转移</h3>
+<ul><li><strong>周期检查点</strong>：每 N tick 做一次 <code>createCheckpoint</code>（<code>dungeon-simulation.js:112, 132</code>），快照<strong>包含 RNG 状态</strong>，故恢复后能续跑同一随机流。</li><li><strong>富类型序列化</strong>：自定义 <code>encodeValue</code>/<code>decodeValue</code>（<code>dungeon-simulation.js:266</code>）跨 JSON 边界保留 <code>Map</code>/<code>Set</code>。</li><li><strong>故障转移</strong>：worker 崩溃后，<code>open</code> 消息携带检查点，新 worker <code>restoreCheckpoint</code> 续接（<code>dungeon-worker.js:126</code>）。检查点用 <code>instanceId</code> 绑定，防跨实例误恢复；<code>stateHash</code>（<code>dungeon-simulation.js:215</code>）做状态指纹以检测分歧。</li></ul>
+<h3 id="103-epoch-fencing-与脑裂防护"><span class="h3-num">10.3</span>epoch fencing 与脑裂防护</h3>
+<p>worker 以<strong>单调递增的 <code>workerEpoch</code></strong> 启动（<code>server.js:699</code>）。每条响应都带 <code>{protocolVersion, instanceId, workerEpoch}</code>，三者任一不匹配即拒绝（<code>dungeon-transport.js:162</code>, <code>dungeon-worker.js:184</code>）。于是一个被替换的<strong>僵尸 worker</strong> 的迟到回复会被无视——这正是 <strong>fencing token</strong> 防脑裂的教科书应用。副本准入还用票据的单调 <code>sequence</code> 做同样的 fencing。</p>
+<h3 id="104-至少一次投递-恰好一次效果"><span class="h3-num">10.4</span>至少一次投递 → 恰好一次效果</h3>
+<p>这是本案例的高潮，讲<strong>幂等接收者</strong>：</p>
+<ul><li>通道是 at-least-once：<code>settle</code> 可能被重试/重复投递。</li><li>但结算是<strong>幂等</strong>的：<code>settleDungeon</code> 一进来先检查终态 <code>if (dungeon.settlement) return {..., duplicate:true}</code>（<code>world.js:914</code>），重试无法二次进入奖励循环。</li><li><strong>去重账本</strong>：<code>dungeon.rewarded</code> 是 <code>Set</code>，逐成员发奖前 <code>if (rewarded.has(id)) continue</code>（<code>world.js:952</code>），保证同一成员不会重复领奖。</li><li><strong>幂等键</strong>：<code>settlementRequestId ??= "${id}:state-${version}"</code>（<code>server.js:834</code>）让重试碰撞到同一 id；输入按单调 seq 去重；检查点持久化 item/drop 的 id 序列，故障转移后<strong>不会重铸重复物品 id</strong>。</li><li><strong>乐观并发</strong>：结算/失败都校验 <code>stateVersion</code> 必须匹配，否则 <code>DUNGEON_STATE_STALE</code>。</li></ul>
+<h3 id="105-容量超时与孤儿回收"><span class="h3-num">10.5</span>容量、超时与孤儿回收</h3>
+<ul><li><strong>准入控制</strong>：全局最多 32 个副本实例，超限 <code>DUNGEON_CAPACITY</code>（<code>world.js:719</code>）。</li><li><strong>tick 合并（背压）</strong>：<code>_queueDungeonTick</code>（<code>server.js:758</code>）保证每实例只有一个在途 tick，重叠的 tick 被<strong>合并</strong>、<code>pendingDt</code> 累积——用有界消费者吸收抖动。</li><li><strong>看门狗超时</strong>：<code>_expireDungeons</code>（<code>world.js:892</code>）在 15 分钟未完成时 <code>failDungeon(id, "timeout")</code>。</li><li><strong>孤儿回收</strong>：<code>_tickDungeonWorkers</code>（<code>server.js:806</code>）回收任何「实例已不存在」的 transport——分布式版的僵尸/孤儿收割。</li></ul>
+<blockquote class="note discuss"><p>📎 <strong>课堂讨论</strong>：把这一节和「两阶段提交 / Paxos / Raft」对照——这里没有共识算法，而是靠<strong>单一协调者 + 幂等 + fencing</strong> 拿到实用的正确性。讨论其适用边界（单机主进程即单点）。</p></blockquote>
+<hr />
+<h2 id="11-课程实验与作业设计"><span class="h-num">11</span><span class="h-text">课程实验与作业设计</span></h2>
+<p>下面按由易到难给出可直接布置的实验，每个都标注对应课程与验收方式。</p>
+<h3 id="111-入门级计算概论-程序设计"><span class="h3-num">11.1</span>入门级（计算概论 / 程序设计）</h3>
+<ol><li><strong>改数值、读架构</strong>：修改 <code>definitions.js</code> 中某职业普攻数值，重启验证；写一段话说明「为什么客户端改不了这个数值」。</li><li><strong>给几何函数写单测</strong>：为 <code>rotate</code>、<code>normalizedVector</code>、<code>clamp</code> 补 <code>node:test</code> 用例，覆盖边界（零向量、超长向量、越界坐标）。</li><li><strong>新增一种药剂</strong>：在 <code>loot.js</code>/<code>definitions.js</code> 加一种恢复道具，跑通商店购买与 <code>use</code> 命令。</li></ol>
+<h3 id="112-数据结构与算法"><span class="h3-num">11.2</span>数据结构与算法</h3>
+<ol><li><strong>空间索引优化</strong>：给 <code>world.js</code> 加均匀网格，把最近邻/碰撞从 O(n) 降为近似 O(1)，用 <code>test/stress.test.js</code> 量化加速比。（配套：写一份复杂度分析。）</li><li><strong>A* 寻路</strong>：给怪物 <code>_patrolMob</code> 换成带障碍的 A* 或流场寻路，比较与随机游走的行为差异。</li><li><strong>实现自己的 PRNG</strong>：替换 <code>random.js</code> 的 mulberry32 为 xorshift128，验证 <code>test/random.test.js</code> 仍通过（状态可序列化、可复现）。</li></ol>
+<h3 id="113-软件工程"><span class="h3-num">11.3</span>软件工程</h3>
+<ol><li><strong>扩展协议 + 契约测试</strong>：新增一个客户端命令（如 <code>emote</code>），完整更新 <code>protocol.js</code> schema、<code>world.js</code> 实现、<code>protocol-conformance.test.js</code>，让源码扫描对账通过。</li><li><strong>提高覆盖率</strong>：为一个尚未覆盖的错误码写确定性单测。</li><li><strong>加一条 readiness 检查</strong>：在 <code>_readinessStatus</code> 增加一项（如「掉落数量异常」），并导出到 <code>/metrics</code>。</li></ol>
+<h3 id="114-操作系统"><span class="h3-num">11.4</span>操作系统</h3>
+<ol><li><strong>崩溃一致性实验</strong>：见 <a href="#56-信号与优雅停机">5.6</a> 的建议——在 <code>rename</code> 前后 <code>kill -9</code>，验证 <code>.bak</code> 恢复；去掉目录 fsync 讨论风险。</li><li><strong>令牌桶调参</strong>：改 <code>rateLimit</code> 的 <code>capacity/refillPerSecond</code>，用脚本洪泛消息，观察 <code>RATE_LIMITED</code> 与 CPU 占用。</li><li><strong>写一个新副本 worker 消息</strong>：给 IPC 协议加一条消息类型，走完帧编解码与 worker 校验。</li></ol>
+<h3 id="115-计算机网络"><span class="h3-num">11.5</span>计算机网络</h3>
+<ol><li><strong>实现客户端二进制解码</strong>：目前浏览器客户端只用 JSON；让学生在 <code>client.js</code> 实现 <code>binary1</code> 解码（参照 <code>codec.js</code> 的 <code>decodeSnapshotBinary</code>），协商 <code>codec:"binary1"</code> 并测带宽下降。</li><li><strong>增量快照</strong>：设计并实现「只发变化实体」的增量快照，与全量快照比较带宽/复杂度。</li><li><strong>注入延迟与丢包</strong>：在客户端 <code>send</code>/<code>connect</code> 插入人工延迟与丢包，观察预测/和解在高延迟下的表现，调 <code>pull</code>/<code>snap</code> 参数。</li></ol>
+<h3 id="116-数据库-安全"><span class="h3-num">11.6</span>数据库 / 安全</h3>
+<ol><li><strong>迁移与去重</strong>：用 <code>tools/migrate-postgres.mjs</code> 导入 JSON，重放审计验证 <code>event_id</code> 去重。</li><li><strong>写一次 schema migration</strong>：给账号表加一列，正确递增 <code>STORE_SCHEMA</code> 并让旧库自动升级、新库拒绝旧代码。</li><li><strong>攻击者视角</strong>：见 <a href="#84-输入不可信注入穿越污染dos">8.4</a>/[8.5] 的建议——脚本伪造恶意输入，逐条触发防护并写报告。</li></ol>
+<h3 id="117-综合大作业分布式-图形"><span class="h3-num">11.7</span>综合大作业（分布式 / 图形）</h3>
+<ol><li><strong>PvP 原型</strong>：在服务器权威约束下设计一套最小 PvP 规则集与匹配，讨论作弊面。</li><li><strong>新猎场 + 新怪 FSM</strong>：加一张主题地图、一种带新攻击模式（如召唤）的怪物状态机，前后端打通。</li></ol>
+<hr />
+<h2 id="12-术语表与延伸阅读"><span class="h-num">12</span><span class="h-text">术语表与延伸阅读</span></h2>
+<h3 id="121-术语速查"><span class="h3-num">12.1</span>术语速查</h3>
+<div class="table-wrap"><table><thead><tr><th>术语</th><th>含义</th><th>本项目落点</th></tr></thead><tbody><tr><td>Server-authoritative（服务器权威）</td><td>服务器验证并拥有一切结果，客户端只发意图</td><td>全局约束</td></tr><tr><td>Fixed timestep（定步长）</td><td>用固定 dt 推进模拟，保证确定性</td><td><code>world.js</code> <code>update</code>、<code>server.js</code> <code>_startLoop</code></td></tr><tr><td>Client prediction / reconciliation</td><td>本地预测 + 服务器和解，兼顾手感与权威</td><td><code>client.js</code> <code>predictLocalPlayer</code></td></tr><tr><td>Backpressure（背压）</td><td>消费者跟不上时反压/丢弃，防拖垮</td><td><code>server.js</code> <code>_sendPayload</code></td></tr><tr><td>Token bucket（令牌桶）</td><td>限流算法</td><td><code>server.js</code> <code>_takeRateToken</code></td></tr><tr><td>FSM（有限状态机）</td><td>状态 + 转移函数</td><td><code>world.js</code> <code>_updateMobs</code></td></tr><tr><td>Idempotency（幂等）</td><td>重复执行效果相同</td><td><code>world.js</code> <code>settleDungeon</code>、<code>event_id</code></td></tr><tr><td>Fencing token</td><td>单调令牌，挡住陈旧/僵尸副本</td><td><code>workerEpoch</code>、票据 <code>sequence</code></td></tr><tr><td>Checkpoint（检查点）</td><td>可恢复的状态快照</td><td><code>dungeon-simulation.js</code></td></tr><tr><td>Atomic rename</td><td>写临时文件+rename 保证崩溃一致</td><td><code>server.js</code> <code>_writeAccounts</code></td></tr><tr><td>At-least-once → exactly-once</td><td>至少一次投递 + 幂等接收 = 恰好一次效果</td><td>副本结算、审计去重</td></tr><tr><td>CSWSH</td><td>跨站 WebSocket 劫持</td><td><code>_originAllowed</code></td></tr></tbody></table></div>
+<h3 id="122-仓库内延伸阅读"><span class="h3-num">12.2</span>仓库内延伸阅读</h3>
+<ul><li><code>docs/ARCHITECTURE.md</code>——协议表、数据流与安全、就绪阈值全清单。</li><li><code>docs/DUNGEON_WORKERS.md</code>——副本 worker 的设计细节。</li><li><code>docs/PERFORMANCE.md</code>——性能与压测说明。</li><li><code>docs/GAME_TUTORIAL.md</code>——面向玩家的游戏教程（可作为「需求/产品」视角的对照材料）。</li><li><code>CHANGELOG.md</code>——玩法/协议演进史，适合讲「变更如何被记录」。</li><li><code>collab/</code>——人机协作的基于文件的工作流。</li></ul>
+<h3 id="123-建议的授课路线"><span class="h3-num">12.3</span>建议的授课路线</h3>
+<ul><li><strong>一学期「用一个游戏学计算机」通识课</strong>：按第 2 → 3 → 6 → 5 → 8 章推进，每章配 <a href="#11-课程实验与作业设计">11 章</a>对应实验。</li><li><strong>数据结构与算法</strong>：聚焦第 3 章 + 实验 4/5/6。</li><li><strong>操作系统</strong>：聚焦第 5、10 章 + 实验 10/11/12。</li><li><strong>计算机网络</strong>：聚焦第 6 章 + 实验 13/14/15。</li><li><strong>软件工程</strong>：聚焦第 4 章 + 实验 7/8/9，强调契约测试与可测性设计。</li></ul>
+<hr />
+<blockquote class="note teacher"><p><strong>给教师的一句话</strong>：这个项目最大的教学价值，不在于它用了多少高级技术，而在于它把「课本原则」都落成了<strong>可运行、可断点、可修改</strong>的代码，并在注释里诚实地写下「为什么这么做」。带学生 <code>git clone</code>、<code>npm test</code>、设一个断点，比讲十页 PPT 更有效。</p></blockquote>
+  </main>
+</div>
+
+<script>
+  (function () {
+    // Scroll-spy: highlight the nav entry for the section in view.
+    var links = Array.prototype.slice.call(document.querySelectorAll("[data-target]"));
+    var map = {};
+    links.forEach(function (l) { map[l.getAttribute("data-target")] = l; });
+    var targets = Object.keys(map).map(function (id) { return document.getElementById(id); }).filter(Boolean);
+    var current = null;
+    function setActive(id) {
+      if (current === id) return;
+      current = id;
+      links.forEach(function (l) { l.classList.remove("active"); });
+      var link = map[id];
+      if (!link) return;
+      link.classList.add("active");
+      var group = link.closest(".nav-group");
+      if (group) { var top = group.querySelector(".nav-top"); if (top && top !== link) top.classList.add("active"); }
+    }
+    if ("IntersectionObserver" in window) {
+      var visible = new Map();
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (e.isIntersecting) visible.set(e.target.id, e.intersectionRatio);
+          else visible.delete(e.target.id);
+        });
+        var best = null, bestTop = Infinity;
+        visible.forEach(function (_, id) {
+          var el = document.getElementById(id);
+          var t = Math.abs(el.getBoundingClientRect().top);
+          if (t < bestTop) { bestTop = t; best = id; }
+        });
+        if (best) setActive(best);
+      }, { rootMargin: "-10% 0px -78% 0px", threshold: [0, 1] });
+      targets.forEach(function (t) { io.observe(t); });
+    }
+    // Mobile TOC toggle
+    var sidebar = document.querySelector(".sidebar");
+    var toggle = document.querySelector(".toc-toggle");
+    if (toggle) {
+      toggle.addEventListener("click", function () {
+        var open = sidebar.getAttribute("data-open") !== "false";
+        sidebar.setAttribute("data-open", open ? "false" : "true");
+        toggle.setAttribute("aria-expanded", String(!open));
+      });
+      if (window.matchMedia("(max-width: 940px)").matches) sidebar.setAttribute("data-open", "false");
+      document.querySelector(".nav-scroll").addEventListener("click", function (e) {
+        if (e.target.closest("a") && window.matchMedia("(max-width: 940px)").matches) {
+          sidebar.setAttribute("data-open", "false");
+          toggle.setAttribute("aria-expanded", "false");
+        }
+      });
+    }
+  })();
+</script>
