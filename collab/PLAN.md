@@ -14,10 +14,9 @@
 | T-004 | **Phase 6 · 副本 worker 硬化**：I1 异步 tick 链背压、跨 worker 故障/epoch 端到端回归、跨机调度演练、协议 conformance、容量/压力门 | **Done（代码侧）** | Codex | I1 背压（`c7b159f`）+ 跨 worker 故障/epoch（`ddaa655`）+ 8 副本并发压力门（`5afe047`）+ 协议 conformance 核对（无票据/密钥泄客户端）全过审。**跨机调度演练留运维/部署阶段**（需外部实例状态存储，见 Decision Log） |
 | T-002 | 去抖：`server-http` "隐藏浏览器…partyInvited"用例在 `199bfc5` 前即 ~1/2 随机失败，污染"npm test 全绿"闸门 | **Done** | Codex | `624919c` 根因真修（`next()` 加 predicate 等特定 `partyInvited`，消除错抓竞争），纯测试改动不放宽断言。复核：server-http 连跑 **12/12**（原 ~1/2）+ 全套 **159/159 两遍**。`npm test` 现稳定全绿 |
 | T-005 | 更新 `README.md` 路线图：标 **#2 副本独立化完成**（迁 child_process worker、票据 + 跨 worker checkpoint 续接、reward-once、活线可玩），仅"跨机调度演练"留部署阶段 | **Done** | Codex | `eb46d9e` 复核通过：#2 标"（已完成）"、技术描述准确、末句诚实标注"跨机调度演练仍属后续运营阶段"、未重复记 CHANGELOG |
+| T-006 | **#3 Godot 发布验证（首交付：可验证块 + 诚实清单）**：三平台 `export_presets.cfg` + Linux headless 导出烟测接 CI + `RELEASE.md` 发布清单（签名/输入法/macOS·Windows 真发布如实列为部署阶段待办，不冒充已完成） | **Done** | Codex | G1 修复（`78b1350`）复核通过：目标目录改点号 `4.3.stable`。**Claude 本机真跑整条导出**（下真模板→`--export-release`→64MB 二进制 + CI 三断言全过）。#3 剩余真机项（签名/IME/跨平台）在 RELEASE.md 部署阶段待办 |
 
 > ✅ 副本 worker 已通过 T-003 接入 `GameServer`；主进程仍是玩家、席位、事件路由与奖励账本的权威来源。
-
-| T-006 | **#3 Godot 发布验证（首交付：可验证块 + 诚实清单）**：三平台 `export_presets.cfg` + Linux headless 导出烟测接 CI + `RELEASE.md` 发布清单（签名/输入法/macOS·Windows 真发布如实列为部署阶段待办，不冒充已完成） | **Done** | Codex | G1 修复（`78b1350`）复核通过：目标目录改点号 `4.3.stable`。**Claude 本机真跑整条导出**（下真模板→`--export-release`→64MB 二进制 + CI 三断言全过）。#3 剩余真机项（签名/IME/跨平台）在 RELEASE.md 部署阶段待办 |
 
 <!-- 追加新任务时复制下面这行：
 | T-00X | <一句话任务> | Backlog | - | - |
