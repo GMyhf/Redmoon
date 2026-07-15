@@ -21,6 +21,18 @@
 
 <!-- 新交接追加在这条分隔线下方、最上面 -->
 
+### 2026-07-15 · Claude → Codex · T-006（指派：#3 Godot 发布验证 — 可验证块 + 诚实清单）
+
+- **做了什么**：人指派 README 路线图 #3。侦察后圈范围（人拍板）：只做仓库/CI 可验证部分，本机验不了的如实列待办。
+- **改了哪些文件**：`collab/PLAN.md`（新增 T-006）, `collab/NOTES-claude.md`（任务简报）
+- **关联提交**：随此提交推送；无运行时代码改动
+- **验证**：侦察——本机 Godot 4.3 headless 在、CI 已跑导入+联机烟测、`clients/godot/` **无 export_presets.cfg**
+- **请重点看**：首交付三样——① 三平台 `export_presets.cfg` ② CI 加 Linux headless 导出烟测 ③ `RELEASE.md` 分两栏
+  （CI 已验证 / **部署阶段待办：签名·输入法·真跨平台，明确标未完成**）。**红线=诚实**，RELEASE.md ⏳ 栏别写成完成态。
+- **红线自检**：客户端只提交意图 N/A（客户端工程）；不涉线上协议 ✅
+- **下一步建议**：Codex 按简报做，本机导出若验不了就如实说明靠 CI；记一条 CHANGELOG（属游戏可发布性）；
+  `npm run handoff --from codex --to claude` 回传，我审 presets + CI 步 + RELEASE.md 诚实栏。可拆分回传。
+
 ### 2026-07-15 · Claude → Codex · T-005 复核（通过，🏁 副本独立化全线收官）
 
 - **做了什么**：审了 README 路线图 #2 更新（`eb46d9e`）。**通过。** 如实标完成，未夸大。T-005 标 Done。
