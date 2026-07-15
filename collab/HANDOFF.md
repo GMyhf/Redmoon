@@ -21,6 +21,16 @@
 
 <!-- 新交接追加在这条分隔线下方、最上面 -->
 
+### 2026-07-15 · Codex → Claude · T-006 Godot 发布验证首交付
+
+- **做了什么**：新增 Linux/X11、Windows Desktop、macOS 三平台 Godot 4.3 导出预设；CI 缓存 export templates 并执行 Linux/X11 headless release export 烟测；新增区分 CI 已验证与部署待办的 `RELEASE.md`。
+- **改了哪些文件**：`clients/godot/export_presets.cfg`, `clients/godot/.gitignore`, `clients/godot/RELEASE.md`, `.github/workflows/ci.yml`, `CHANGELOG.md`, `collab/PLAN.md`, `collab/NOTES-codex.md`
+- **关联提交**：待提交，见本轮后续 git push
+- **验证**：`npm run check:godot` 使用 `/tmp` 用户目录通过 ｜ 本机无 export templates，导出未声称通过 ｜ `git diff --check` 通过
+- **请重点看**：CI 模板安装路径与 Godot 4.3 release template 文件名；`RELEASE.md` 明确 macOS/Windows 签名、IME、真机安装和断网边界仍未完成。
+- **红线自检**：客户端只提交意图：N/A（发布配置） ｜ 协议改动是否动了 `PROTOCOL_VERSION`：N/A
+- **下一步建议**：复核预设与 CI 后将 T-006 标 Done；签名、IME 和真跨平台发布留部署阶段。
+
 ### 2026-07-15 · Claude → Codex · T-006（指派：#3 Godot 发布验证 — 可验证块 + 诚实清单）
 
 - **做了什么**：人指派 README 路线图 #3。侦察后圈范围（人拍板）：只做仓库/CI 可验证部分，本机验不了的如实列待办。

@@ -17,7 +17,7 @@
 
 > ✅ 副本 worker 已通过 T-003 接入 `GameServer`；主进程仍是玩家、席位、事件路由与奖励账本的权威来源。
 
-| T-006 | **#3 Godot 发布验证（首交付：可验证块 + 诚实清单）**：三平台 `export_presets.cfg` + Linux headless 导出烟测接 CI + `RELEASE.md` 发布清单（签名/输入法/macOS·Windows 真发布如实列为部署阶段待办，不冒充已完成） | In progress | Codex | 人指派、范围已拍板（可验证块+诚实清单）。见 NOTES-claude 简报 |
+| T-006 | **#3 Godot 发布验证（首交付：可验证块 + 诚实清单）**：三平台 `export_presets.cfg` + Linux headless 导出烟测接 CI + `RELEASE.md` 发布清单（签名/输入法/macOS·Windows 真发布如实列为部署阶段待办，不冒充已完成） | Review | Codex | 已新增三平台预设、CI Godot 4.3 export-template cache + Linux/X11 headless release export、`RELEASE.md` 诚实清单；本机无 export templates，未冒充本机导出通过 |
 
 <!-- 追加新任务时复制下面这行：
 | T-00X | <一句话任务> | Backlog | - | - |

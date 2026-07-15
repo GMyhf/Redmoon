@@ -102,10 +102,37 @@ jobs:
           chmod +x ~/.local/bin/godot
       - name: Add Godot to PATH
         run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Cache Godot export templates
+        id: godot-export-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/godot/export_templates/${{ env.GODOT_VERSION }}
+          key: godot-export-${{ env.GODOT_VERSION }}
+      - name: Install Godot export templates
+        if: steps.godot-export-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.local/share/godot/export_templates/${GODOT_VERSION}
+          curl -sL -o /tmp/godot-templates.tpz \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_export_templates.tpz"
+          rm -rf /tmp/godot-templates
+          mkdir -p /tmp/godot-templates
+          unzip -q /tmp/godot-templates.tpz -d /tmp/godot-templates
+          cp -a /tmp/godot-templates/templates/. \
+            ~/.local/share/godot/export_templates/${GODOT_VERSION}/
       - name: Import check (scripts must parse)
         run: |
           npm run check:godot 2>&1 | tee /tmp/godot-check.log
           ! grep -Ei "SCRIPT ERROR|Parse Error" /tmp/godot-check.log
+      - name: Linux headless release export
+        run: |
+          rm -rf /tmp/crimson-godot-export
+          mkdir -p /tmp/crimson-godot-export
+          godot --headless --path clients/godot \
+            --export-release "Linux/X11" /tmp/crimson-godot-export/crimson-relay \
+            2>&1 | tee /tmp/godot-export.log
+          test -s /tmp/crimson-godot-export/crimson-relay
+          test -x /tmp/crimson-godot-export/crimson-relay
+          ! grep -Ei "SCRIPT ERROR|Parse Error|Export failed|ERROR: Failed" /tmp/godot-export.log
       - name: Headless smoke against a live server
         run: |
           rm -rf /tmp/crimson-godot-data /tmp/crimson-godot-accounts.json*

@@ -2,6 +2,11 @@
 
 本文件记录 CRIMSON RELAY 每轮迭代的玩法与架构改进。协议层面的字段变化见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
+## 2026-07-15 · Godot 发布验证首交付
+
+- 新增 Linux/X11、Windows Desktop 和 macOS 导出预设；CI 缓存 Godot 4.3 export templates，并执行 Linux headless release export 烟测。
+- 新增 Godot 发布清单，明确 CI 已验证项与仍需目标平台、证书、IME 和真实网络环境完成的部署阶段待办。
+
 ## 2026-07-15 · 副本 worker Phase 6：tick 背压
 
 - worker tick 调度改为每实例单个 in-flight 请求；IPC 未返回期间的主循环 tick 合并为一个 `pendingDt`，完成后继续推进，不再累积无界 Promise 链。
