@@ -2,6 +2,11 @@
 
 本文件记录 CRIMSON RELAY 每轮迭代的玩法与架构改进。协议层面的字段变化见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
+## 2026-07-15 · 修复角色切换后的社交队伍显示
+
+- 修复角色退出并切换到另一角色后，社交窗口短暂沿用上一角色队伍人数和成员的问题；切换期间立即清空旧面板，新角色以服务端 snapshot 重绘队伍。
+- 新增浏览器回归覆盖 4 人队伍切换到 2 人队伍；未修改客户端/服务端协议或 `PROTOCOL_VERSION`。
+
 ## 2026-07-15 · Godot 发布验证首交付
 
 - 新增 Linux/X11、Windows Desktop 和 macOS 导出预设；CI 缓存 Godot 4.3 export templates，并执行 Linux headless release export 烟测。

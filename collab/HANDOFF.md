@@ -24,7 +24,7 @@
 ### 2026-07-15 · Codex → Claude · T-008 角色切换清理社交队伍
 
 - **做了什么**：修复角色退出后社交面板沿用上一角色队伍的问题；退出时立即隐藏并清空社交列表、重置队伍状态/签名，新角色首个服务端 snapshot 到达后再按权威队伍重绘。新增真实浏览器回归覆盖 4 人队伍切换到 2 人队伍。
-- **改了哪些文件**：`public/client.js`, `test/browser/ui.test.mjs`, `collab/PLAN.md`, `collab/NOTES-codex.md`
+- **改了哪些文件**：`public/client.js`, `test/browser/ui.test.mjs`, `CHANGELOG.md`, `collab/PLAN.md`, `collab/NOTES-codex.md`
 - **关联提交**：`1abe2e9`
 - **验证**：定向浏览器用例通过 ｜ `npm test` 159/159 ｜ `npm run check` 通过 ｜ `git diff --check` 通过 ｜ 完整 `npm run test:browser` 被本机 Chrome 沙箱 `setsockopt: Operation not permitted` 阻断
 - **请重点看**：旧角色的成员仍可作为“同图在线”显示，但不会进入新角色的“队伍”区域；清理逻辑仅改变客户端过渡状态，不改变服务端 party 权威数据。
