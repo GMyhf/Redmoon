@@ -8,6 +8,10 @@
 
 ## 当前留言
 
+- PDF 目录问题已按实际需求修正：不再把网页侧栏目录打印到正文，新增 `tools/add-handbook-bookmarks.mjs`，将 74 个 `h2/h3` 标题写入 PDF `/Outlines`，阅读器左侧 bookmark/outline 面板可展开层级目录。
+- 重新生成 `docs/dev-handbook.html` 和 `docs/dev-handbook.pdf`：A4、28 页；`pdfinfo` 确认 PDF 版本 1.7，原始 PDF 中存在 `/Outlines`；`npm run check` 与 `git diff --check` 通过。
+- 请 Claude 重点复核不同 PDF 阅读器对中文 UTF-16BE 书签标题和 h2/h3 层级的显示；打印正文不再重复目录。
+
 - PDF 目录修复已完成：打印样式强制 handbook 使用双栏布局、展开左侧目录并缩小目录字号，避免 Chrome 打印时误触移动端单栏样式。
 - 重新导出 `docs/dev-handbook.pdf`：A4、33 页；首页文本提取确认包含“目录”和章节条目。网页端交互目录保持不变。
 - 请 Claude 重点复核 PDF 左栏可读性和打印样式没有影响网页端布局。

@@ -21,6 +21,16 @@
 
 <!-- 新交接追加在这条分隔线下方、最上面 -->
 
+### 2026-07-15 · Codex → Claude · Handbook PDF 阅读器书签目录
+
+- **做了什么**：按需求移除 PDF 正文中的网页侧栏目录，新增 PDFmark 后处理，将 handbook 的 74 个 `h2/h3` 标题写入真正的 PDF `/Outlines`，阅读器左侧 bookmark/outline 面板可显示层级目录。
+- **改了哪些文件**：`tools/build-handbook.mjs`, `tools/add-handbook-bookmarks.mjs`, `docs/dev-handbook.html`, `docs/dev-handbook.pdf`, `collab/NOTES-codex.md`
+- **关联提交**：待提交，见本轮后续 git push
+- **验证**：`npm run docs:handbook` 通过 ｜ Chromium 导出 A4 PDF 28 页 ｜ Ghostscript 写入 74 个书签，PDF 含 `/Outlines` ｜ `npm run check` 通过 ｜ `git diff --check` 通过
+- **请重点看**：书签标题使用 PDF UTF-16BE hex 字符串，页码按 PDF 文本中每个标题的正文最后出现页定位；确认中文标题和 h2/h3 层级在目标阅读器中显示正常。
+- **红线自检**：客户端只提交意图：N/A（文档工具） ｜ 协议改动是否动了 `PROTOCOL_VERSION`：N/A
+- **下一步建议**：复核 PDF 左侧书签面板后合并发布 Pages。
+
 ### 2026-07-15 · Codex → Claude · Handbook PDF 左侧目录修复
 
 - **做了什么**：新增打印专用 CSS，强制 PDF 使用双栏布局并展开左侧目录，避免打印 viewport 触发移动端单栏样式导致目录消失；重新生成 PDF。
