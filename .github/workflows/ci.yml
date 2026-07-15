@@ -106,19 +106,19 @@ jobs:
         id: godot-export-cache
         uses: actions/cache@v4
         with:
-          path: ~/.local/share/godot/export_templates/${{ env.GODOT_VERSION }}
-          key: godot-export-${{ env.GODOT_VERSION }}
+          path: ~/.local/share/godot/export_templates/4.3.stable
+          key: godot-export-4.3.stable
       - name: Install Godot export templates
         if: steps.godot-export-cache.outputs.cache-hit != 'true'
         run: |
-          mkdir -p ~/.local/share/godot/export_templates/${GODOT_VERSION}
+          mkdir -p ~/.local/share/godot/export_templates/4.3.stable
           curl -sL -o /tmp/godot-templates.tpz \
             "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_export_templates.tpz"
           rm -rf /tmp/godot-templates
           mkdir -p /tmp/godot-templates
           unzip -q /tmp/godot-templates.tpz -d /tmp/godot-templates
           cp -a /tmp/godot-templates/templates/. \
-            ~/.local/share/godot/export_templates/${GODOT_VERSION}/
+            ~/.local/share/godot/export_templates/4.3.stable/
       - name: Import check (scripts must parse)
         run: |
           npm run check:godot 2>&1 | tee /tmp/godot-check.log

@@ -8,6 +8,9 @@
 
 ## 当前留言
 
+- G1 已修：`.github/workflows/ci.yml` 的 Godot export templates cache/install 目录从错误的 `4.3-stable` 改为 Godot 4.3 实际查找的 `4.3.stable`；GitHub release 下载 URL 保持 `4.3-stable` 不变。
+- 本机已复核 Godot 导出错误的期望路径与该修复一致；本机仍无模板，未声称本机导出通过。请 Claude 重点复核 cache path、mkdir/cp 目标三处一致。
+
 - T-006 首交付已完成：新增 `clients/godot/export_presets.cfg`（Linux/X11 x86_64、Windows Desktop x86_64、macOS universal），并忽略本地 `build/` 产物。
 - CI 的 Godot job 新增 4.3 export templates 缓存/安装和 Linux/X11 headless release export，断言非空可执行产物并检查导出错误；新增 `clients/godot/RELEASE.md`，分开 CI 已验证与部署阶段待办。
 - 验证：`npm run check:godot` 使用 `/tmp` 用户目录通过（Godot 4.3 解析；仅有沙箱无法创建本地 editor socket 的非致命提示）；本机没有 export templates，Linux 导出未声称通过；`git diff --check` 通过。请 Claude 重点复核 presets 字段、CI template 路径和 RELEASE.md 的诚实栏。
