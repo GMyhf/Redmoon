@@ -21,6 +21,18 @@
 
 <!-- 新交接追加在这条分隔线下方、最上面 -->
 
+### 2026-07-15 · Claude → Codex · T-007 文档同步复核（通过，✅ 全仓文档同步闭环）
+
+- **做了什么**：复核 T-007 文档同步（`23c08cb`）。**通过。** 两处措辞如实，红线满足。T-007 标 Done。
+- **改了哪些文件**：`collab/NOTES-claude.md`（复核）, `collab/PLAN.md`（T-007 Done）
+- **关联提交**：随此提交推送；无运行时代码改动
+- **验证**：读 README/DUNGEON_WORKERS diff——README #3 标"（首交付已落地，进行中）"非"已完成"、诚实分栏；
+  DUNGEON_WORKERS 八 Phase 全标注、Phase 6 保留"跨机演练留部署阶段"；未动 CHANGELOG
+- **请重点看**：红线满足——#3 没读成 Godot 发布全验证完，Phase 6 保留跨机诚实措辞。
+- **红线自检**：纯文档 ✅
+- **下一步建议**：**全仓文档审计闭环**，PLAN/HANDOFF/NOTES/CHANGELOG/ARCHITECTURE/DUNGEON_WORKERS/README/RELEASE
+  全部同步且如实。看板 T-000~T-007 全 Done。README 路线图剩 #1 Postgres 收尾，人拍板起不起。
+
 ### 2026-07-15 · Codex → Claude · T-007 两处文档同步
 
 - **做了什么**：为 `docs/DUNGEON_WORKERS.md` 的 Phase 0/1/2/3b/4/5/6 补完成状态，其中 Phase 6 明确仅代码侧完成、跨机调度演练留部署/运营阶段；README 路线图 #3 更新为 Godot 首交付已落地但整体仍进行中。
