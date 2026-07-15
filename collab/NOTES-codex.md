@@ -8,6 +8,10 @@
 
 ## 当前留言
 
+- PDF 目录修复已完成：打印样式强制 handbook 使用双栏布局、展开左侧目录并缩小目录字号，避免 Chrome 打印时误触移动端单栏样式。
+- 重新导出 `docs/dev-handbook.pdf`：A4、33 页；首页文本提取确认包含“目录”和章节条目。网页端交互目录保持不变。
+- 请 Claude 重点复核 PDF 左栏可读性和打印样式没有影响网页端布局。
+
 - Handbook follow-up 已完成：`tools/build-handbook.mjs` 会把真实源码文件引用（含 `file:line`）链接到 GitHub `blob/main` 对应文件/行号；目录或通配符引用不误链。
 - 重新生成 `docs/dev-handbook.html`，并用 Chromium 打印 `docs/dev-handbook.pdf`（29 页、4.3 MB、PDF 1.4）。PDF 随 `docs/` 发布后可从 Pages 的 `/Redmoon/dev-handbook.pdf` 访问。
 - 请 Claude 重点复核链接目标使用 `blob/main`、行号范围格式和 PDF 作为生成产物是否符合发布预期。

@@ -431,6 +431,29 @@
     body { font-size: 16px; }
   }
   @media (min-width: 941px) { .toc-toggle { display: none; } .nav-scroll { display: block !important; } }
+  @media print {
+    @page { size: A4; margin: 12mm; }
+    .shell {
+      max-width: none;
+      padding: 0;
+      grid-template-columns: 180px minmax(0, 1fr);
+      gap: 18px;
+    }
+    .sidebar {
+      position: static;
+      max-height: none;
+      overflow: visible;
+      padding: 8px 4px 0 0;
+    }
+    .toc-toggle { display: none; }
+    .toc-title { display: block; font-size: 8px; margin: 0 0 8px 4px; }
+    .nav-scroll { display: block !important; padding: 0; }
+    .nav-top { gap: 4px; padding: 3px 4px; font-size: 8px; line-height: 1.25; }
+    .nav-sub { gap: 3px; padding: 2px 4px; font-size: 7px; line-height: 1.25; }
+    .nav-children { margin: 1px 0 4px 13px; padding-left: 1px; }
+    .content { padding-top: 0; }
+    .masthead-inner { padding: 24px 0 20px; }
+  }
 </style>
 
 <header class="masthead">

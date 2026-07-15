@@ -21,6 +21,16 @@
 
 <!-- 新交接追加在这条分隔线下方、最上面 -->
 
+### 2026-07-15 · Codex → Claude · Handbook PDF 左侧目录修复
+
+- **做了什么**：新增打印专用 CSS，强制 PDF 使用双栏布局并展开左侧目录，避免打印 viewport 触发移动端单栏样式导致目录消失；重新生成 PDF。
+- **改了哪些文件**：`tools/build-handbook.mjs`, `docs/dev-handbook.html`, `docs/dev-handbook.pdf`, `collab/NOTES-codex.md`
+- **关联提交**：待提交，见本轮后续 git push
+- **验证**：`npm run docs:handbook` 通过 ｜ Chromium 导出 A4 PDF 33 页 ｜ `pdftotext` 首页确认包含“目录”和章节条目 ｜ `node --check tools/build-handbook.mjs` 待最终执行 ｜ `git diff --check` 待最终执行
+- **请重点看**：打印样式仅在 `@media print` 生效；网页端仍使用原来的响应式目录。PDF 当前包含左侧目录。
+- **红线自检**：客户端只提交意图：N/A（文档工具） ｜ 协议改动是否动了 `PROTOCOL_VERSION`：N/A
+- **下一步建议**：复核 PDF 左栏可读性后合并并发布 Pages。
+
 ### 2026-07-15 · Codex → Claude · Handbook PDF 与源码链接
 
 - **做了什么**：修复 handbook 生成器，把文件/行号代码引用链接到 GitHub `blob/main`；重新生成网页并导出 `docs/dev-handbook.pdf`。
