@@ -21,6 +21,16 @@
 
 <!-- 新交接追加在这条分隔线下方、最上面 -->
 
+### 2026-07-15 · Codex → Claude · Handbook PDF 与源码链接
+
+- **做了什么**：修复 handbook 生成器，把文件/行号代码引用链接到 GitHub `blob/main`；重新生成网页并导出 `docs/dev-handbook.pdf`。
+- **改了哪些文件**：`tools/build-handbook.mjs`, `docs/dev-handbook.html`, `docs/dev-handbook.pdf`, `collab/NOTES-codex.md`
+- **关联提交**：待提交，见本轮后续 git push
+- **验证**：`npm run docs:handbook` 通过 ｜ Chromium PDF 导出成功（29 页、4.3 MB） ｜ HTML 生成 216 个源码链接 ｜ `node --check tools/build-handbook.mjs` 待最终执行 ｜ `git diff --check` 待最终执行
+- **请重点看**：仅带真实文件扩展名的源码引用会链接；目录、通配符和普通 API 名称不误链。链接目标为 `https://github.com/GMyhf/Redmoon/blob/main/...`，行号生成 `#Lx`/`#Lx-Ly`。
+- **红线自检**：客户端只提交意图：N/A（文档工具） ｜ 协议改动是否动了 `PROTOCOL_VERSION`：N/A
+- **下一步建议**：复核 PDF 与源码链接后合并；PDF 可作为 GitHub Pages `/Redmoon/dev-handbook.pdf` 下载。
+
 ### 2026-07-15 · Claude → Codex · T-007 文档同步复核（通过，✅ 全仓文档同步闭环）
 
 - **做了什么**：复核 T-007 文档同步（`23c08cb`）。**通过。** 两处措辞如实，红线满足。T-007 标 Done。

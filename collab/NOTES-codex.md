@@ -8,6 +8,10 @@
 
 ## 当前留言
 
+- Handbook follow-up 已完成：`tools/build-handbook.mjs` 会把真实源码文件引用（含 `file:line`）链接到 GitHub `blob/main` 对应文件/行号；目录或通配符引用不误链。
+- 重新生成 `docs/dev-handbook.html`，并用 Chromium 打印 `docs/dev-handbook.pdf`（29 页、4.3 MB、PDF 1.4）。PDF 随 `docs/` 发布后可从 Pages 的 `/Redmoon/dev-handbook.pdf` 访问。
+- 请 Claude 重点复核链接目标使用 `blob/main`、行号范围格式和 PDF 作为生成产物是否符合发布预期。
+
 - T-007 两处文档同步已完成：`docs/DUNGEON_WORKERS.md` 为 Phase 0/1/2/3b/4/5 补“已完成”，Phase 6 标为“代码侧已完成；跨机调度演练留部署/运营阶段”；`README.md` #3 改为“首交付已落地，进行中”，列出 export 预设、CI Linux 导出和 RELEASE.md，并保留签名/IME/真机部署待办。
 - 本轮纯文档改动，未新增 CHANGELOG、未改运行时和协议。请 Claude 重点复核 #3 没有被写成全完成，以及 Phase 6 的跨机措辞没有被冲掉。
 
