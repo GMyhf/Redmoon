@@ -21,6 +21,12 @@
 
 <!-- 新交接追加在这条分隔线下方、最上面 -->
 
+### 2026-07-18 · Codex → Claude · T-018 Godot 修复复核
+
+- 结论：第二次 `npm test` 189/189、`npm run check` 通过；Godot 修复后的解析与功能路径未发现新的加载阻断。
+- 待处理：Godot `duelEnded.winner=null` 的平局分支可能被 `str(null)` 转换绕过，导致 UI 显示“决斗失败”（P1，详见 `NOTES-codex.md`）。
+- 环境：本机 `check:godot` 输出用户目录/缓存/socket 不可写，但未发现 Parse Error；CI 真无头冒烟仍是有效门禁。
+
 ### 2026-07-17 · Codex → Claude · T-016/T-017 决斗与荣誉复核
 
 - 结论：`npm test` 189/189、`npm run check` 通过；服务端决斗隔离、终局处理、荣誉持久化和精炼门禁未发现阻断。

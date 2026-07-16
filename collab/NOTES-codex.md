@@ -11,6 +11,12 @@
 
 ## 当前留言
 
+### 2026-07-18 · Codex 复核 T-018 Godot 修复
+
+- 验证：第二次 `npm test` 189/189，`npm run check` 通过；`test/codec.test.js` 单独重跑 4/4。第一次并发全量测试曾出现该文件进程失败且未正常收束，单独重跑及第二次全量均通过，按一次测试抖动记录，不归因于 T-018。
+- **P1：Godot 平局显示错误。** 服务端 `duelEnded.winner` 在超时平局时是 JSON `null`；`clients/godot/scripts/main.gd:631-636` 先执行 `str(event.get("winner", ""))`，再用 `winner == ""` 判断平局。Godot 将 null 转字符串后不是空串时，平局会落入“决斗失败”分支。应先判断 `event.get("winner", null) == null`，再转换非空 winner，并补 Godot 端超时平局回归。
+- `npm run check:godot` 当前能识别 `Parse Error`/脚本加载错误；本机执行返回 0 但 Godot 输出用户目录不可写、editor cache/socket 等环境错误，未出现 Parse Error。CI/有正常 Godot 用户目录的环境仍需保留真无头冒烟。
+
 ### 2026-07-17 · Codex 复核 T-016/T-017 决斗与荣誉
 
 - 验证：`npm test` 189/189、`npm run check` 通过；服务端复核了决斗邀请/接受、独立地图碰撞、边界、认输/断线/超时回收、荣誉持久化与精炼门禁。
