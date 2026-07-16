@@ -36,6 +36,8 @@
 
 | T-017 | **P2 第二步 · 荣誉**（`docs/IMPROVEMENT_PLAN.md` P2）：新增全局 `honor`。**原计划「把 Eclipse 的 reputation 泛化 + PvP 驱动」被推翻**：① 决斗不给荣誉（同意的 PvP 可刷），野外 PvP 在第三步 → 照原计划做会交付一个永不变动的死数字，正是 P0 批评 `will` 的形状；② `reputation` 是 Eclipse **主动选择的构筑轴**（符号翻转整套技能），不是社会声望，让 PvP 驱动它会和玩家自选的归属打架 | **Review** | Claude | 人选 A。参照仓库实证：`Killing Red monsters generates positive karma!`（PvE 来源）、`Honor is insufficient to upgrade.`（门禁精炼）、`To create army you must be at level %u and honor %u`（门禁军团，P3 前置）。**荣誉是门槛不是货币**，不扣除。`npm test` 189/189 + 变异测试 ×3（含「让击杀驱动 reputation」= 原计划做法，立刻挂）+ 真协议端到端 4/4。门槛值 200/400 与 精英+1/Boss+5 是我定的；荣誉暂不公开给他人，协议改动推迟到第三步一起升 |
 
+| T-018 | **修复 Codex 复核 P1 + 一个更严重的自查发现**：① Godot 未接入决斗/荣誉（Codex 指出）；② **排查时发现 Godot 客户端在已推的 `fa4235e` 上根本无法加载**（`main.gd` Parse Error，我在 T-017 引入）；③ **`npm run check:godot` 报错却 exit 0——这个检查从来不可能失败**，识别错误的 grep 只在 CI 里 | **Review** | Claude | Godot 补齐决斗（U 应战/I 回绝）+ 荣誉 HUD + 精炼门槛禁用；parse error 已修；`check:godot` 的 grep 移进 npm script，注入同一错误可复现 exit=1；本地真跑 CI 那条无头冒烟（`joined as CI` / `smoke: joined=true`）|
+
 <!-- 追加新任务时复制下面这行：
 | T-00X | <一句话任务> | Backlog | - | - |
 -->

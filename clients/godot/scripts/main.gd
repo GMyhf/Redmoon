@@ -11,6 +11,8 @@ extends Node2D
 # Override with CRIMSON_SERVER=ws://host:port/ws (no code edit needed).
 var server_url := "ws://127.0.0.1:3000/ws"
 const CLIENT_PROTOCOL := 3
+# Mirrors src/server/definitions.js REFINE_HONOR_GATE — display only.
+const REFINE_HONOR_GATE: Array[int] = [0, 0, 200, 400]
 const SNAPSHOT_CODEC := "binary1"
 const INPUT_INTERVAL := 0.05          # 20 Hz, same as the browser client
 const LERP_RATE := 14.0               # snapshot smoothing, ~browser feel
@@ -587,6 +589,8 @@ func _push_effect(world_pos: Vector2, text: String, color: Color) -> void:
 const CHAT_CHANNELS := [["global", "全服"], ["map", "本图"], ["party", "组队"]]
 var chat_lines: Array = []
 var pending_invite := ""              # inviter id; Y accepts
+var pending_duel := ""                # challenger id; U accepts, I declines
+var in_duel := false
 
 func _handle_event(event: Dictionary) -> void:
 	var name := str(event.get("event", ""))
@@ -614,6 +618,25 @@ func _handle_event(event: Dictionary) -> void:
 			if str(event.get("playerId", "")) == self_id:
 				pending_invite = ""
 				_set_status("已加入队伍")
+		"duelInvited":
+			if str(event.get("playerId", "")) == self_id:
+				pending_duel = str(event.get("from", ""))
+				_set_status("%s 邀你决斗 — 按 U 应战，I 回绝" % str(event.get("fromName", "?")))
+		"duelDeclined":
+			_set_status("%s 回绝了决斗" % str(event.get("fromName", "?")))
+		"duelStarted":
+			pending_duel = ""
+			var names: Array = event.get("names", [])
+			_set_status("决斗开始：%s" % " vs ".join(PackedStringArray(names)))
+		"duelEnded":
+			var winner := str(event.get("winner", ""))
+			if winner == "":
+				_set_status("决斗平局 — 时限已到")
+			else:
+				_set_status("决斗胜利" if winner == self_id else "决斗失败")
+		"honorChanged":
+			if str(event.get("playerId", "")) == self_id:
+				_set_status("荣誉 +%d // 共 %d" % [int(event.get("delta", 0)), int(event.get("honor", 0))])
 		"dungeonStarted":
 			_set_status("副本开始：%s（%d 个敌人）" % [str(event.get("name", "")), int(event.get("enemies", 0))])
 		"dungeonCompleted":
@@ -718,6 +741,14 @@ func _unhandled_input(event: InputEvent) -> void:
 				if pending_invite != "":
 					_send({"type": "partyAccept", "from": pending_invite})
 					pending_invite = ""
+			KEY_U:
+				if pending_duel != "":
+					_send({"type": "duelAccept", "from": pending_duel})
+					pending_duel = ""
+			KEY_I:
+				if pending_duel != "":
+					_send({"type": "duelDecline", "from": pending_duel})
+					pending_duel = ""
 			KEY_ENTER: ui.chat_input.grab_focus()
 			KEY_ESCAPE: _leave()
 
@@ -1739,6 +1770,20 @@ func _build_ui() -> void:
 	party_leave.text = "离队"
 	party_leave.pressed.connect(func() -> void: _send({"type": "partyLeave"}))
 	party_row.add_child(party_leave)
+	# Duels reuse the same target the party invite picks: the roster is the same
+	# "who is on my map" list either way.
+	var duel_row := HBoxContainer.new()
+	control_box.add_child(duel_row)
+	var duel_invite := Button.new()
+	duel_invite.text = "邀请决斗"
+	duel_invite.tooltip_text = "对方应战后进入独立竞技场；不掉落、不损失经验（收到挑战按 U 应战、I 回绝）"
+	duel_invite.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	duel_invite.pressed.connect(func() -> void: _invite_selected_duel_target())
+	duel_row.add_child(duel_invite)
+	var duel_forfeit := Button.new()
+	duel_forfeit.text = "认输"
+	duel_forfeit.pressed.connect(func() -> void: _send({"type": "duelForfeit"}))
+	duel_row.add_child(duel_forfeit)
 
 	# Soft vignette for depth, and the bottom-right minimap.
 	var vignette := TextureRect.new()
@@ -1829,6 +1874,14 @@ func _invite_selected_party_target() -> void:
 	if target_id != "":
 		_send({"type": "partyInvite", "target": target_id})
 
+func _invite_selected_duel_target() -> void:
+	var target: OptionButton = ui.party_target
+	if target.item_count == 0 or target.selected < 0:
+		return
+	var target_id := str(target.get_item_metadata(target.selected))
+	if target_id != "":
+		_send({"type": "duelInvite", "target": target_id})
+
 func _fill_archetypes(archetypes: Dictionary) -> void:
 	if archetypes.is_empty():
 		return
@@ -1858,12 +1911,14 @@ func _render_roster(entries: Array) -> void:
 
 func _update_hud(data: Dictionary) -> void:
 	var inventory: Array = data.get("inventory", [])
-	ui.hud.text = "%s  L%d  HP %d/%d  MP %d/%d  金币 %d  背包 %d  %s  在线 %d" % [
+	ui.hud.text = "%s  L%d  HP %d/%d  MP %d/%d  金币 %d  荣誉 %d  背包 %d  %s  在线 %d" % [
 		str(data.get("name", "")), int(data.get("level", 1)),
 		int(data.get("hp", 0)), int(data.get("maxHp", 1)),
 		int(data.get("mp", 0)), int(data.get("maxMp", 1)),
-		int(data.get("gold", 0)), inventory.size(), map_name, online_count,
+		int(data.get("gold", 0)), int(data.get("honor", 0)),
+		inventory.size(), map_name, online_count,
 	]
+	in_duel = str(data.get("mapId", "")).begins_with("duel:")
 	ui.hud.visible = true
 	ui.leave_button.visible = true
 	ui.bag_button.visible = true
@@ -1997,6 +2052,8 @@ func _update_bag(data: Dictionary) -> void:
 		# Refining mutates an item in place without changing its id, so the
 		# stage belongs in the signature or the row would never redraw.
 		signature += str(item.get("id", "")) + "+" + str(int(item.get("refine", 0))) + ","
+	var honor := int(data.get("honor", 0))
+	signature += "h%d" % [REFINE_HONOR_GATE.filter(func(gate: int) -> bool: return honor >= gate).size()]
 	if signature == bag_signature:
 		return
 	bag_signature = signature
@@ -2033,8 +2090,13 @@ func _update_bag(data: Dictionary) -> void:
 		if not is_potion and int(item.get("tier", 1)) >= 3 and stage < 4:
 			var refine := Button.new()
 			refine.text = "炼"
-			var gate := [0, 0, 200, 400][stage]
-			refine.tooltip_text = "精炼 +%d → +%d（需站在锻匠·坤铁旁）%s" % [stage, stage + 1, ("｜需荣誉 %d" % gate) if gate > 0 else ""]
+			var gate: int = REFINE_HONOR_GATE[stage]
+			refine.tooltip_text = "精炼 +%d → +%d（需站在锻匠·坤铁旁）%s" % [
+				stage, stage + 1, ("｜需荣誉 %d（当前 %d）" % [gate, honor]) if gate > 0 else "",
+			]
+			if gate > 0 and honor < gate:
+				refine.disabled = true
+				refine.tooltip_text += "\n荣誉不足：击杀精英与 Boss 可积累"
 			refine.pressed.connect(func() -> void: _send({"type": "refine", "item": item_id}))
 			row.add_child(refine)
 		ui.bag_list.add_child(row)
