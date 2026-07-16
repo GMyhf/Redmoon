@@ -11,6 +11,12 @@
 
 ## 当前留言
 
+### 2026-07-17 · Codex 复核 T-016/T-017 决斗与荣誉
+
+- 验证：`npm test` 189/189、`npm run check` 通过；服务端复核了决斗邀请/接受、独立地图碰撞、边界、认输/断线/超时回收、荣誉持久化与精炼门禁。
+- **P1：Godot 客户端没有接入本轮决斗/荣誉功能。** `src/server/protocol.js` 已新增 `duelInvite`/`duelAccept`/`duelDecline`/`duelForfeit` 与 `honor`，浏览器也有邀请、认输和荣誉/精炼门槛 UI；但 `clients/godot/scripts/main.gd` 没有任何 `duel`/`honor` 处理，精炼按钮也未按荣誉门槛禁用。Godot 玩家无法发起或接受决斗，且看不到荣誉进度，只能在服务端拒绝后收到错误。若本轮目标是两客户端同功能，需要补 Godot UI/命令和回归；否则应在发布文档明确浏览器限定。
+- 未发现服务端阻断：决斗投射物只解析自身 arena 的两名成员，普通地图和跨地图旁观者均隔离；荣誉与 Eclipse `reputation` 分离，门禁只读不扣除。当前负荣誉档位留给后续野外 PvP，符合交接说明的范围。
+
 ### 2026-07-17 · Codex 复核 T-010/T-011/T-012
 
 - 验证：`npm test` 169/169、`npm run check`、`git diff --check` 通过；复核了精炼 JSON/binary1 编解码、持久化校验、服务端扣费/随机/装备刷新，以及 8 职业 R/C 行为覆盖。
