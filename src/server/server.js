@@ -1067,6 +1067,7 @@ export class GameServer {
         if (becameVisible && commandPlayer && !commandPlayer.connectionDetached) {
           this._sendSnapshot(socket);
           this._sendPendingPartyInvite(socket, commandPlayer.id);
+          this._sendPendingDuelInvite(socket, commandPlayer.id);
         }
         return null;
       }
@@ -1133,6 +1134,7 @@ export class GameServer {
         });
         this._sendSnapshot(socket);
         this._sendPendingPartyInvite(socket, result.id);
+        this._sendPendingDuelInvite(socket, result.id);
       } else if (message.type === "sessionRotate") {
         this._sendMessage(socket, {
           type: "session",
@@ -1312,8 +1314,16 @@ export class GameServer {
     });
   }
 
+  // Invites are the one event a player must not miss while their tab sleeps:
+  // both are re-sent on wake and on rejoin, inside their own validity window.
   _sendPendingPartyInvite(socket, playerId) {
     const invite = this.world.getPendingPartyInvite(playerId);
+    if (!invite) return "missing";
+    return this._sendMessage(socket, { type: "event", ...invite });
+  }
+
+  _sendPendingDuelInvite(socket, playerId) {
+    const invite = this.world.getPendingDuelInvite(playerId);
     if (!invite) return "missing";
     return this._sendMessage(socket, { type: "event", ...invite });
   }

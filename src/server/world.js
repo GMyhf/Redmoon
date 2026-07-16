@@ -42,6 +42,10 @@ import {
   SKILL_BEHAVIORS,
   MOB_TYPES,
   PORTAL_DESTINATIONS,
+  DUEL_ARENA,
+  DUEL_DURATION,
+  DUEL_INVITE_WINDOW,
+  DUEL_LIMIT,
   REFINE_CHANCES,
   REFINE_GOLD_PER_LEVEL,
   REFINE_MAX_STAGE,
@@ -201,6 +205,11 @@ export class World {
     this.parties = new Map();
     this._partyInvites = new Map();
     this._partySequence = 0;
+    this.duels = new Map();
+    this._duelInvites = new Map();
+    this._duelSequence = 0;
+    this.duelDuration = positiveNumber(options.duelDuration, DUEL_DURATION);
+    this.maxDuels = Math.max(1, nonNegativeInteger(options.maxDuels, DUEL_LIMIT));
     this.dungeons = new Map();
     this._dungeonSequence = 0;
     this.dungeonWorkerEnabled = options.dungeonWorkerEnabled === true;
@@ -687,6 +696,14 @@ export class World {
       case "partyAccept":
       case "partyaccept":
         return this.acceptParty(id, message.from);
+      case "duelInvite":
+        return this.inviteDuel(id, message.target);
+      case "duelAccept":
+        return this.acceptDuel(id, message.from);
+      case "duelDecline":
+        return this.declineDuel(id, message.from);
+      case "duelForfeit":
+        return this.forfeitDuel(id);
       case "partyLeave":
       case "partyleave":
         return this.leaveParty(id);
@@ -730,6 +747,9 @@ export class World {
     if (!player.alive) throw new WorldError("PLAYER_DEAD", "Defeated players cannot enter a dungeon.");
     if (String(player.mapId).startsWith("dungeon:")) {
       throw new WorldError("DUNGEON_ACTIVE", "This player is already inside a dungeon.");
+    }
+    if (this._duelOf(id)) {
+      throw new WorldError("DUEL_ACTIVE", "Finish the duel before opening a dungeon.");
     }
     if (this.dungeons.size >= this.maxDungeons) {
       throw new WorldError("DUNGEON_CAPACITY", "All dungeon instances are busy; try again soon.");
@@ -1036,10 +1056,11 @@ export class World {
     // an absent field keeps the current order, an explicit null clears it.
     if (input.moveTo !== undefined) {
       const point = optionalFinitePoint(input.moveTo);
+      const bounds = this._boundsFor(player);
       player.moveTarget = point
         ? {
-          x: clamp(point.x, PLAYER_RADIUS, this.width - PLAYER_RADIUS),
-          y: clamp(point.y, PLAYER_RADIUS, this.height - PLAYER_RADIUS),
+          x: clamp(point.x, PLAYER_RADIUS, bounds.width - PLAYER_RADIUS),
+          y: clamp(point.y, PLAYER_RADIUS, bounds.height - PLAYER_RADIUS),
         }
         : null;
       if (point) player.attackTarget = null;
@@ -1511,6 +1532,205 @@ export class World {
     return player;
   }
 
+  // ---- Duels ----------------------------------------------------------
+  // Consent, isolation, nothing at stake. The only thing a duel proves is
+  // that an attack can land on another player, and it proves it somewhere the
+  // rest of the world cannot see or be touched by.
+
+  inviteDuel(id, targetId) {
+    const player = this._requirePlayer(id);
+    const target = this.players.get(String(targetId));
+    if (!target || target.pendingAuth || target.connectionDetached || target.id === id) {
+      throw new WorldError("INVALID_TARGET", "No such player to challenge.");
+    }
+    if (this.duels.size >= this.maxDuels) {
+      throw new WorldError("DUEL_CAPACITY", "Every arena is busy; try again soon.");
+    }
+    for (const side of [player, target]) {
+      if (this._duelOf(side.id)) throw new WorldError("DUEL_ACTIVE", "That player is already duelling.");
+      if (!side.alive || String(side.mapId).startsWith("dungeon:")) {
+        throw new WorldError("DUEL_NOT_READY", "Both duellists must be alive and outside a dungeon.");
+      }
+    }
+    this._duelInvites.set(target.id, { from: id, at: this.time });
+    this._emit("duelInvited", {
+      playerId: target.id,
+      from: id,
+      fromName: player.name,
+    }, { players: [target.id] });
+    return player;
+  }
+
+  // Mirrors getPendingPartyInvite: a challenge must survive a backgrounded tab.
+  getPendingDuelInvite(id) {
+    const playerId = String(id);
+    const invite = this._duelInvites.get(playerId);
+    if (!invite || this.time - invite.at > DUEL_INVITE_WINDOW) {
+      if (invite) this._duelInvites.delete(playerId);
+      return null;
+    }
+    const host = this.players.get(invite.from);
+    if (!host || host.pendingAuth) {
+      this._duelInvites.delete(playerId);
+      return null;
+    }
+    return {
+      event: "duelInvited",
+      tick: this.tick,
+      serverTime: round(this.time),
+      playerId,
+      from: host.id,
+      fromName: host.name,
+    };
+  }
+
+  declineDuel(id, fromId) {
+    const player = this._requirePlayer(id);
+    const invite = this._duelInvites.get(id);
+    if (!invite || invite.from !== String(fromId)) {
+      throw new WorldError("NO_DUEL_INVITE", "No pending challenge from that player.");
+    }
+    this._duelInvites.delete(id);
+    const host = this.players.get(invite.from);
+    if (host) {
+      this._emit("duelDeclined", {
+        playerId: host.id,
+        from: id,
+        fromName: player.name,
+      }, { players: [host.id] });
+    }
+    return player;
+  }
+
+  acceptDuel(id, fromId) {
+    const player = this._requirePlayer(id);
+    const invite = this._duelInvites.get(id);
+    if (!invite || invite.from !== String(fromId) || this.time - invite.at > DUEL_INVITE_WINDOW) {
+      throw new WorldError("NO_DUEL_INVITE", "No pending challenge from that player.");
+    }
+    this._duelInvites.delete(id);
+    const host = this.players.get(invite.from);
+    if (!host) throw new WorldError("INVALID_TARGET", "That challenger is gone.");
+    if (this.duels.size >= this.maxDuels) {
+      throw new WorldError("DUEL_CAPACITY", "Every arena is busy; try again soon.");
+    }
+    // Re-check both sides: the challenge may have sat in the window while the
+    // world moved on.
+    for (const side of [player, host]) {
+      if (this._duelOf(side.id)) throw new WorldError("DUEL_ACTIVE", "That player is already duelling.");
+      if (!side.alive || side.connectionDetached || side.pendingAuth
+        || String(side.mapId).startsWith("dungeon:")) {
+        throw new WorldError("DUEL_NOT_READY", "Both duellists must be alive and outside a dungeon.");
+      }
+    }
+
+    const duelId = `arena-${++this._duelSequence}`;
+    const mapId = `duel:${duelId}`;
+    const duel = {
+      id: duelId,
+      mapId,
+      members: [host.id, player.id],
+      // Where each side stood before the arena, so a duel costs no progress.
+      origins: new Map([host, player].map((side) => [side.id, {
+        mapId: side.mapId, x: side.x, y: side.y,
+      }])),
+      endsAt: this.time + this.duelDuration,
+    };
+    this.duels.set(duelId, duel);
+
+    const margin = 120;
+    const spots = [
+      { x: margin, y: DUEL_ARENA.height / 2 },
+      { x: DUEL_ARENA.width - margin, y: DUEL_ARENA.height / 2 },
+    ];
+    [host, player].forEach((side, index) => {
+      side.mapId = mapId;
+      side.x = spots[index].x;
+      side.y = spots[index].y;
+      side.input = emptyInput();
+      side.moveTarget = null;
+      side.attackTarget = null;
+      // Both start whole: a duel decided by who was mid-regen proves nothing.
+      side.hp = side.maxHp;
+      side.mp = side.maxMp;
+    });
+
+    this._emit("duelStarted", {
+      duelId,
+      mapId,
+      players: duel.members,
+      names: [host.name, player.name],
+      endsAt: round(duel.endsAt),
+    }, { players: [...duel.members] });
+    return player;
+  }
+
+  forfeitDuel(id) {
+    const player = this._requirePlayer(id);
+    const duel = this._duelOf(id);
+    if (!duel) throw new WorldError("NO_DUEL", "You are not in a duel.");
+    const winner = duel.members.find((memberId) => memberId !== id) ?? null;
+    this._endDuel(duel, { winner, loser: id, reason: "forfeit" });
+    return player;
+  }
+
+  _duelOf(playerId) {
+    for (const duel of this.duels.values()) {
+      if (duel.members.includes(String(playerId))) return duel;
+    }
+    return null;
+  }
+
+  _endDuel(duel, { winner, loser, reason }) {
+    this.duels.delete(duel.id);
+    for (const memberId of duel.members) {
+      const member = this.players.get(memberId);
+      if (!member) continue;
+      const origin = duel.origins.get(memberId);
+      // Back to where they stood, whole. Losing a duel costs nothing but the
+      // match: no experience, no gold, no drops, no respawn walk.
+      member.mapId = origin?.mapId ?? "town";
+      const spawn = origin ?? this._playerSpawn();
+      member.x = spawn.x;
+      member.y = spawn.y;
+      member.alive = true;
+      member.hp = member.maxHp;
+      member.respawnAvailableAt = 0;
+      member.input = emptyInput();
+      member.moveTarget = null;
+      member.attackTarget = null;
+    }
+    // Drop any shots still in the air so they cannot follow anyone home.
+    for (const [projectileId, projectile] of [...this.projectiles]) {
+      if (projectile.mapId === duel.mapId) this.projectiles.delete(projectileId);
+    }
+    this._emit("duelEnded", {
+      duelId: duel.id,
+      winner: winner ?? null,
+      loser: loser ?? null,
+      reason,
+    }, { players: [...duel.members] });
+  }
+
+  _updateDuels() {
+    for (const duel of [...this.duels.values()]) {
+      const members = duel.members.map((memberId) => this.players.get(memberId));
+      // A duellist who vanishes hands the match over rather than freezing it.
+      const goneIndex = members.findIndex((member) => !member || member.connectionDetached);
+      if (goneIndex >= 0) {
+        this._endDuel(duel, {
+          winner: duel.members[goneIndex === 0 ? 1 : 0],
+          loser: duel.members[goneIndex],
+          reason: "disconnect",
+        });
+        continue;
+      }
+      if (this.time >= duel.endsAt) {
+        this._endDuel(duel, { winner: null, loser: null, reason: "timeout" });
+      }
+    }
+  }
+
   // ---- Party & friends ------------------------------------------------
 
   inviteParty(id, targetId) {
@@ -1718,6 +1938,7 @@ export class World {
     for (let index = 0; index < steps; index += 1) {
       this.time += step;
       this._expireDungeons();
+      this._updateDuels();
       this._updatePlayers(step);
       this._updatePortals();
       this._updateMobs(step);
@@ -2073,8 +2294,9 @@ export class World {
       if (manualMove) {
         player.moveTarget = null;
         player.attackTarget = null;
-        player.x = clamp(player.x + player.input.move.x * speed * dt, PLAYER_RADIUS, this.width - PLAYER_RADIUS);
-        player.y = clamp(player.y + player.input.move.y * speed * dt, PLAYER_RADIUS, this.height - PLAYER_RADIUS);
+        const bounds = this._boundsFor(player);
+        player.x = clamp(player.x + player.input.move.x * speed * dt, PLAYER_RADIUS, bounds.width - PLAYER_RADIUS);
+        player.y = clamp(player.y + player.input.move.y * speed * dt, PLAYER_RADIUS, bounds.height - PLAYER_RADIUS);
       } else {
         this._advanceAutoOrders(player, speed, dt);
       }
@@ -2135,8 +2357,9 @@ export class World {
       return;
     }
     const travel = Math.min(speed * dt, distance);
-    player.x = clamp(player.x + (dx / distance) * travel, PLAYER_RADIUS, this.width - PLAYER_RADIUS);
-    player.y = clamp(player.y + (dy / distance) * travel, PLAYER_RADIUS, this.height - PLAYER_RADIUS);
+    const bounds = this._boundsFor(player);
+    player.x = clamp(player.x + (dx / distance) * travel, PLAYER_RADIUS, bounds.width - PLAYER_RADIUS);
+    player.y = clamp(player.y + (dy / distance) * travel, PLAYER_RADIUS, bounds.height - PLAYER_RADIUS);
     player.facing = { x: dx / distance, y: dy / distance };
     if (!player.attackTarget && distance - travel <= MOVE_ARRIVAL_EPSILON) {
       player.moveTarget = null;
@@ -2240,6 +2463,27 @@ export class World {
           this._damageMob(mob, projectile.damage, projectile.ownerId);
           projectile.hitsRemaining -= 1;
           if (projectile.hitsRemaining <= 0) break;
+        }
+        // Player-to-player damage exists in exactly one place: inside a duel
+        // the two sides consented to. The opponent is read from that duel's
+        // own member list, so a shot can never reach a player who is not in
+        // this arena — including one standing at the same coordinates on
+        // another map.
+        const duel = this.duels.get(duelIdOfMap(projectile.mapId));
+        if (duel && projectile.hitsRemaining > 0) {
+          const opponentId = duel.members.find((memberId) => memberId !== projectile.ownerId);
+          const opponent = opponentId ? this.players.get(opponentId) : null;
+          if (opponent && opponent.alive
+            && opponent.mapId === projectile.mapId
+            && !projectile.hitIds.has(opponent.id)
+            && segmentHitsCircle(
+              oldX, oldY, projectile.x, projectile.y,
+              opponent.x, opponent.y, opponent.radius + projectile.radius,
+            )) {
+            projectile.hitIds.add(opponent.id);
+            this._damagePlayer(opponent, projectile.damage, projectile.ownerId);
+            projectile.hitsRemaining -= 1;
+          }
         }
       }
 
@@ -2465,8 +2709,9 @@ export class World {
   }
 
   _movePlayer(player, direction, distance) {
-    player.x = clamp(player.x + direction.x * distance, PLAYER_RADIUS, this.width - PLAYER_RADIUS);
-    player.y = clamp(player.y + direction.y * distance, PLAYER_RADIUS, this.height - PLAYER_RADIUS);
+    const bounds = this._boundsFor(player);
+    player.x = clamp(player.x + direction.x * distance, PLAYER_RADIUS, bounds.width - PLAYER_RADIUS);
+    player.y = clamp(player.y + direction.y * distance, PLAYER_RADIUS, bounds.height - PLAYER_RADIUS);
   }
 
   _damageMob(mob, damage, ownerId) {
@@ -2564,6 +2809,16 @@ export class World {
       x: round(player.x),
       y: round(player.y),
     });
+    // Going down in an arena settles the match instead of starting a respawn
+    // timer: _endDuel restores and sends both sides home.
+    const duel = this.duels.get(duelIdOfMap(player.mapId));
+    if (duel) {
+      this._endDuel(duel, {
+        winner: duel.members.find((memberId) => memberId !== player.id) ?? null,
+        loser: player.id,
+        reason: "defeat",
+      });
+    }
   }
 
   _grantXp(player, amount) {
@@ -3189,6 +3444,15 @@ export class World {
     }
   }
 
+  // An arena is its own small map. Without this every movement path would
+  // clamp duellists to the 4800x2700 world plane instead, and the arena would
+  // have no walls at all.
+  _boundsFor(entity) {
+    return this.duels.has(duelIdOfMap(entity.mapId))
+      ? DUEL_ARENA
+      : { width: this.width, height: this.height };
+  }
+
   _inSafeZone(entity) {
     if (!this.safeZone || entity.mapId !== "town") return false;
     const dx = entity.x - this.safeZone.x;
@@ -3226,6 +3490,12 @@ export function xpRequiredForLevel(level) {
 
 function zeroStats() {
   return Object.fromEntries(STAT_KEYS.map((key) => [key, 0]));
+}
+
+// "duel:arena-3" -> "arena-3"; anything else -> null, so a non-arena map can
+// never resolve to a duel.
+function duelIdOfMap(mapId) {
+  return typeof mapId === "string" && mapId.startsWith("duel:") ? mapId.slice(5) : null;
 }
 
 // Refine stage of an item, tolerating pre-v3 records that never had the field.

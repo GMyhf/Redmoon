@@ -97,6 +97,7 @@ import {
     autoEquipButton: document.querySelector("#auto-equip-button"),
     dungeonEnterButton: document.querySelector("#dungeon-enter-button"),
     dungeonLeaveButton: document.querySelector("#dungeon-leave-button"),
+    duelForfeitButton: document.querySelector("#duel-forfeit-button"),
     recoveryIssueButton: document.querySelector("#recovery-issue-button"),
     sessionRotateButton: document.querySelector("#session-rotate-button"),
     recoveryDialog: document.querySelector("#recovery-dialog"),
@@ -115,6 +116,12 @@ import {
   // the roll, the cost and the outcome; these just render them.
   const REFINE_MAX_STAGE = 4;
   const REFINE_STEP = 0.15;
+  const DUEL_REASONS = {
+    defeat: "对手倒下",
+    forfeit: "认输",
+    timeout: "时限已到",
+    disconnect: "对手掉线",
+  };
 
 
 
@@ -975,6 +982,10 @@ import {
     const inDungeon = String(player.mapId || state.map.mapId).startsWith("dungeon:");
     if (ui.dungeonEnterButton) ui.dungeonEnterButton.disabled = !alive || inDungeon;
     if (ui.dungeonLeaveButton) ui.dungeonLeaveButton.hidden = !inDungeon;
+    // The arena is its own map, so being in one is visible from mapId alone.
+    const inDuel = String(player.mapId || state.map.mapId).startsWith("duel:");
+    if (ui.duelForfeitButton) ui.duelForfeitButton.hidden = !inDuel;
+    if (ui.dungeonEnterButton && inDuel) ui.dungeonEnterButton.disabled = true;
     ui.deathPanel.hidden = Boolean(alive);
     if (!alive) updateRespawn(player);
   }
@@ -1295,7 +1306,14 @@ import {
       befriend.setAttribute("aria-label", `添加好友 ${displayName}`);
       befriend.dataset.social = "friend-add";
       befriend.dataset.name = displayName;
-      addRow(displayName, "在线", "is-online", [invite, befriend]);
+      const duel = document.createElement("button");
+      duel.type = "button";
+      duel.textContent = "决";
+      duel.title = "邀请决斗（双方同意后进入独立竞技场，不掉落、不损失经验）";
+      duel.setAttribute("aria-label", `邀请 ${displayName} 决斗`);
+      duel.dataset.social = "duel";
+      duel.dataset.target = String(other.id);
+      addRow(displayName, "在线", "is-online", [invite, befriend, duel]);
     }
     ui.socialList.replaceChildren(...rows);
   }
@@ -1483,6 +1501,61 @@ import {
       }
       return;
     }
+    if (eventName === "duelinvited") {
+      if (String(event.playerId) !== String(state.id)) return;
+      const existing = [...ui.eventFeed.querySelectorAll("[data-duel-invite-from]")]
+        .find((entry) => entry.dataset.duelInviteFrom === String(event.from));
+      if (existing) return;
+      const item = document.createElement("div");
+      item.className = "event-message";
+      item.dataset.duelInviteFrom = String(event.from);
+      item.textContent = `${event.fromName} 邀你决斗 `;
+      // A challenge is answered either way: silence would leave the other side
+      // waiting out the full window.
+      const accept = document.createElement("button");
+      accept.type = "button";
+      accept.className = "mini-command";
+      accept.textContent = "应战";
+      accept.addEventListener("click", () => {
+        send({ type: "duelAccept", from: event.from });
+        item.remove();
+      });
+      const decline = document.createElement("button");
+      decline.type = "button";
+      decline.className = "mini-command";
+      decline.textContent = "回绝";
+      decline.addEventListener("click", () => {
+        send({ type: "duelDecline", from: event.from });
+        item.remove();
+      });
+      item.append(accept, decline);
+      ui.eventFeed.prepend(item);
+      window.setTimeout(() => item.remove(), 30000);
+      sfx(440, 0.14, "sawtooth", 0.05);
+      return;
+    }
+    if (eventName === "dueldeclined") {
+      pushEvent(`${event.fromName} 回绝了决斗`);
+      return;
+    }
+    if (eventName === "duelstarted") {
+      const names = Array.isArray(event.names) ? event.names.join(" vs ") : "决斗";
+      pushEvent(`决斗开始 // ${names}`);
+      state.socialSignature = "";
+      sfx(880, 0.2, "square", 0.06, 320);
+      return;
+    }
+    if (eventName === "duelended") {
+      const me = String(state.id);
+      const line = event.winner === null
+        ? "决斗平局 // 时限已到"
+        : event.winner === me
+          ? `决斗胜利 // ${DUEL_REASONS[event.reason] || ""}`
+          : `决斗失败 // ${DUEL_REASONS[event.reason] || ""}`;
+      pushEvent(line);
+      state.socialSignature = "";
+      return;
+    }
     if (eventName === "partyjoined" || eventName === "partyleft") {
       pushEvent(eventName === "partyjoined" ? `${event.name} 加入了队伍` : `${event.name} 离开了队伍`);
       state.socialSignature = "";
@@ -1551,6 +1624,11 @@ import {
       RESPAWN_NOT_READY: "信号尚未恢复",
       RESPAWN_PENDING: "信号尚未恢复",
       REBIRTH_LEVEL_TOO_LOW: "等级不足，无法转生",
+      DUEL_ACTIVE: "对方（或你）正在决斗中",
+      DUEL_CAPACITY: "竞技场已满，稍后再来",
+      DUEL_NOT_READY: "双方都必须存活且不在副本中",
+      NO_DUEL: "你不在决斗中",
+      NO_DUEL_INVITE: "没有来自该玩家的决斗邀请（或已超时）",
       REFINE_MAX_STAGE: "该装备已达最高精炼阶数",
       REFINE_TIER_TOO_LOW: "只有稀有及以上的装备可以精炼",
       NOT_ENOUGH_WILL: "意志不足",
@@ -4329,6 +4407,7 @@ import {
     const kind = button.dataset.social;
     if (kind === "party-leave") send({ type: "partyLeave" });
     if (kind === "invite") send({ type: "partyInvite", target: button.dataset.target });
+    if (kind === "duel") send({ type: "duelInvite", target: button.dataset.target });
     if (kind === "friend-add") send({ type: "friendAdd", name: button.dataset.name });
     if (kind === "friend-remove") send({ type: "friendRemove", name: button.dataset.name });
     state.socialSignature = "";
@@ -4336,6 +4415,7 @@ import {
   ui.rebirthButton?.addEventListener("click", () => send({ type: "rebirth" }));
   ui.dungeonEnterButton?.addEventListener("click", () => send({ type: "dungeonEnter" }));
   ui.dungeonLeaveButton?.addEventListener("click", () => send({ type: "dungeonLeave" }));
+  ui.duelForfeitButton?.addEventListener("click", () => send({ type: "duelForfeit" }));
   ui.recoveryIssueButton?.addEventListener("click", () => send({ type: "recoveryIssue" }));
   ui.sessionRotateButton?.addEventListener("click", () => {
     const name = state.profile?.name;

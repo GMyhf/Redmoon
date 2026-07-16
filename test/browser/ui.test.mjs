@@ -397,6 +397,46 @@ test("equipping from the bag fills the paper-doll slot", async (t) => {
 // drives the real doll button through the real protocol.
 // R and C stopped being shared filler, so the roster has to show all six
 // actions rather than the four it listed while they were reskins.
+// Two real browsers, one arena: the first time a player's attack reaches
+// another player has to be earned through the real protocol, not asserted on
+// the World object.
+test("two browsers consent to a duel and one wins it", async (t) => {
+  const { server, url } = await startServer(t);
+  const hostPage = await newPage(t, browser);
+  const guestPage = await newPage(t, browser);
+  await joinAs(hostPage, url, "Challenger");
+  await joinAs(guestPage, url, "Defender");
+
+  const host = playerByName(server, "Challenger");
+  const guest = playerByName(server, "Defender");
+  // Stand together so each shows up in the other's "same map" roster.
+  guest.x = host.x + 40;
+  guest.y = host.y;
+
+  await hostPage.waitForSelector('#social-list button[data-social="duel"]', { state: "visible" });
+  await hostPage.click('#social-list button[data-social="duel"]');
+
+  // The challenge arrives as a prompt the defender must answer.
+  await guestPage.waitForSelector("[data-duel-invite-from] button", { state: "visible" });
+  assert.equal(server.world.duels.size, 0, "no arena opens before the answer");
+  await guestPage.click("[data-duel-invite-from] button");
+
+  await waitForServer(() => server.world.duels.size === 1);
+  const duel = [...server.world.duels.values()][0];
+  assert.equal(host.mapId, duel.mapId, "both are pulled into the arena");
+  assert.equal(guest.mapId, duel.mapId);
+  await hostPage.waitForSelector("#duel-forfeit-button", { state: "visible" });
+
+  // The defender concedes; the arena closes and both go home whole.
+  await guestPage.click("#duel-forfeit-button");
+  await waitForServer(() => server.world.duels.size === 0);
+  assert.equal(host.mapId, "town");
+  assert.equal(guest.mapId, "town");
+  assert.equal(guest.alive, true, "conceding costs the match and nothing else");
+  await hostPage.waitForFunction(() =>
+    document.querySelector("#event-feed")?.textContent.includes("决斗胜利"));
+});
+
 test("the roster shows every action of an archetype, R and C included", async (t) => {
   const { url } = await startServer(t);
   const page = await newPage(t, browser);

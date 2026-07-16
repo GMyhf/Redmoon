@@ -69,6 +69,18 @@ export const EQUIP_KEYS = Object.freeze([
 
 export const RING_KEYS = Object.freeze(["ring1", "ring2", "ring3"]);
 
+// ---- Duels -----------------------------------------------------------
+// The first place a player's attack can land on another player. Consent is
+// explicit, the arena is its own map, and nothing is at stake: no experience,
+// no gold, no drops, no honour. It exists to prove one link — that damage can
+// route player-to-player under server authority — before open-world PvP is
+// built on top of it.
+export const DUEL_LIMIT = 16;
+export const DUEL_INVITE_WINDOW = 60;
+// A draw beats a stalemate: two cautious duellists must not hold an arena open.
+export const DUEL_DURATION = 180;
+export const DUEL_ARENA = Object.freeze({ width: 1200, height: 900 });
+
 // ---- Gear refinement -------------------------------------------------
 // The long-term sink the economy was missing: gold and will flow out here.
 // Chance to advance FROM the indexed stage, so index 0 is the 0 -> 1 attempt
