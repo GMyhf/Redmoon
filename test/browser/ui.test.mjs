@@ -707,7 +707,7 @@ test("growth, automation, and rebirth controls mutate authoritative state", asyn
   await page.click("#auto-equip-button");
   await waitForServer(() => !player.autoFight && player.autoLevel && !player.autoEquip);
 
-  player.level = 10;
+  player.level = 1000;
   await page.waitForSelector("#rebirth-button", { state: "visible" });
   await page.click("#rebirth-button");
   await waitForServer(() => player.rebirths === 1);
@@ -725,6 +725,10 @@ test("the browser can enter and explicitly leave the deterministic dungeon", asy
   await page.waitForSelector("#dungeon-leave-button", { state: "visible" });
   assert.equal(server.world.dungeons.size, 1);
   const dungeon = [...server.world.dungeons.values()][0];
+  // The leave button only tracks mapId, which flips synchronously; spawning the
+  // worker child process and completing its handshake takes ~250ms more. Wait
+  // for it like every other async step here instead of racing it.
+  await waitForServer(() => Boolean(dungeon.workerTransport));
   assert.ok(dungeon.workerTransport, "dungeon entry starts the child worker");
   await waitForServer(() => dungeon.workerSnapshot?.enemies?.length === 6);
 

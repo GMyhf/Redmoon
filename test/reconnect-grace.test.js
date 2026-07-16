@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { WebSocket } from "ws";
 
+import { PROTOCOL_VERSION } from "../src/server/definitions.js";
 import { createGameServer } from "../src/server/server.js";
 import { World, WorldError } from "../src/server/world.js";
 
@@ -79,7 +80,7 @@ test("the gateway reattaches a valid bearer during grace and expires it determin
   const hostMessages = messageQueue(hostSocket);
   await hostMessages.next("welcome");
   hostSocket.send(JSON.stringify({
-    type: "join", protocol: 2, name: "SocketHost", archetype: "vanguard",
+    type: "join", protocol: PROTOCOL_VERSION, name: "SocketHost", archetype: "vanguard",
   }));
   await hostMessages.next("session");
   const hostSnapshot = await hostMessages.next("snapshot");
@@ -88,7 +89,7 @@ test("the gateway reattaches a valid bearer during grace and expires it determin
   const guestMessages = messageQueue(guestSocket);
   await guestMessages.next("welcome");
   guestSocket.send(JSON.stringify({
-    type: "join", protocol: 2, name: "SocketGuest", archetype: "strider",
+    type: "join", protocol: PROTOCOL_VERSION, name: "SocketGuest", archetype: "strider",
   }));
   const guestSession = await guestMessages.next("session");
   const guestSnapshot = await guestMessages.next("snapshot");
@@ -110,7 +111,7 @@ test("the gateway reattaches a valid bearer during grace and expires it determin
 
   hostSocket.send(JSON.stringify({
     type: "join",
-    protocol: 2,
+    protocol: PROTOCOL_VERSION,
     name: "SocketGuest",
     archetype: "strider",
     token: guestSession.token,
@@ -125,7 +126,7 @@ test("the gateway reattaches a valid bearer during grace and expires it determin
   await rejectedMessages.next("welcome");
   rejectedSocket.send(JSON.stringify({
     type: "join",
-    protocol: 2,
+    protocol: PROTOCOL_VERSION,
     name: "SocketGuest",
     archetype: "strider",
     token: "wrong-bearer",
@@ -153,7 +154,7 @@ test("the gateway reattaches a valid bearer during grace and expires it determin
   assert.equal(guest.connectionDetached, true, "a stale client cannot claim the reserved seat");
   resumedSocket.send(JSON.stringify({
     type: "join",
-    protocol: 2,
+    protocol: PROTOCOL_VERSION,
     name: "SocketGuest",
     archetype: "vanguard",
     token: guestSession.token,
@@ -199,7 +200,7 @@ test("a recovery response lost after commit retries through the detached seat", 
   const ownerMessages = messageQueue(ownerSocket);
   await ownerMessages.next("welcome");
   ownerSocket.send(JSON.stringify({
-    type: "join", protocol: 2, name: "RecoveryGrace", archetype: "eclipse",
+    type: "join", protocol: PROTOCOL_VERSION, name: "RecoveryGrace", archetype: "eclipse",
   }));
   await ownerMessages.next("session");
   await ownerMessages.next("snapshot");
@@ -215,7 +216,7 @@ test("a recovery response lost after commit retries through the detached seat", 
   await firstMessages.next("welcome");
   firstRecovery.send(JSON.stringify({
     type: "recover",
-    protocol: 2,
+    protocol: PROTOCOL_VERSION,
     name: "RecoveryGrace",
     code: recovery.code,
     nextToken,
@@ -231,7 +232,7 @@ test("a recovery response lost after commit retries through the detached seat", 
   await retryMessages.next("welcome");
   retrySocket.send(JSON.stringify({
     type: "recover",
-    protocol: 2,
+    protocol: PROTOCOL_VERSION,
     name: "RecoveryGrace",
     code: recovery.code,
     nextToken,

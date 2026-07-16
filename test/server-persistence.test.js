@@ -16,7 +16,7 @@ import test from "node:test";
 import { WebSocket } from "ws";
 
 import { GameServer, createConfiguredGameServer } from "../src/server/server.js";
-import { MAX_ITEM_SEQUENCE } from "../src/server/definitions.js";
+import { MAX_ITEM_SEQUENCE, PROTOCOL_VERSION } from "../src/server/definitions.js";
 import { hashSecret } from "../src/server/session.js";
 
 // These tests drive GameServer's persistence directly — no listen(), no
@@ -320,11 +320,11 @@ test("security mutations serialize rollback and never leak a failed credential",
   const failedToken = "a".repeat(43);
 
   const first = server._processCommand(alpha, {
-    type: "join", protocol: 2, name: "Alpha", archetype: "vanguard", nextToken: failedToken,
+    type: "join", protocol: PROTOCOL_VERSION, name: "Alpha", archetype: "vanguard", nextToken: failedToken,
   });
   await firstStarted;
   const second = server._processCommand(beta, {
-    type: "join", protocol: 2, name: "Beta", archetype: "vanguard", nextToken: "b".repeat(43),
+    type: "join", protocol: PROTOCOL_VERSION, name: "Beta", archetype: "vanguard", nextToken: "b".repeat(43),
   });
   releaseFirst();
   await Promise.all([first, second]);
@@ -368,7 +368,7 @@ test("a JSON directory fsync failure rejects the credential and keeps it retryab
   const nextToken = "f".repeat(43);
 
   await server._processCommand(socket, {
-    type: "join", protocol: 2, name: "FsyncGuard", archetype: "vanguard", nextToken,
+    type: "join", protocol: PROTOCOL_VERSION, name: "FsyncGuard", archetype: "vanguard", nextToken,
   });
   assert.equal(messages.at(-1).type, "error", "the server does not acknowledge an uncertain rename");
   assert.equal(messages.at(-1).code, "INTERNAL_ERROR");
@@ -377,7 +377,7 @@ test("a JSON directory fsync failure rejects the credential and keeps it retryab
 
   failSync = false;
   await server._processCommand(socket, {
-    type: "join", protocol: 2, name: "FsyncGuard", archetype: "vanguard", nextToken,
+    type: "join", protocol: PROTOCOL_VERSION, name: "FsyncGuard", archetype: "vanguard", nextToken,
   });
   const retrySession = messages.findLast((message) => message.type === "session");
   assert.ok(retrySession, "the preserved pending token can retry");
@@ -412,11 +412,11 @@ test("shutdown skips durable commands that have not started", async () => {
   const firstSocket = socket("shutdown-first");
   const secondSocket = socket("shutdown-second");
   const first = server._processCommand(firstSocket, {
-    type: "join", protocol: 2, name: "ShutdownFirst", archetype: "vanguard", nextToken: "a".repeat(43),
+    type: "join", protocol: PROTOCOL_VERSION, name: "ShutdownFirst", archetype: "vanguard", nextToken: "a".repeat(43),
   });
   await firstStarted;
   const second = server._processCommand(secondSocket, {
-    type: "join", protocol: 2, name: "ShutdownSecond", archetype: "vanguard", nextToken: "b".repeat(43),
+    type: "join", protocol: PROTOCOL_VERSION, name: "ShutdownSecond", archetype: "vanguard", nextToken: "b".repeat(43),
   });
   const closing = server.close();
   releaseFirst();
@@ -452,7 +452,7 @@ test("rejected security commands are audited without bearer secrets", async () =
 
   await server._processCommand(socket, {
     type: "join",
-    protocol: 2,
+    protocol: PROTOCOL_VERSION,
     name: "Secure",
     archetype: "vanguard",
     token: wrongToken,
@@ -749,6 +749,14 @@ test("invalid account records are isolated without discarding healthy accounts",
         }],
       },
       badpoints: { archetype: "vanguard", statPoints: 1e300 },
+      badrefine: {
+        archetype: "vanguard",
+        inventory: [{
+          id: "over-refined", slot: "weapon", rarity: "rare", tier: 3, level: 10,
+          name: "Over Refined", bonuses: { power: 0, agility: 0, spirit: 0, vitality: 0 },
+          refine: 99,
+        }],
+      },
       baditemid: {
         archetype: "vanguard",
         inventory: [{
@@ -777,6 +785,7 @@ test("invalid account records are isolated without discarding healthy accounts",
 
   const invalidPath = `${persistPath}.invalid-records.json`;
   const rejected = JSON.parse(readFileSync(invalidPath, "utf8"));
+  assert.match(rejected.accounts.badrefine.reason, /refine/);
   assert.match(rejected.accounts.broken.reason, /inventory/);
   assert.equal(rejected.accounts.broken.record.token, "keep-this-for-recovery");
   assert.match(rejected.accounts.badhash.reason, /tokenHash/);

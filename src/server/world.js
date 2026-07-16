@@ -42,6 +42,12 @@ import {
   SKILL_BEHAVIORS,
   MOB_TYPES,
   PORTAL_DESTINATIONS,
+  REFINE_CHANCES,
+  REFINE_GOLD_PER_LEVEL,
+  REFINE_MAX_STAGE,
+  REFINE_MIN_TIER,
+  REFINE_STEP,
+  REFINE_WILL_PER_LEVEL,
   REPUTATION_LIMIT,
   RING_KEYS,
   SOUL_BARRIER,
@@ -74,7 +80,7 @@ const SHOP_RANGE = 130;
 const ACCOUNT_FIELDS = Object.freeze([
   "archetype", "level", "xp", "xpToNext", "stats", "statPoints",
   "skillLevels", "skillPoints", "rebirths", "reputation", "will",
-  "attunement", "gold", "dew", "friends", "inventory", "equipment", "quest",
+  "attunement", "gold", "dew", "protections", "friends", "inventory", "equipment", "quest",
   // Automation toggles survive relogin — a dev-server restart must not
   // silently flip them back on.
   "autoFight", "autoLevel", "autoEquip",
@@ -320,8 +326,11 @@ export class World {
       maxHp: 1,
       mp: 0,
       maxMp: 0,
-      // Reputation swings positive (radiant) or negative (abyssal) with use;
-      // will is a lifetime resource earned from kills.
+      // Reputation swings positive (radiant) or negative (abyssal) with use.
+      // Will is a lifetime resource earned from kills. It is deliberately
+      // accrued and persisted ahead of its sink: the P1 gear-refinement system
+      // (docs/IMPROVEMENT_PLAN.md) spends it, so kills made today already count
+      // toward it. Until then it has no gameplay effect.
       reputation: 0,
       will: 0,
       attunement: "radiant",
@@ -357,6 +366,10 @@ export class World {
       nextSkillAt: Object.fromEntries(SKILL_SLOTS.map((slot) => [slot, 0])),
       gold: 0,
       dew: 0,
+      // Ward sigils are a fungible counter, not inventory items: the pack has
+      // no stacking, so a stock of eight would otherwise eat eight of the 240
+      // inventory slots.
+      protections: 0,
       friends: [],
       partyId: null,
       connectionDetached: false,
@@ -664,6 +677,8 @@ export class World {
         return this.revivePlayer(id);
       case "buy":
         return this.buyGood(id, message.shop, message.good);
+      case "refine":
+        return this.refineItem(id, message.item, message.useProtection);
       case "sell":
         return this.sellItem(id, message.item);
       case "partyInvite":
@@ -1377,12 +1392,23 @@ export class World {
     const goldPrice = Math.floor((good.gold ?? 0) + (good.goldPerLevel ?? 0) * (player.level - 1));
     if (goldPrice > player.gold) throw new WorldError("NO_GOLD", "Not enough gold.");
     if ((good.dew ?? 0) > player.dew) throw new WorldError("NO_DEW", "Not enough revival dew.");
-    if (player.inventory.length >= INVENTORY_LIMIT) {
+    // Ward sigils are a counter, so they neither need nor consume a slot.
+    if (!good.protection && player.inventory.length >= INVENTORY_LIMIT) {
       throw new WorldError("INVENTORY_FULL", "The inventory is full.");
     }
 
     player.gold -= goldPrice;
     player.dew -= good.dew ?? 0;
+    if (good.protection) {
+      player.protections += good.protection;
+      this._emit("purchased", {
+        playerId: id,
+        shopId,
+        good: good.key,
+        protections: player.protections,
+      });
+      return player;
+    }
     let item;
     if (good.heal) {
       const heal = Math.floor(good.heal + (good.healPerLevel ?? 0) * (player.level - 1));
@@ -1400,6 +1426,74 @@ export class World {
       itemId: item.id,
       name: item.name,
       rarity: item.rarity,
+    });
+    return player;
+  }
+
+  // Push one item up the refine ladder. The client only ever states intent —
+  // the roll, the cost and the outcome are decided here, at the tick boundary.
+  refineItem(id, itemId, useProtection = false) {
+    const player = this._requirePlayer(id);
+    if (!player.alive) {
+      throw new WorldError("PLAYER_DEAD", "Refining is not possible while defeated.");
+    }
+    const smith = this.shops.find((entry) => entry.id === "smith");
+    if (!smith
+      || player.mapId !== smith.mapId
+      || Math.hypot(player.x - smith.x, player.y - smith.y) > SHOP_RANGE) {
+      throw new WorldError("TOO_FAR", "Walk up to the smith first.");
+    }
+    // Worn gear refines in place: equipping splices the item out of the
+    // inventory, so searching only there would force an unequip/refine/re-equip
+    // dance for the very pieces players most want to push.
+    const item = player.inventory.find((entry) => entry.id === itemId)
+      ?? Object.values(player.equipment).find((entry) => entry && entry.id === itemId);
+    if (!item) throw new WorldError("INVALID_ITEM", "That item is not in the inventory.");
+    if ((item.tier ?? 1) < REFINE_MIN_TIER) {
+      throw new WorldError("REFINE_TIER_TOO_LOW", "Only rare gear and above can be refined.");
+    }
+    if (item.slot === "potion") {
+      throw new WorldError("REFINE_TIER_TOO_LOW", "Consumables cannot be refined.");
+    }
+    const stage = refineStage(item);
+    if (stage >= REFINE_MAX_STAGE) {
+      throw new WorldError("REFINE_MAX_STAGE", "That item is already fully refined.");
+    }
+    const cost = refineCost(item);
+    if (player.will < cost.will) throw new WorldError("NOT_ENOUGH_WILL", "Not enough will.");
+    if (player.gold < cost.gold) throw new WorldError("NO_GOLD", "Not enough gold.");
+    const warded = Boolean(useProtection);
+    if (warded && player.protections < 1) {
+      throw new WorldError("NO_PROTECTION", "No ward sigil in reserve.");
+    }
+
+    player.will -= cost.will;
+    player.gold -= cost.gold;
+    const success = this.rng() < REFINE_CHANCES[stage];
+    let consumedProtection = false;
+    if (success) {
+      item.refine = stage + 1;
+    } else if (warded) {
+      // The sigil is spent whether or not the stage would actually have
+      // dropped: it is insurance, and stage 0 has nothing to lose.
+      player.protections -= 1;
+      consumedProtection = true;
+    } else if (stage > 0) {
+      item.refine = stage - 1;
+    }
+    // A refined item that is currently worn changes the player's numbers.
+    this._refreshGear(player);
+    this._refreshDerivedStats(player, true);
+    this._emit("itemRefined", {
+      playerId: id,
+      itemId,
+      name: item.name,
+      success,
+      stage: refineStage(item),
+      previousStage: stage,
+      warded: consumedProtection,
+      willSpent: cost.will,
+      goldSpent: cost.gold,
     });
     return player;
   }
@@ -2623,6 +2717,7 @@ export class World {
       autoEquip: player.autoEquip,
       gold: player.gold,
       dew: player.dew,
+      protections: player.protections,
       friends: player.friends.map((name) => {
         const onlinePlayer = online.get(this._accountKey(name));
         return {
@@ -2970,11 +3065,15 @@ export class World {
     const attacks = [];
     for (const item of Object.values(player.equipment)) {
       if (!item) continue;
-      for (const key of STAT_KEYS) gearStats[key] += item.bonuses?.[key] ?? 0;
-      mods.damage += item.damageBonus ?? 0;
-      mods.maxHp += item.hpBonus ?? 0;
-      mods.speed += item.speedBonus ?? 0;
-      mods.defense += item.defenseBonus ?? 0;
+      // Every refined number flows through this one multiplier. Stored rolls
+      // are never mutated, so a stage can be gained or lost without the item's
+      // identity drifting.
+      const scale = refineScale(item);
+      for (const key of STAT_KEYS) gearStats[key] += Math.round((item.bonuses?.[key] ?? 0) * scale);
+      mods.damage += (item.damageBonus ?? 0) * scale;
+      mods.maxHp += (item.hpBonus ?? 0) * scale;
+      mods.speed += (item.speedBonus ?? 0) * scale;
+      mods.defense += (item.defenseBonus ?? 0) * scale;
       if (item.attackFormula) attacks.push(item.attackFormula);
     }
     player.gearStats = gearStats;
@@ -3129,7 +3228,32 @@ function zeroStats() {
   return Object.fromEntries(STAT_KEYS.map((key) => [key, 0]));
 }
 
+// Refine stage of an item, tolerating pre-v3 records that never had the field.
+export function refineStage(item) {
+  const stage = Math.floor(Number(item?.refine));
+  if (!Number.isFinite(stage) || stage <= 0) return 0;
+  return Math.min(REFINE_MAX_STAGE, stage);
+}
+
+// Multiplier a refined item's stored numbers are scaled by.
+export function refineScale(item) {
+  return 1 + REFINE_STEP * refineStage(item);
+}
+
+// Cost of the next attempt: scales with the item's level and with how far up
+// the ladder it already sits, so late rungs bite.
+export function refineCost(item) {
+  const stage = refineStage(item);
+  const level = Math.max(1, Math.floor(Number(item?.level) || 1));
+  return {
+    will: level * (stage + 1) * REFINE_WILL_PER_LEVEL,
+    gold: level * (stage + 1) * REFINE_GOLD_PER_LEVEL,
+  };
+}
+
 // Single-number strength estimate used to rank items of the same slot.
+// Refinement counts: without it auto-equip would happily strip a +4 piece a
+// player spent dew and will on for a raw drop with a slightly better roll.
 function itemPower(item) {
   let score = 0;
   for (const key of STAT_KEYS) score += (item.bonuses?.[key] ?? 0) * 10;
@@ -3137,6 +3261,7 @@ function itemPower(item) {
   score += item.hpBonus ?? 0;
   score += item.speedBonus ?? 0;
   score += (item.defenseBonus ?? 0) * 600;
+  score *= refineScale(item);
   if (item.attackFormula) score += 300;
   return score;
 }
@@ -3152,6 +3277,7 @@ function publicItem(item) {
     level: item.level ?? 1,
     name: item.name,
     ...(item.dropClass !== undefined ? { dropClass: item.dropClass } : {}),
+    ...(refineStage(item) > 0 ? { refine: refineStage(item) } : {}),
   };
 }
 
@@ -3171,6 +3297,8 @@ function serializeItem(item) {
     ...(item.defenseBonus !== undefined ? { defenseBonus: item.defenseBonus } : {}),
     ...(item.attackFormula !== undefined ? { attackFormula: { ...item.attackFormula } } : {}),
     ...(item.heal !== undefined ? { heal: item.heal } : {}),
+    // Stage 0 stays absent so the JSON and binary encodings agree.
+    ...(refineStage(item) > 0 ? { refine: refineStage(item) } : {}),
   };
 }
 

@@ -19,8 +19,11 @@
 | T-007 | **文档同步**：① `docs/DUNGEON_WORKERS.md` 里程碑给 Phase 0/1/2/3b/4/5/6 补"（已完成）"标注（Phase 6 保留"跨机演练留部署阶段"的诚实措辞）② `README.md` 路线图 #3 反映 T-006 首交付进展（export 预设 + CI Linux 导出烟测 + RELEASE.md），签名/IME/跨平台真发布仍列部署阶段、**不冒充 #3 全完成** | **Done** | Codex | `23c08cb` 复核通过：八个 Phase 全标注（6 保留跨机诚实措辞）；README #3 标"（首交付已落地，进行中）"、非"已完成"、诚实分栏。全仓文档同步闭环 |
 | T-008 | 修复切换角色后社交面板残留上一角色队伍人数/成员 | **Review** | Codex | 清理角色屏幕与社交缓存，并补浏览器回归测试；待 Claude 复核 |
 | T-009 | 为《深红中继》小说补充现有 heroes/scenes PNG 章节插图 | **Review** | Codex | 已按章节语境嵌入仓库现有 PNG 资产；不新增重复图片文件 |
+| T-010 | **P0 · 转生门槛与 will 定位**（`docs/IMPROVEMENT_PLAN.md` P0）：转生门槛 10 → 1000 对齐 `LEVEL_CAP`，堵住低级无限转生叠数值；`will` 明确为 P1 精炼预留货币（只补文档，不动协议） | **Review** | Claude | 人已拍板：门槛=1000、收益不变无限叠加；will 留作 P1 出口。`npm test` 159/159 + 变异测试 + 真协议端到端验证；未动 `PROTOCOL_VERSION`。待 Codex 复核 |
 
 > ✅ 副本 worker 已通过 T-003 接入 `GameServer`；主进程仍是玩家、席位、事件路由与奖励账本的权威来源。
+
+| T-011 | **P1 · 装备精炼 + 护炉印**（`docs/P1_REFINE_SPEC.md`）：精炼 0-4 阶、成功率 90/70/50/30、失败掉 1 阶、护炉印（复苏露购买）挡掉阶；`will` 获得出口；补上缺失的长期金币消耗池。**破坏性协议改动 → `PROTOCOL_VERSION` 2→3** | **Review** | Claude | 人已拍板：曲线 90/70/50/30、失败掉阶、护炉印收复苏露。`npm test` 166/166 + check:godot + 变异测试 ×2 + 真协议端到端 5/5。端到端抓到一个单测与 conformance 都漏掉的真 bug（序列化挑选器丢 `refine`）。数值强度（`REFINE_STEP`/费率）仍是拍脑袋，见 NOTES |
 
 <!-- 追加新任务时复制下面这行：
 | T-00X | <一句话任务> | Backlog | - | - |

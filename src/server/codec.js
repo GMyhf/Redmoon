@@ -16,7 +16,7 @@
 //        i32 reputation; u32 will
 //        u16 radius, rebirths, level
 //        u8  equipCount, then per equipped piece:
-//            str key, name, rarity, dropClass ("" = none); u16 level
+//            str key, name, rarity, dropClass ("" = none); u16 level; u8 refine
 //        (soul-barrier detail is omitted in binary1)
 //   u16  enemyCount, then per enemy:
 //        str id, type, name, attackStyle, combatState, attackTargetId ("" = null)
@@ -137,6 +137,7 @@ function packPlayer(writer, player) {
     writer.str(item.rarity);
     writer.str(typeof item.dropClass === "string" ? item.dropClass : "");
     writer.u16(item.level ?? 1);
+    writer.u8(item.refine ?? 0);
   }
 }
 
@@ -317,6 +318,9 @@ export function decodeSnapshotBinary(buffer) {
         rarity: reader.str(),
         dropClass: reader.str() || undefined,
         level: reader.u16(),
+        // Stage 0 is the absence of the field on the JSON path; keep the two
+        // encodings byte-for-byte comparable by decoding it back to undefined.
+        refine: reader.u8() || undefined,
       };
     }
     players.push(player);

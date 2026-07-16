@@ -1,6 +1,8 @@
 // v2: join accepts a session token, the server answers with a `session`
 // message, and protected names reject NAME_IN_USE / INVALID_TOKEN.
-export const PROTOCOL_VERSION = 2;
+// v3: items carry a `refine` stage and players carry a `protections` count;
+// the `refine` command spends will/gold to push gear up the stage ladder.
+export const PROTOCOL_VERSION = 3;
 export const TICK_RATE = 20;
 export const SNAPSHOT_RATE = 10;
 export const MAX_ITEM_SEQUENCE = 1_000_000_000_000;
@@ -11,7 +13,13 @@ export const FRIEND_LIMIT = 32;
 export const SOUL_BARRIER = Object.freeze({ absorb: 0.6, mpPerHp: 1.4 });
 export const REPUTATION_LIMIT = 1000;
 
-export const REBIRTH_LEVEL = 10;
+export const LEVEL_CAP = 1000;
+
+// Rebirth is the endgame, not an early-game shortcut: it unlocks only at the
+// level cap, where XP no longer accrues and the only way forward is to reset.
+// The bonuses below are permanent and stack without limit — that is affordable
+// precisely because each cycle costs a full 1..LEVEL_CAP climb.
+export const REBIRTH_LEVEL = LEVEL_CAP;
 export const REBIRTH_STAT_BONUS = 6;
 export const REBIRTH_HP_BONUS = 0.12;
 export const REBIRTH_DAMAGE_BONUS = 0.15;
@@ -61,7 +69,26 @@ export const EQUIP_KEYS = Object.freeze([
 
 export const RING_KEYS = Object.freeze(["ring1", "ring2", "ring3"]);
 
-export const LEVEL_CAP = 1000;
+// ---- Gear refinement -------------------------------------------------
+// The long-term sink the economy was missing: gold and will flow out here.
+// Chance to advance FROM the indexed stage, so index 0 is the 0 -> 1 attempt
+// and the array length is the number of rungs on the ladder.
+export const REFINE_CHANCES = Object.freeze([0.9, 0.7, 0.5, 0.3]);
+export const REFINE_MAX_STAGE = REFINE_CHANCES.length;
+
+// Each stage scales an item's stored bonuses. Rolled numbers are never
+// re-rolled by refining — that would turn the forge into a stat re-roller —
+// they are only scaled by this deterministic multiplier.
+export const REFINE_STEP = 0.15;
+
+// Rare and above. Sunset alone (tier 7, 0.9% drop, one on the ground at a
+// time) would lock the whole system behind content almost nobody reaches.
+export const REFINE_MIN_TIER = 3;
+
+// An attempt costs will (earned from kills) and gold, both scaled by the
+// item's level and by how far up the ladder it already is.
+export const REFINE_WILL_PER_LEVEL = 4;
+export const REFINE_GOLD_PER_LEVEL = 6;
 
 // Currencies: gold drops from every kill and buys basics; revival dew is
 // rare, revives you on the spot, and pays the black marketeer.
@@ -101,6 +128,10 @@ export const SHOPS = Object.freeze([
     dy: -315,
     goods: Object.freeze([
       Object.freeze({ key: "relic-box", label: "遗物匣（随机遗物）", dew: 3 }),
+      // Failure insurance costs the scarce currency on purpose: bought with
+      // gold it would be a permanent no-brainer and refining would stop
+      // being a gamble at all.
+      Object.freeze({ key: "ward-sigil", label: "护炉印（精炼失败不掉阶）", dew: 1, protection: 1 }),
     ]),
   }),
 ]);

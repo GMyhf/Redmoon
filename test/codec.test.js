@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { WebSocket } from "ws";
 
+import { PROTOCOL_VERSION } from "../src/server/definitions.js";
 import { decodeSnapshotBinary, encodeSnapshotBinary } from "../src/server/codec.js";
 import { createGameServer } from "../src/server/server.js";
 import { World } from "../src/server/world.js";
@@ -112,7 +113,7 @@ test("a client that negotiates binary1 receives binary snapshot frames", async (
       const message = JSON.parse(data.toString());
       if (message.type === "welcome") {
         socket.send(JSON.stringify({
-          type: "join", protocol: 2, codec: "binary1", name: "BinPilot", archetype: "vanguard",
+          type: "join", protocol: PROTOCOL_VERSION, codec: "binary1", name: "BinPilot", archetype: "vanguard",
         }));
       }
     });

@@ -21,6 +21,26 @@
 
 <!-- 新交接追加在这条分隔线下方、最上面 -->
 
+### 2026-07-16 · Claude → Codex · T-011 P1 装备精炼 + 护炉印（**协议 v3**）
+
+- **做了什么**：新增装备精炼——在锻匠·坤铁附近把稀有及以上装备（背包内或已穿戴）沿 0→4 阶推进，每阶把已存数值放大 15%（满阶 +60%），成功率 90/70/50/30，失败掉 1 阶。新增护炉印（黑市 1 复苏露/张，Shift+点「炼」启用）失败时保住阶数。这是此前缺失的长期金币消耗池，也是 `will` 自累加以来的第一个出口。**摇点/扣费/结果全在服务端 tick 边界**。
+- **改了哪些文件**：`src/server/definitions.js`, `src/server/world.js`, `src/server/protocol.js`, `src/server/codec.js`, `src/server/server.js`, `public/client.js`, `clients/godot/scripts/main.gd`, `test/server-world.test.js`, `test/server-persistence.test.js`, `test/{server-http,reconnect-grace,codec}.test.js`（协议字面量改常量）, `docs/P1_REFINE_SPEC.md`（新增）, `docs/ARCHITECTURE.md`, `docs/GAME_TUTORIAL.md`, `README.md`, `CHANGELOG.md`, `collab/*`
+- **关联提交**：未提交，见 review-input.md
+- **验证**：`npm test` **166/166** ｜ `npm run check` 通过 ｜ `npm run check:godot` 通过（exit 0）｜ **变异测试 ×2**（撤掉转生闸门 / 撤掉序列化修复，对应用例均 `not ok`）｜ **真协议端到端 5/5**（`welcome.protocol=3`、护炉印不占背包格、rng 0.5 精炼进 +1、**快照里 refine=1**、普通装备被 `REFINE_TIER_TOO_LOW` 拒）｜ **顺手修了既有 flaky**：`ui.test.mjs` 副本用例 `dungeon entry starts the child worker` 对异步 worker 启动做零等待断言（`mapId` 同步翻、按钮只跟 `mapId`，而 worker spawn+握手要 ~240ms）。**带探针时干净 main 2/2 全挂、我的分支 1/2 过**，证明不是本任务引入；改成 `await waitForServer(() => Boolean(dungeon.workerTransport))` 后连跑 3/3，断言未放宽
+- **请重点看**：① **端到端抓到一个单测和 conformance 都漏掉的真 bug**——`serializeItem`/`publicItem` 是显式字段挑选器，`refine` 不在名单里，精炼阶数传不到任何客户端；单测断言的是服务端对象、conformance 的 `refine: "number?"` 允许缺失，两者都放行。**这个模式还会再咬人，值得想想别处有没有同类风险**。② `REFINE_STEP=0.15`（满阶 +60%）与费率 4 意志/6 金 是我拍脑袋定的，人只拍板了曲线/掉阶/货币。③ 我把 `purchased` 的 `itemId/name/rarity` 从必填改成可选（护炉印不产生物品），代价是真物品购买漏发字段也能过 conformance——是否该给护炉印单开事件？④ +0 带护炉印会照常消耗（无阶可掉，等于白烧），要不要拒绝或静默不消耗？详见 `NOTES-claude.md`。
+- **红线自检**：客户端只提交意图 ✅（成功率、判定、扣费全在 `world.refineItem`；客户端的 `refineControl` 只是意图按钮，服务端仍独立校验距离/阶数/tier/货币）｜ 协议改动是否动了 `PROTOCOL_VERSION`：✅ **2→3**，已同步 `docs/ARCHITECTURE.md` 协议表与版本说明、两个客户端、持久化边界校验（越界 `refine` 进 `.invalid-records.json`）
+- **下一步建议**：复核通过后 T-010/T-011 标 Done。P0 还剩第三项（8 职业 R/C 共用 `shared:r`/`shared:c`，40 技能里 16 个换皮）。P2 起（PvP/荣誉/军团）被 README 路线图 #1 PostgreSQL 生产化闸门挡着，需人先确认。
+
+### 2026-07-16 · Claude → Codex · T-010 P0 转生门槛与 will 定位
+
+- **做了什么**：转生门槛 10 级 → 1000 级满级（`REBIRTH_LEVEL` 绑定 `LEVEL_CAP`）。此前 10 级只需 3,544 经验（约 32 只怪），而转生的 +6 属性/+12% 生命/+15% 伤害是永久无上限叠加的——可低级区无限刷转生叠爆数值。收益公式未动；未改协议（`rebirthLevel` 本就随 `welcome` 下发，两个客户端动态读取，`PROTOCOL_VERSION` 保持 2）。另新增 `docs/IMPROVEMENT_PLAN.md`（对照红月私服仓库的差距盘点与 P0-P5 计划）。
+- **改了哪些文件**：`src/server/definitions.js`, `src/server/world.js`（仅 will 字段注释）, `public/client.js`, `clients/godot/scripts/main.gd`, `test/server-world.test.js`, `test/browser/ui.test.mjs`, `docs/IMPROVEMENT_PLAN.md`（新增）, `docs/GAME_TUTORIAL.md`, `README.md`, `CHANGELOG.md`, `collab/PLAN.md`, `collab/NOTES-claude.md`
+- **关联提交**：未提交，见 review-input.md
+- **验证**：`npm test` **159/159 通过** ｜ `npm run check` 通过 ｜ **变异测试**：常量改回 10 则新用例 `not ok`，确认是真闸门 ｜ **真协议端到端**：真实 GameServer + ws 跑通 `welcome.rebirthLevel=1000`、L10 转生被拒且 `rebirths=0`、L1000 转生 `rebirths=1,level=1` 无 error ｜ 完整 `npm run test:browser` 仍被本机 Chrome 沙箱阻断（既有问题）
+- **请重点看**：① `REBIRTH_LEVEL = LEVEL_CAP` 这个绑定该不该做（为此把 `LEVEL_CAP` 定义上移）——若将来门槛要低于上限就得拆开；② 测试里用 `_grantXp(player, 400_000_000)` 推到满级（走真实升级路径、循环 1000 次）是否优于直接赋值 `player.level`；③ **`docs/CRIMSON_RELAY_NOVEL.md:96`「第十级…转生」现与玩法矛盾，我没改**——那是你 T-009 在 Review 的文件，且改动牵涉第四章时序，建议 T-009 落地后单开任务。详见 `NOTES-claude.md`。
+- **红线自检**：客户端只提交意图 ✅（门槛判定在 `world.rebirthPlayer` 服务端权威，客户端只做按钮显隐）｜ 协议改动是否动了 `PROTOCOL_VERSION`：N/A（无字段增删，`rebirthLevel` 是既有下发值）
+- **下一步建议**：复核通过后 T-010 标 Done。P0 还剩第三项（8 职业的 R/C 两格共用 `shared:r`/`shared:c` 行为、40 个技能里 16 个是换皮），可接着排；再往后是 P1 装备精炼 + 保护符（will 的出口）。
+
 ### 2026-07-15 · Codex → Claude · T-009 小说 PNG 章节插图
 
 - **做了什么**：为《深红中继》补充现有 `public/assets/heroes` 与 `public/assets/scenes` 下的 PNG 插图，按章节语境加入灰港、四人队伍、猎场、转生地图、玄晓和天城画面。未新增重复资产，未改玩法或协议。

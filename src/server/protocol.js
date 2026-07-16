@@ -48,6 +48,8 @@ const SHOP_GOOD = {
   heal: "number?",
   goldPerLevel: "number?",
   healPerLevel: "number?",
+  // Present when the good credits a counter instead of yielding an item.
+  protection: "number?",
 };
 
 const SHOP = {
@@ -82,6 +84,8 @@ const ITEM_PUBLIC = {
   level: "number",
   name: "string",
   dropClass: "string?",
+  // Refine stage rides on the public record so onlookers see a pushed piece.
+  refine: "number?",
 };
 
 // Full item record: only the owner receives bonuses and formulas.
@@ -168,6 +172,7 @@ export const PLAYER_SELF = {
   autoEquip: "boolean",
   gold: "number",
   dew: "number",
+  protections: "number",
   friends: { $array: { name: "string", online: "boolean", id: "string|null" } },
   party: { $array: "string" },
   xp: "number",
@@ -286,6 +291,7 @@ export const PROTOCOL = Object.freeze({
     revive: {},
     rebirth: {},
     buy: { shop: "string", good: "string" },
+    refine: { item: "string", useProtection: "boolean?" },
     sell: { item: "string" },
     equip: { item: "string" },
     unequip: { slot: "string" },
@@ -398,6 +404,17 @@ export const PROTOCOL = Object.freeze({
       replaced: "string?",
     },
     partyInvited: { playerId: "string", from: "string", fromName: "string" },
+    itemRefined: {
+      playerId: "string",
+      itemId: "string",
+      name: "string",
+      success: "boolean",
+      stage: "number",
+      previousStage: "number",
+      warded: "boolean",
+      willSpent: "number",
+      goldSpent: "number",
+    },
     partyJoined: { playerId: "string", partyId: "string", name: "string" },
     partyLeft: { playerId: "string", name: "string" },
     playerDefeated: { playerId: "string", sourceId: "string", respawnDelay: "number", x: "number", y: "number" },
@@ -408,7 +425,9 @@ export const PROTOCOL = Object.freeze({
     playerRespawned: null,
     playerRevived: { playerId: "string", x: "number", y: "number" },
     potionUsed: null,
-    purchased: { playerId: "string", shopId: "string", good: "string", itemId: "string", name: "string", rarity: "string" },
+    // Item fields are absent when the good is a counter (ward sigils) rather
+    // than something that materialises in the inventory.
+    purchased: { playerId: "string", shopId: "string", good: "string", itemId: "string?", name: "string?", rarity: "string?", protections: "number?" },
     questCompleted: null,
     questProgress: null,
     skillUpgraded: null,
@@ -429,9 +448,11 @@ export const PROTOCOL = Object.freeze({
     "INVALID_SHOP", "INVALID_SKILL", "INVALID_SLOT", "INVALID_STAT",
     "INVALID_RECOVERY", "INVALID_TARGET", "INVALID_TOKEN", "INVENTORY_FULL", "ITEM_LEVEL_TOO_HIGH",
     "MESSAGE_TOO_LARGE", "NAME_IN_USE", "NAME_TAKEN", "NO_DEW", "NO_GOLD",
-    "NO_INVITE", "NO_PARTY", "NO_SKILL_POINTS", "NO_STAT_POINTS", "NOT_JOINED",
+    "NO_INVITE", "NO_PARTY", "NO_PROTECTION", "NO_SKILL_POINTS", "NO_STAT_POINTS",
+    "NOT_ENOUGH_WILL", "NOT_JOINED",
     "PARTY_FULL", "PLAYER_DEAD", "PROTOCOL_MISMATCH", "RATE_LIMITED",
-    "REBIRTH_LEVEL_TOO_LOW", "RESPAWN_PENDING", "SKILL_LOCKED",
+    "REBIRTH_LEVEL_TOO_LOW", "REFINE_MAX_STAGE", "REFINE_TIER_TOO_LOW",
+    "RESPAWN_PENDING", "SKILL_LOCKED",
     "SKILL_MAX_LEVEL", "TOO_FAR", "UNKNOWN_MESSAGE",
   ],
 });

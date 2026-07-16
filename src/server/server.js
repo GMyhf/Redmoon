@@ -26,6 +26,7 @@ import {
   PROTOCOL_VERSION,
   QUEST_CHAIN,
   REBIRTH_LEVEL,
+  REFINE_MAX_STAGE,
   REPUTATION_LIMIT,
   SNAPSHOT_RATE,
   SKILL_SLOTS,
@@ -1842,6 +1843,7 @@ function validateAccountRecord(accountKey, record) {
   optionalInteger(record, "will", 0, MAX_PERSISTED_COUNTER);
   optionalInteger(record, "gold", 0, MAX_PERSISTED_CURRENCY);
   optionalInteger(record, "dew", 0, MAX_PERSISTED_CURRENCY);
+  optionalInteger(record, "protections", 0, MAX_PERSISTED_CURRENCY);
   for (const field of ["autoFight", "autoLevel", "autoEquip"]) {
     if (record[field] !== undefined && typeof record[field] !== "boolean") {
       throw new TypeError(`${field} must be a boolean`);
@@ -1918,6 +1920,10 @@ function validateItem(item, location, itemIds) {
   }
   if (item.dropClass !== undefined && !["uniq", "sunset"].includes(item.dropClass)) {
     throw new TypeError(`${location}.dropClass must be uniq or sunset when present`);
+  }
+  if (item.refine !== undefined
+    && (!Number.isSafeInteger(item.refine) || item.refine < 0 || item.refine > REFINE_MAX_STAGE)) {
+    throw new TypeError(`${location}.refine must be an integer within 0..${REFINE_MAX_STAGE}`);
   }
   if (!Number.isSafeInteger(item.tier) || item.tier < 1 || item.tier > LEVEL_CAP
     || !Number.isSafeInteger(item.level ?? 1)

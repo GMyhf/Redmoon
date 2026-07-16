@@ -110,7 +110,11 @@ import {
   // Protocol version this client speaks; sent with join and compared with
   // the server's welcome. Keep in sync with PROTOCOL_VERSION in
   // src/server/definitions.js.
-  const CLIENT_PROTOCOL = 2;
+  const CLIENT_PROTOCOL = 3;
+  // Mirrors of src/server/definitions.js — presentation only. The server owns
+  // the roll, the cost and the outcome; these just render them.
+  const REFINE_MAX_STAGE = 4;
+  const REFINE_STEP = 0.15;
 
 
 
@@ -194,23 +198,37 @@ import {
     return RARITY_INFO[String(rarity || "common").toLowerCase()] || RARITY_INFO.common;
   }
 
+  // Refine stage is server-authoritative; the client only renders what the
+  // snapshot says. Absent field means stage 0.
+  function refineStage(item) {
+    const stage = Math.floor(finite(item?.refine, 0));
+    return stage > 0 ? Math.min(REFINE_MAX_STAGE, stage) : 0;
+  }
+
   function itemLabel(item) {
     const base = ITEM_NAMES[item.name] || String(item.name || "未知装备");
     const marker = item.dropClass === "uniq" ? "UNIQ·" : item.dropClass === "sunset" ? "SUNSET·" : "";
-    return `${marker}${rarityInfo(item.rarity).prefix}${base}`;
+    const stage = refineStage(item);
+    return `${marker}${rarityInfo(item.rarity).prefix}${base}${stage > 0 ? ` +${stage}` : ""}`;
   }
 
   function itemStatLines(item) {
     const parts = [];
     const bonuses = item.bonuses && typeof item.bonuses === "object" ? item.bonuses : {};
+    // Show what the piece actually contributes: the server scales every stored
+    // roll by the refine stage, so printing the raw roll would make a refined
+    // item look unchanged.
+    const stage = refineStage(item);
+    const scale = 1 + REFINE_STEP * stage;
     for (const [key, label] of Object.entries(STAT_LABELS)) {
       const value = finite(bonuses[key], 0);
-      if (value > 0) parts.push(`${label}+${value}`);
+      if (value > 0) parts.push(`${label}+${Math.round(value * scale)}`);
     }
-    if (finite(item.damageBonus, 0) > 0) parts.push(`伤害+${Math.round(item.damageBonus * 100)}%`);
-    if (finite(item.hpBonus, 0) > 0) parts.push(`生命+${item.hpBonus}`);
-    if (finite(item.speedBonus, 0) > 0) parts.push(`移速+${item.speedBonus}`);
-    if (finite(item.defenseBonus, 0) > 0) parts.push(`防御+${Math.round(item.defenseBonus * 100)}%`);
+    if (finite(item.damageBonus, 0) > 0) parts.push(`伤害+${Math.round(item.damageBonus * scale * 100)}%`);
+    if (finite(item.hpBonus, 0) > 0) parts.push(`生命+${Math.round(item.hpBonus * scale)}`);
+    if (finite(item.speedBonus, 0) > 0) parts.push(`移速+${Math.round(item.speedBonus * scale)}`);
+    if (finite(item.defenseBonus, 0) > 0) parts.push(`防御+${Math.round(item.defenseBonus * scale * 100)}%`);
+    if (stage > 0) parts.push(`精炼 +${stage}（数值 ×${scale.toFixed(2)}）`);
     if (item.attackFormula && typeof item.attackFormula === "object") {
       const formula = item.attackFormula;
       const statName = STAT_LABELS[formula.stat] || formula.stat;
@@ -225,6 +243,8 @@ import {
   }
 
   // Rough single-number power score so good and bad drops are easy to compare.
+  // Mirrors the server's itemPower, refine multiplier included — otherwise the
+  // ↑/↓ arrow would tell players to drop a +4 piece for a raw drop.
   function itemScore(item) {
     const bonuses = item.bonuses && typeof item.bonuses === "object" ? item.bonuses : {};
     let score = 0;
@@ -233,8 +253,44 @@ import {
     score += finite(item.hpBonus, 0);
     score += finite(item.speedBonus, 0);
     score += finite(item.defenseBonus, 0) * 600;
+    score *= 1 + REFINE_STEP * refineStage(item);
     if (item.attackFormula) score += 300;
     return Math.round(score);
+  }
+
+  // Mirrors refineCost in src/server/world.js — display only; the server
+  // charges the real thing.
+  function refineCost(item) {
+    const stage = refineStage(item);
+    const level = Math.max(1, Math.floor(finite(item.level, 1)));
+    return { will: level * (stage + 1) * 4, gold: level * (stage + 1) * 6 };
+  }
+
+  // The forge button, shown only while standing at the smith and only on gear
+  // the server would actually accept.
+  function refineControl(item, player) {
+    if (state.shopId !== "smith") return null;
+    if (Number.isFinite(finite(item.heal, NaN))) return null;
+    if (finite(item.tier, 1) < 3) return null;
+    const stage = refineStage(item);
+    const cost = refineCost(item);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.item = String(item.id);
+    if (stage >= REFINE_MAX_STAGE) {
+      button.textContent = "满";
+      button.title = "已达最高精炼阶数";
+      button.disabled = true;
+      return button;
+    }
+    const chance = [90, 70, 50, 30][stage];
+    const sigils = Math.floor(finite(player.protections, 0));
+    button.textContent = "炼";
+    button.dataset.action = "refine";
+    button.title = `精炼 +${stage} → +${stage + 1}｜成功率 ${chance}%｜消耗 ${cost.will} 意志 + ${cost.gold} 金`
+      + `\n失败${stage > 0 ? "掉 1 阶" : "不掉阶（已是 +0）"}`
+      + `\n按住 Shift 点击可消耗 1 张护炉印保底（持有 ${sigils}）`;
+    return button;
   }
 
   function itemTooltip(item, equipped) {
@@ -281,7 +337,7 @@ import {
     pulses: { q: false, e: false, r: false, c: false, f: false, primary: false },
     orders: { moveTo: undefined, target: undefined },
     dragMove: false,
-    rebirthLevel: 10,
+    rebirthLevel: 1000,
     inventoryLimit: 240,
     shopId: null,
     socialSignature: "",
@@ -820,8 +876,10 @@ import {
       ui.autoEquipButton.classList.toggle("is-off", !player.autoEquip);
     }
     if (ui.goldAmount) {
+      const sigils = Math.floor(finite(player.protections, 0));
       ui.goldAmount.textContent = `金币 ${Math.floor(finite(player.gold, 0))}`;
-      ui.dewAmount.textContent = `复苏露 ${Math.floor(finite(player.dew, 0))}`;
+      ui.dewAmount.textContent = `复苏露 ${Math.floor(finite(player.dew, 0))}`
+        + (sigils > 0 ? ` · 护炉印 ${sigils}` : "");
     }
     updateShop(player);
     updateSocial(player);
@@ -926,9 +984,16 @@ import {
     if (!ui.equipmentDoll || !ui.inventoryList) return;
     const equipment = player.equipment && typeof player.equipment === "object" ? player.equipment : {};
     const inventory = Array.isArray(player.inventory) ? player.inventory : [];
+    // Refining mutates an item in place without changing its id, so the stage
+    // has to be part of the signature or the panel would never redraw the new
+    // "+N" and stats.
     const signature = JSON.stringify([
-      DOLL_SLOTS.map((slot) => equipment[slot]?.id ?? null),
-      inventory.map((item) => item.id),
+      DOLL_SLOTS.map((slot) => equipment[slot] ? [equipment[slot].id, refineStage(equipment[slot])] : null),
+      inventory.map((item) => [item.id, refineStage(item)]),
+      // The smith's presence toggles the refine control. Affordability is left
+      // to the server: folding `will` in here would redraw the whole list on
+      // every kill.
+      state.shopId,
     ]);
     if (signature === state.gearSignature) return;
     state.gearSignature = signature;
@@ -1008,6 +1073,8 @@ import {
       sellButton.dataset.item = String(item.id);
       row.prepend(gearIcon(isPotion ? "potion" : item.slot));
       row.append(name, trend, mainButton, sellButton);
+      const refineButton = refineControl(item, player);
+      if (refineButton) row.append(refineButton);
       return row;
     }));
   }
@@ -1407,6 +1474,20 @@ import {
       pushEvent(`已装备 ${itemLabel(event)}`);
       return;
     }
+    if (eventName === "itemrefined") {
+      if (String(event.playerId) !== String(state.id)) return;
+      const name = ITEM_NAMES[event.name] || String(event.name || "装备");
+      if (event.success) {
+        pushEvent(`精炼成功 ${name} +${event.previousStage} → +${event.stage}`);
+      } else if (event.warded) {
+        pushEvent(`精炼失败 ${name}：护炉印挡下，保持 +${event.stage}`);
+      } else if (event.stage < event.previousStage) {
+        pushEvent(`精炼失败 ${name} +${event.previousStage} → +${event.stage}`);
+      } else {
+        pushEvent(`精炼失败 ${name}：仍为 +${event.stage}`);
+      }
+      return;
+    }
     if (eventName === "itemunequipped") {
       pushEvent(`已卸下 ${ITEM_NAMES[event.name] || event.name}`);
       return;
@@ -1447,6 +1528,10 @@ import {
       RESPAWN_NOT_READY: "信号尚未恢复",
       RESPAWN_PENDING: "信号尚未恢复",
       REBIRTH_LEVEL_TOO_LOW: "等级不足，无法转生",
+      REFINE_MAX_STAGE: "该装备已达最高精炼阶数",
+      REFINE_TIER_TOO_LOW: "只有稀有及以上的装备可以精炼",
+      NOT_ENOUGH_WILL: "意志不足",
+      NO_PROTECTION: "没有护炉印（可向黑市商人·影三购买）",
       PLAYER_DEAD: "阵亡状态下无法执行该操作",
       INVALID_ITEM: "背包中没有该装备",
       INVALID_SLOT: "无效的装备部位",
@@ -4256,7 +4341,13 @@ import {
   });
   ui.inventoryList?.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-item]");
-    if (!button) return;
+    if (!button || !button.dataset.action) return;
+    if (button.dataset.action === "refine") {
+      // Shift-click spends a ward sigil. Opt-in per attempt: a sigil is scarce
+      // (one revival dew) and stage 0 has nothing to insure.
+      send({ type: "refine", item: button.dataset.item, useProtection: event.shiftKey === true });
+      return;
+    }
     send({ type: button.dataset.action, item: button.dataset.item });
   });
   ui.equipmentDoll?.addEventListener("click", (event) => {

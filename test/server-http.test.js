@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { WebSocket } from "ws";
 
+import { PROTOCOL_VERSION } from "../src/server/definitions.js";
 import { createGameServer } from "../src/server/server.js";
 import { World } from "../src/server/world.js";
 
@@ -111,7 +112,7 @@ test("WebSocket emits welcome, accepts join, and reports protocol errors", async
   const messages = messageQueue(socket);
 
   const welcome = await messages.next("welcome");
-  assert.equal(welcome.protocol, 2);
+  assert.equal(welcome.protocol, PROTOCOL_VERSION);
   assert.equal(welcome.world.width, 4800);
   assert.deepEqual(
     Object.keys(welcome.archetypes).sort(),
@@ -122,7 +123,7 @@ test("WebSocket emits welcome, accepts join, and reports protocol errors", async
   assert.equal(welcome.archetypes.vanguard.skills.r.unlockLevel, 5);
   assert.equal(welcome.archetypes.vanguard.skills.c.unlockLevel, 10);
 
-  socket.send(JSON.stringify({ type: "join", protocol: 2, name: "Tester", archetype: "vanguard" }));
+  socket.send(JSON.stringify({ type: "join", protocol: PROTOCOL_VERSION, name: "Tester", archetype: "vanguard" }));
   const session = await messages.next("session");
   assert.equal(session.name, "Tester");
   assert.ok(typeof session.token === "string" && session.token.length > 0);
@@ -162,7 +163,7 @@ test("the gateway rejects out-of-order, unknown, binary, and oversized traffic",
   socket.send(JSON.stringify({ type: "input", seq: 1, move: { x: 1, y: 0 } }));
   assert.equal((await messages.next("error")).code, "NOT_JOINED");
 
-  socket.send(JSON.stringify({ type: "join", protocol: 2, name: "Probe", archetype: "vanguard" }));
+  socket.send(JSON.stringify({ type: "join", protocol: PROTOCOL_VERSION, name: "Probe", archetype: "vanguard" }));
   await messages.next("snapshot");
 
   // Unknown commands and double joins are refused.
@@ -171,7 +172,7 @@ test("the gateway rejects out-of-order, unknown, binary, and oversized traffic",
   server.world.players.values().next().value.skillPoints = 0;
   socket.send(JSON.stringify({ type: "upgradeskill", skill: "q" }));
   assert.equal((await messages.next("error")).code, "NO_SKILL_POINTS");
-  socket.send(JSON.stringify({ type: "join", protocol: 2, name: "Probe2", archetype: "vanguard" }));
+  socket.send(JSON.stringify({ type: "join", protocol: PROTOCOL_VERSION, name: "Probe2", archetype: "vanguard" }));
   assert.equal((await messages.next("error")).code, "ALREADY_JOINED");
 
   // Binary frames are refused.
@@ -206,7 +207,7 @@ test("leave returns to the lobby and lobby sockets receive the roster", async (t
   t.after(() => alice.terminate());
   const aliceMessages = messageQueue(alice);
   await aliceMessages.next("welcome");
-  alice.send(JSON.stringify({ type: "join", protocol: 2, name: "Alice", archetype: "vanguard" }));
+  alice.send(JSON.stringify({ type: "join", protocol: PROTOCOL_VERSION, name: "Alice", archetype: "vanguard" }));
   const session = await aliceMessages.next("session");
   await aliceMessages.next("snapshot");
 
@@ -227,7 +228,7 @@ test("leave returns to the lobby and lobby sockets receive the roster", async (t
   const afterLeave = await aliceMessages.next("roster");
   assert.equal(afterLeave.players.length, 0);
   assert.equal(server.world.players.size, 0);
-  alice.send(JSON.stringify({ type: "join", protocol: 2, name: "Alice", archetype: "vanguard", token: session.token }));
+  alice.send(JSON.stringify({ type: "join", protocol: PROTOCOL_VERSION, name: "Alice", archetype: "vanguard", token: session.token }));
   const rejoined = await aliceMessages.next("snapshot");
   assert.equal(rejoined.players[0].name, "Alice");
 });
@@ -317,7 +318,7 @@ test("a hidden browser pauses world traffic and receives a fresh snapshot when v
   const messages = messageQueue(socket);
   await messages.next("welcome");
   socket.send(JSON.stringify({
-    type: "join", protocol: 2, name: "Background", archetype: "vanguard",
+    type: "join", protocol: PROTOCOL_VERSION, name: "Background", archetype: "vanguard",
   }));
   await messages.next("session");
   const backgroundSnapshot = await messages.next("snapshot");
@@ -342,7 +343,7 @@ test("a hidden browser pauses world traffic and receives a fresh snapshot when v
   const hostMessages = messageQueue(hostSocket);
   await hostMessages.next("welcome");
   hostSocket.send(JSON.stringify({
-    type: "join", protocol: 2, name: "Inviter", archetype: "strider",
+    type: "join", protocol: PROTOCOL_VERSION, name: "Inviter", archetype: "strider",
   }));
   await hostMessages.next("session");
   await hostMessages.next("snapshot");
@@ -518,7 +519,7 @@ test("map chat never leaks outside its scope; global reaches everyone", async (t
     const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`);
     t.after(() => socket.terminate());
     const queue = messageQueue(socket);
-    socket.on("open", () => socket.send(JSON.stringify({ type: "join", protocol: 2, name, archetype: "vanguard" })));
+    socket.on("open", () => socket.send(JSON.stringify({ type: "join", protocol: PROTOCOL_VERSION, name, archetype: "vanguard" })));
     return { socket, queue };
   };
   const alice = open("Alice");
@@ -583,7 +584,7 @@ test("gateway durably returns recovery and rotated sessions", async (t) => {
 
   socket.send(JSON.stringify({
     type: "join",
-    protocol: 2,
+    protocol: PROTOCOL_VERSION,
     name: "Durable",
     archetype: "vanguard",
     nextToken: "a".repeat(43),
@@ -608,7 +609,7 @@ test("gateway durably returns recovery and rotated sessions", async (t) => {
   await messages.next("roster");
   socket.send(JSON.stringify({
     type: "recover",
-    protocol: 2,
+    protocol: PROTOCOL_VERSION,
     name: "Durable",
     code: recovery.code,
     nextToken: "c".repeat(43),
@@ -622,7 +623,7 @@ test("gateway durably returns recovery and rotated sessions", async (t) => {
   await messages.next("roster");
   socket.send(JSON.stringify({
     type: "join",
-    protocol: 2,
+    protocol: PROTOCOL_VERSION,
     name: "Durable",
     archetype: "vanguard",
     token: rotated.token,
@@ -657,7 +658,7 @@ test("gateway rolls back a credential mutation when durable storage fails", asyn
 
   socket.send(JSON.stringify({
     type: "join",
-    protocol: 2,
+    protocol: PROTOCOL_VERSION,
     name: "Rollback",
     archetype: "vanguard",
     nextToken: "d".repeat(43),

@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { INVENTORY_LIMIT, MAX_ITEM_SEQUENCE } from "../src/server/definitions.js";
+import { INVENTORY_LIMIT, LEVEL_CAP, MAX_ITEM_SEQUENCE, PROTOCOL_VERSION, REBIRTH_LEVEL, REFINE_MAX_STAGE } from "../src/server/definitions.js";
 import { hashSecret } from "../src/server/session.js";
-import { World, WorldError, xpRequiredForLevel } from "../src/server/world.js";
+import { World, WorldError, refineStage, xpRequiredForLevel } from "../src/server/world.js";
 
 function throwsCode(fn, code) {
   assert.throws(fn, (error) => error instanceof WorldError && error.code === code, `expected ${code}`);
@@ -219,8 +219,18 @@ test("rebirth requires the unlock level and grants permanent bonuses", () => {
     (error) => error instanceof WorldError && error.code === "REBIRTH_LEVEL_TOO_LOW",
   );
 
+  // Rebirth is gated at the level cap, not at an early level: a player who has
+  // only just cleared the low-level bands stays locked out, so the permanent
+  // bonuses cannot be farmed in a loop of cheap 10-level resets.
   world._grantXp(player, 10_000);
-  assert.ok(player.level >= 10);
+  assert.ok(player.level >= 10 && player.level < REBIRTH_LEVEL);
+  assert.throws(
+    () => world.handleCommand("player-1", { type: "rebirth" }),
+    (error) => error instanceof WorldError && error.code === "REBIRTH_LEVEL_TOO_LOW",
+  );
+
+  world._grantXp(player, 400_000_000);
+  assert.equal(player.level, LEVEL_CAP);
   const statPointsBefore = player.statPoints;
 
   world.handleCommand("player-1", { type: "rebirth" });
@@ -232,6 +242,158 @@ test("rebirth requires the unlock level and grants permanent bonuses", () => {
   assert.ok(player.maxHp > baselineMaxHp);
   assert.equal(player.hp, player.maxHp);
   assert.ok(world.drainEvents().some((event) => event.event === "playerReborn"));
+});
+
+// Refining: the roll, the cost and the outcome are all decided server-side.
+// `rng` is injected, so each rung of the 90/70/50/30 curve is exercised exactly.
+function refineWorld(rollValue) {
+  const world = new World({
+    rng: () => rollValue, spawnMobs: false, mobTargetCount: 0, safeZoneRadius: 0, autoLevel: false,
+  });
+  const player = world.addPlayer("player-1", { archetype: "vanguard" });
+  const smith = world.shops.find((shop) => shop.id === "smith");
+  player.x = smith.x;
+  player.y = smith.y;
+  player.will = 1_000_000;
+  player.gold = 1_000_000;
+  const item = {
+    id: "blade-1", slot: "weapon", rarity: "rare", tier: 3, level: 10,
+    name: "test-blade", bonuses: { power: 10, agility: 0, spirit: 0, vitality: 0 },
+  };
+  player.inventory.push(item);
+  return { world, player, item, smith };
+}
+
+test("refining walks the 90/70/50/30 curve and charges will and gold", () => {
+  // 0.5 succeeds against 0.9 and 0.7, fails against 0.5 and 0.3.
+  const { world, player, item } = refineWorld(0.5);
+  const willBefore = player.will;
+  const goldBefore = player.gold;
+
+  world.handleCommand("player-1", { type: "refine", item: "blade-1" });
+  assert.equal(item.refine, 1, "0.5 < 0.9 succeeds");
+  // level 10 * (stage 0 + 1) * 4 will, * 6 gold
+  assert.equal(willBefore - player.will, 40);
+  assert.equal(goldBefore - player.gold, 60);
+
+  world.handleCommand("player-1", { type: "refine", item: "blade-1" });
+  assert.equal(item.refine, 2, "0.5 < 0.7 succeeds");
+  // Cost scales with the stage already reached: 10 * 2 * 4 = 80.
+  assert.equal(willBefore - player.will, 40 + 80);
+
+  // 0.5 is not < 0.5: the 2 -> 3 attempt fails and knocks the stage back down.
+  world.handleCommand("player-1", { type: "refine", item: "blade-1" });
+  assert.equal(item.refine, 1, "failure drops one stage");
+  assert.equal(player.protections, 0, "no sigil was spent because none was asked for");
+});
+
+test("a ward sigil is spent to hold the stage on failure", () => {
+  const { world, player, item } = refineWorld(0.95); // fails against every rung
+  item.refine = 2;
+  player.protections = 1;
+
+  world.handleCommand("player-1", { type: "refine", item: "blade-1", useProtection: true });
+  assert.equal(item.refine, 2, "the sigil held the stage");
+  assert.equal(player.protections, 0, "and was consumed");
+
+  // Out of sigils: the next protected attempt is refused outright, and the
+  // unprotected retry drops the stage for real.
+  throwsCode(
+    () => world.handleCommand("player-1", { type: "refine", item: "blade-1", useProtection: true }),
+    "NO_PROTECTION",
+  );
+  world.handleCommand("player-1", { type: "refine", item: "blade-1" });
+  assert.equal(item.refine, 1);
+});
+
+test("a failed stage-0 refine cannot push the stage negative", () => {
+  const { world, player, item } = refineWorld(0.95);
+  world.handleCommand("player-1", { type: "refine", item: "blade-1" });
+  assert.equal(refineStage(item), 0, "stage 0 has nothing to lose");
+  assert.ok(player.gold < 1_000_000, "but the attempt still costs");
+});
+
+test("refining is gated on stage, tier, proximity, currency, and life", () => {
+  const { world, player, item, smith } = refineWorld(0.1);
+
+  throwsCode(() => world.refineItem("player-1", "ghost-item"), "INVALID_ITEM");
+
+  item.tier = 2;
+  throwsCode(() => world.refineItem("player-1", "blade-1"), "REFINE_TIER_TOO_LOW");
+  item.tier = 3;
+
+  item.refine = REFINE_MAX_STAGE;
+  throwsCode(() => world.refineItem("player-1", "blade-1"), "REFINE_MAX_STAGE");
+  item.refine = 0;
+
+  player.will = 0;
+  throwsCode(() => world.refineItem("player-1", "blade-1"), "NOT_ENOUGH_WILL");
+  player.will = 1_000_000;
+
+  player.gold = 0;
+  throwsCode(() => world.refineItem("player-1", "blade-1"), "NO_GOLD");
+  player.gold = 1_000_000;
+
+  player.x = smith.x + 900;
+  throwsCode(() => world.refineItem("player-1", "blade-1"), "TOO_FAR");
+  player.x = smith.x;
+
+  world._damagePlayer(player, 1_000_000, "test");
+  throwsCode(() => world.refineItem("player-1", "blade-1"), "PLAYER_DEAD");
+});
+
+test("refining scales worn gear and equips through the smith", () => {
+  const { world, player, item } = refineWorld(0.1); // always succeeds
+  player.level = 10; // the test blade is level 10
+  world.handleCommand("player-1", { type: "equip", item: "blade-1" });
+  const powerBefore = player.gearStats.power;
+  assert.equal(powerBefore, 10);
+
+  // Worn gear refines in place — no unequip dance.
+  world.handleCommand("player-1", { type: "refine", item: "blade-1" });
+  assert.equal(item.refine, 1);
+  assert.equal(player.gearStats.power, Math.round(10 * 1.15), "the bonus scales by REFINE_STEP");
+  assert.deepEqual(item.bonuses, { power: 10, agility: 0, spirit: 0, vitality: 0 }, "stored rolls are never mutated");
+});
+
+test("the refine stage reaches clients through the snapshot", () => {
+  const { world, player, item } = refineWorld(0.1);
+  player.level = 10;
+
+  // Both serializers are explicit field pickers: a new item field reaches no
+  // client until it is added to them, and the schema's `refine: number?` would
+  // not catch the omission.
+  const selfEntry = () => world.getSnapshot("player-1").players.find((entry) => entry.id === "player-1");
+  assert.equal(selfEntry().inventory[0].refine, undefined, "stage 0 stays absent");
+
+  world.handleCommand("player-1", { type: "refine", item: "blade-1" });
+  assert.equal(selfEntry().inventory[0].refine, 1, "the owner sees the stage in their bag");
+
+  // And onlookers see it on worn gear via the public record.
+  world.handleCommand("player-1", { type: "equip", item: "blade-1" });
+  const other = world.addPlayer("player-2", { name: "Onlooker", archetype: "strider" });
+  other.x = player.x;
+  other.y = player.y;
+  const seen = world.getSnapshot("player-2").players.find((entry) => entry.id === "player-1");
+  assert.equal(seen.equipment.weapon.refine, 1, "onlookers see a refined weapon");
+  assert.equal(refineStage(item), 1);
+});
+
+test("ward sigils are bought with dew and never consume an inventory slot", () => {
+  const { world, player } = refineWorld(0.5);
+  const market = world.shops.find((shop) => shop.id === "blackmarket");
+  player.x = market.x;
+  player.y = market.y;
+  player.dew = 2;
+  const inventoryBefore = player.inventory.length;
+
+  world.handleCommand("player-1", { type: "buy", shop: "blackmarket", good: "ward-sigil" });
+  assert.equal(player.protections, 1);
+  assert.equal(player.dew, 1);
+  assert.equal(player.inventory.length, inventoryBefore, "sigils are a counter, not an item");
+
+  player.dew = 0;
+  throwsCode(() => world.buyGood("player-1", "blackmarket", "ward-sigil"), "NO_DEW");
 });
 
 test("defeated enemies drop equipment that players pick up by walking over it", () => {
@@ -1052,7 +1214,7 @@ test("join rejects a mismatched declared protocol but accepts legacy joins", () 
     () => world.addPlayer("old-client", { name: "Stale", archetype: "vanguard", protocol: 1 }),
     (error) => error instanceof WorldError && error.code === "PROTOCOL_MISMATCH",
   );
-  const current = world.addPlayer("new-client", { name: "Fresh", archetype: "vanguard", protocol: 2 });
+  const current = world.addPlayer("new-client", { name: "Fresh", archetype: "vanguard", protocol: PROTOCOL_VERSION });
   assert.equal(current.name, "Fresh");
   // Joins that do not declare a protocol (scripted tools, older clients)
   // still work.
@@ -1767,7 +1929,7 @@ test("a valid official token is not blocked by a corrupt optional pending token"
   assert.equal(player.token, official);
   world.detachPlayer("p-1");
   assert.equal(world.resumeDetachedPlayer({
-    name: "Protected", token: official, nextToken: "broken", protocol: 2,
+    name: "Protected", token: official, nextToken: "broken", protocol: PROTOCOL_VERSION,
   }), player);
 });
 

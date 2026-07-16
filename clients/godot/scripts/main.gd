@@ -10,7 +10,7 @@ extends Node2D
 
 # Override with CRIMSON_SERVER=ws://host:port/ws (no code edit needed).
 var server_url := "ws://127.0.0.1:3000/ws"
-const CLIENT_PROTOCOL := 2
+const CLIENT_PROTOCOL := 3
 const SNAPSHOT_CODEC := "binary1"
 const INPUT_INTERVAL := 0.05          # 20 Hz, same as the browser client
 const LERP_RATE := 14.0               # snapshot smoothing, ~browser feel
@@ -98,7 +98,7 @@ var map_name := ""
 var map_theme := "town"
 var online_count := 0
 var archetype_meta := {}              # welcome archetypes (primary skill names)
-var rebirth_level := 10
+var rebirth_level := 1000
 
 # Entity stores: id -> { pos: Vector2 (smoothed), target: Vector2, data: Dictionary }
 var players := {}
@@ -305,6 +305,9 @@ func _decode_binary_snapshot(bytes: PackedByteArray) -> Dictionary:
 			if drop_class != "":
 				item["dropClass"] = drop_class
 			item["level"] = buffer.get_u16()
+			var refine := buffer.get_u8()
+			if refine > 0:
+				item["refine"] = refine
 			equipment[key] = item
 		player["equipment"] = equipment
 		player_list.append(player)
@@ -1991,7 +1994,9 @@ func _update_bag(data: Dictionary) -> void:
 	var inventory: Array = data.get("inventory", [])
 	var signature := ""
 	for item in inventory:
-		signature += str(item.get("id", "")) + ","
+		# Refining mutates an item in place without changing its id, so the
+		# stage belongs in the signature or the row would never redraw.
+		signature += str(item.get("id", "")) + "+" + str(int(item.get("refine", 0))) + ","
 	if signature == bag_signature:
 		return
 	bag_signature = signature
@@ -2004,7 +2009,11 @@ func _update_bag(data: Dictionary) -> void:
 		var row := HBoxContainer.new()
 		var label := Label.new()
 		var rarity := str(item.get("rarity", "common"))
-		label.text = "%s L%d" % [str(item.get("name", "?")), int(item.get("level", 1))]
+		var stage := int(item.get("refine", 0))
+		label.text = "%s L%d%s" % [
+			str(item.get("name", "?")), int(item.get("level", 1)),
+			(" +%d" % stage) if stage > 0 else "",
+		]
 		label.modulate = RARITY_COLORS.get(rarity, Color.WHITE)
 		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(label)
@@ -2019,6 +2028,14 @@ func _update_bag(data: Dictionary) -> void:
 		sell.text = "卖"
 		sell.pressed.connect(func() -> void: _send({"type": "sell", "item": item_id}))
 		row.add_child(sell)
+		# The server enforces proximity to the smith, tier and cost; this is
+		# just the intent button. Refusals come back as protocol errors.
+		if not is_potion and int(item.get("tier", 1)) >= 3 and stage < 4:
+			var refine := Button.new()
+			refine.text = "炼"
+			refine.tooltip_text = "精炼 +%d → +%d（需站在锻匠·坤铁旁）" % [stage, stage + 1]
+			refine.pressed.connect(func() -> void: _send({"type": "refine", "item": item_id}))
+			row.add_child(refine)
 		ui.bag_list.add_child(row)
 
 func _show_lobby(message: String) -> void:
