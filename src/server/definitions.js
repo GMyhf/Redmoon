@@ -69,6 +69,32 @@ export const EQUIP_KEYS = Object.freeze([
 
 export const RING_KEYS = Object.freeze(["ring1", "ring2", "ring3"]);
 
+// ---- Honour ----------------------------------------------------------
+// Standing earned by hunting what fights back, and a permission rather than a
+// currency: it is never spent, only met. Gates read it, nothing deducts it, so
+// it asks a player to have hunted — not to grind a second resource.
+//
+// Elites and bosses are the only source today. Open-world PvP (the next step)
+// is what will push it negative, which is also when the negative tiers below
+// start to mean anything.
+export const HONOR_LIMIT = 1000;
+export const HONOR_PER_ELITE = 1;
+export const HONOR_PER_BOSS = 5;
+
+// Thresholds double as display tiers, so a gate can always be explained to a
+// player in the same words the HUD uses.
+export const HONOR_TIERS = Object.freeze([
+  Object.freeze({ at: 800, label: "传颂" }),
+  Object.freeze({ at: 600, label: "威名" }),
+  Object.freeze({ at: 400, label: "信重" }),
+  Object.freeze({ at: 200, label: "闻名" }),
+  Object.freeze({ at: 0, label: "无名" }),
+]);
+
+// Refinement past +2 asks for standing. The first two rungs stay open to
+// everyone: a fresh drop should always be improvable.
+export const REFINE_HONOR_GATE = Object.freeze([0, 0, 200, 400]);
+
 // ---- Duels -----------------------------------------------------------
 // The first place a player's attack can land on another player. Consent is
 // explicit, the arena is its own map, and nothing is at stake: no experience,

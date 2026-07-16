@@ -42,6 +42,10 @@ import {
   SKILL_BEHAVIORS,
   MOB_TYPES,
   PORTAL_DESTINATIONS,
+  HONOR_LIMIT,
+  HONOR_PER_BOSS,
+  HONOR_PER_ELITE,
+  REFINE_HONOR_GATE,
   DUEL_ARENA,
   DUEL_DURATION,
   DUEL_INVITE_WINDOW,
@@ -83,7 +87,7 @@ const SHOP_RANGE = 130;
 // Fields copied between live players and their persisted account record.
 const ACCOUNT_FIELDS = Object.freeze([
   "archetype", "level", "xp", "xpToNext", "stats", "statPoints",
-  "skillLevels", "skillPoints", "rebirths", "reputation", "will",
+  "skillLevels", "skillPoints", "rebirths", "reputation", "will", "honor",
   "attunement", "gold", "dew", "protections", "friends", "inventory", "equipment", "quest",
   // Automation toggles survive relogin — a dev-server restart must not
   // silently flip them back on.
@@ -342,6 +346,10 @@ export class World {
       // toward it. Until then it has no gameplay effect.
       reputation: 0,
       will: 0,
+      // Honour is standing, not a build axis: it is deliberately a separate
+      // number from `reputation`, which Eclipse steers on purpose and whose
+      // sign flips that class's whole kit.
+      honor: 0,
       attunement: "radiant",
       soulBarrier: {
         active: archetype === "eclipse",
@@ -1480,6 +1488,16 @@ export class World {
     if (stage >= REFINE_MAX_STAGE) {
       throw new WorldError("REFINE_MAX_STAGE", "That item is already fully refined.");
     }
+    // Standing is a threshold, not a price: it is checked and never deducted,
+    // so pushing gear past +2 asks a player to have hunted rather than to
+    // grind a second currency.
+    const honorGate = REFINE_HONOR_GATE[stage] ?? 0;
+    if (player.honor < honorGate) {
+      throw new WorldError(
+        "NOT_ENOUGH_HONOR",
+        `Refining to +${stage + 1} requires ${honorGate} honour.`,
+      );
+    }
     const cost = refineCost(item);
     if (player.will < cost.will) throw new WorldError("NOT_ENOUGH_WILL", "Not enough will.");
     if (player.gold < cost.gold) throw new WorldError("NO_GOLD", "Not enough gold.");
@@ -1672,6 +1690,20 @@ export class World {
     const winner = duel.members.find((memberId) => memberId !== id) ?? null;
     this._endDuel(duel, { winner, loser: id, reason: "forfeit" });
     return player;
+  }
+
+  // Honour moves in one place so the next step (PvP pushing it negative) has
+  // a single seam to hook into.
+  _grantHonor(player, amount) {
+    const before = player.honor;
+    player.honor = clamp(before + amount, -HONOR_LIMIT, HONOR_LIMIT);
+    if (player.honor !== before) {
+      this._emit("honorChanged", {
+        playerId: player.id,
+        honor: player.honor,
+        delta: player.honor - before,
+      }, { players: [player.id] });
+    }
   }
 
   _duelOf(playerId) {
@@ -2745,6 +2777,9 @@ export class World {
     if (player && !dungeon && !workerDungeon) {
       this._grantXp(player, mob.xp);
       player.will += mob.level;
+      // Only what fights back grants standing; trash mobs do not.
+      const honor = mob.boss ? HONOR_PER_BOSS : mob.elite ? HONOR_PER_ELITE : 0;
+      if (honor > 0) this._grantHonor(player, honor);
       player.gold += Math.round(GOLD_PER_MOB_LEVEL * mob.level * (mob.boss ? 10 : mob.elite ? 2 : 1));
       if (mob.boss || this.rng() < DEW_DROP_CHANCE) player.dew += 1;
       this._advanceQuest(player, mob);
@@ -2973,6 +3008,7 @@ export class World {
       gold: player.gold,
       dew: player.dew,
       protections: player.protections,
+      honor: player.honor,
       friends: player.friends.map((name) => {
         const onlinePlayer = online.get(this._accountKey(name));
         return {

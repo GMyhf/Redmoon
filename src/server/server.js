@@ -25,6 +25,7 @@ import {
   MAX_ITEM_SEQUENCE,
   PROTOCOL_VERSION,
   QUEST_CHAIN,
+  HONOR_LIMIT,
   REBIRTH_LEVEL,
   REFINE_MAX_STAGE,
   REPUTATION_LIMIT,
@@ -1850,6 +1851,7 @@ function validateAccountRecord(accountKey, record) {
   optionalInteger(record, "skillPoints", 0, MAX_PERSISTED_POINTS);
   optionalInteger(record, "rebirths", 0, 0xffff);
   optionalInteger(record, "reputation", -REPUTATION_LIMIT, REPUTATION_LIMIT);
+  optionalInteger(record, "honor", -HONOR_LIMIT, HONOR_LIMIT);
   optionalInteger(record, "will", 0, MAX_PERSISTED_COUNTER);
   optionalInteger(record, "gold", 0, MAX_PERSISTED_CURRENCY);
   optionalInteger(record, "dew", 0, MAX_PERSISTED_CURRENCY);

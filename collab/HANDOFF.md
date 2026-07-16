@@ -21,6 +21,17 @@
 
 <!-- 新交接追加在这条分隔线下方、最上面 -->
 
+### 2026-07-17 · Claude → Codex · T-017 P2 第二步 · 荣誉（**原计划被推翻**）
+
+- **做了什么**：新增全局 `honor`（精英 +1 / Boss +5，上限 1000，持久化），首个用途是**门禁精炼的最后两阶**（+3 需 200、+4 需 400）。**荣誉是门槛不是货币：只检查，从不扣除。**
+- **请先审这个判断，再审代码**：计划原写「把 Eclipse 的 `reputation` 泛化 + PvP 驱动」，我认为有两处硬伤并推翻了它——① 决斗不给荣誉（同意的 PvP 可互喂）、野外 PvP 在第三步 → **照做会交付一个永不变动的死数字，正是我在 P0 批评 `will` 的那个形状**；② `reputation` 是 Eclipse 主动选择的构筑轴（符号翻转整套技能），不是社会声望，让 PvP 驱动它会和玩家自选的归属打架。人选了方案 A（独立字段 + PvE 来源 + 门禁消费方），依据是红月自身的字符串表：`Killing Red monsters generates positive karma!`、`Honor is insufficient to upgrade.`、`To create army you must be at level %u and honor %u`。**红月的荣誉不是 PvP 记分板，是权限系统。**
+- **改了哪些文件**：`src/server/definitions.js`, `src/server/world.js`, `src/server/protocol.js`, `src/server/server.js`, `public/client.js`, `clients/godot/scripts/main.gd`, `test/server-honor.test.js`（新增）, `test/server-world.test.js`, `docs/ARCHITECTURE.md`, `docs/GAME_TUTORIAL.md`, `docs/IMPROVEMENT_PLAN.md`, `CHANGELOG.md`, `collab/*`
+- **关联提交**：未提交，见 review-input.md
+- **验证**：`npm test` **189/189**（新增 5 条）｜ `npm run check` ｜ `npm run check:godot` ｜ **变异测试 ×3**（去门禁 / 改成扣除 / **让击杀驱动 `reputation`——即原计划的做法**，三条对应用例全挂）｜ **真协议端到端 4/4**，含快照字段挑选器那条（上次精炼就栽在这里）
+- **请重点看**：① **推翻原计划的判断本身对不对**；② **荣誉暂不公开给其他玩家**——红月的 10 档配色是给别人看的，但那要等野外 PvP 让它有社会意义，且公开需动 `PLAYER_BASE` + binary codec → 升协议。我把这个协议改动**推迟到第三步和战场字段一起升**，你可能认为现在就该公开；③ **门槛 200/400、精英 +1/Boss +5 都是我定的**，人只拍了方案 A——可能太松（等于没卡）也可能太紧；④ `HONOR_TIERS` 只定义正向档位，负向等第三步有来源再加（现在定义就是死配置）。
+- **红线自检**：客户端只提交意图 ✅（荣誉的授予与门禁判定全在服务端；客户端只镜像档位做展示，按钮禁用只是提示，服务端仍独立拒绝）｜ 协议改动是否动了 `PROTOCOL_VERSION`：N/A（自身快照新增 `honor`、新增 `honorChanged` 事件与 `NOT_ENOUGH_HONOR` 错误码，**无字段增删**，仍为 3）
+- **下一步建议**：P2 只剩**第三步 · 战斗区/战场**（野外 PvP 独立地图，有掉落有荣誉——荣誉的负向驱动、以及把荣誉公开给他人，都在那一步）。
+
 ### 2026-07-17 · Claude → Codex · T-016 P2 第一步 · 决斗场（**PvP 首次落地**）
 
 - **做了什么**：**全仓第一次让玩家能伤害到玩家**。双方同意 → 进独立竞技场 `duel:<id>` → 倒下即结算 → 满血回原处。**无经验、无金币、无掉落、无荣誉**，输一场只输这场。人已拍板 #1 闸门通过、P2 排期（Decision Log 2026-07-17），这是三步里的第一步，只验证「伤害能路由到玩家」这条链路。

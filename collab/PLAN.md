@@ -34,6 +34,8 @@
 
 | T-016 | **P2 第一步 · 决斗场**（`docs/IMPROVEMENT_PLAN.md` P2）：双方同意、隔离地图、无掉落、无经验、无荣誉。**只验证「伤害能路由到玩家」这条链路**——PvP 至今零存在（`src/`/`public/` 里 `pvp` 零命中），玩家投射物只检查怪物。荣誉泛化与野外战场是后续两步 | **Review** | Claude | 人已拍板 #1 闸门通过、P2 排期（见 Decision Log 2026-07-17）。隔离靠「只对该决斗 members 里的对手碰撞」；另加 `_boundsFor` 给竞技场造墙（否则四条移动路径全钳到 4800×2700 世界平面）。`npm test` 184/184 + 变异测试 ×4 + 两浏览器端到端。**我的第一版跨地图测试连挂三次变异都抓不住，已重写**，详见 NOTES。协议未破坏（仅新增指令/事件）|
 
+| T-017 | **P2 第二步 · 荣誉**（`docs/IMPROVEMENT_PLAN.md` P2）：新增全局 `honor`。**原计划「把 Eclipse 的 reputation 泛化 + PvP 驱动」被推翻**：① 决斗不给荣誉（同意的 PvP 可刷），野外 PvP 在第三步 → 照原计划做会交付一个永不变动的死数字，正是 P0 批评 `will` 的形状；② `reputation` 是 Eclipse **主动选择的构筑轴**（符号翻转整套技能），不是社会声望，让 PvP 驱动它会和玩家自选的归属打架 | **Review** | Claude | 人选 A。参照仓库实证：`Killing Red monsters generates positive karma!`（PvE 来源）、`Honor is insufficient to upgrade.`（门禁精炼）、`To create army you must be at level %u and honor %u`（门禁军团，P3 前置）。**荣誉是门槛不是货币**，不扣除。`npm test` 189/189 + 变异测试 ×3（含「让击杀驱动 reputation」= 原计划做法，立刻挂）+ 真协议端到端 4/4。门槛值 200/400 与 精英+1/Boss+5 是我定的；荣誉暂不公开给他人，协议改动推迟到第三步一起升 |
+
 <!-- 追加新任务时复制下面这行：
 | T-00X | <一句话任务> | Backlog | - | - |
 -->

@@ -2033,7 +2033,8 @@ func _update_bag(data: Dictionary) -> void:
 		if not is_potion and int(item.get("tier", 1)) >= 3 and stage < 4:
 			var refine := Button.new()
 			refine.text = "炼"
-			refine.tooltip_text = "精炼 +%d → +%d（需站在锻匠·坤铁旁）" % [stage, stage + 1]
+			var gate := [0, 0, 200, 400][stage]
+			refine.tooltip_text = "精炼 +%d → +%d（需站在锻匠·坤铁旁）%s" % [stage, stage + 1, ("｜需荣誉 %d" % gate) if gate > 0 else ""]
 			refine.pressed.connect(func() -> void: _send({"type": "refine", "item": item_id}))
 			row.add_child(refine)
 		ui.bag_list.add_child(row)

@@ -259,6 +259,8 @@ function refineWorld(rollValue) {
   player.y = smith.y;
   player.will = 1_000_000;
   player.gold = 1_000_000;
+  // Standing past +2 is a gate these cases are not about; the gate has its own.
+  player.honor = 1000;
   const item = {
     id: "blade-1", slot: "weapon", rarity: "rare", tier: 3, level: 10,
     name: "test-blade", bonuses: { power: 10, agility: 0, spirit: 0, vitality: 0 },

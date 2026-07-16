@@ -116,6 +116,15 @@ import {
   // the roll, the cost and the outcome; these just render them.
   const REFINE_MAX_STAGE = 4;
   const REFINE_STEP = 0.15;
+  // Mirrors src/server/definitions.js HONOR_TIERS / REFINE_HONOR_GATE.
+  const HONOR_TIERS = [
+    { at: 800, label: "传颂" },
+    { at: 600, label: "威名" },
+    { at: 400, label: "信重" },
+    { at: 200, label: "闻名" },
+    { at: 0, label: "无名" },
+  ];
+  const REFINE_HONOR_GATE = [0, 0, 200, 400];
   const DUEL_REASONS = {
     defeat: "对手倒下",
     forfeit: "认输",
@@ -292,11 +301,20 @@ import {
     }
     const chance = [90, 70, 50, 30][stage];
     const sigils = Math.floor(finite(player.protections, 0));
+    const honor = Math.floor(finite(player.honor, 0));
+    const gate = REFINE_HONOR_GATE[stage] ?? 0;
     button.textContent = "炼";
     button.dataset.action = "refine";
+    // The gate belongs in the tooltip: the server refuses on standing, and a
+    // player should never meet that refusal for the first time as an error.
     button.title = `精炼 +${stage} → +${stage + 1}｜成功率 ${chance}%｜消耗 ${cost.will} 意志 + ${cost.gold} 金`
+      + (gate > 0 ? `｜需荣誉 ${gate}（当前 ${honor}）` : "")
       + `\n失败${stage > 0 ? "掉 1 阶" : "不掉阶（已是 +0）"}`
       + `\n按住 Shift 点击可消耗 1 张护炉印保底（持有 ${sigils}）`;
+    if (gate > 0 && honor < gate) {
+      button.disabled = true;
+      button.title += `\n荣誉不足：击杀精英与 Boss 可积累`;
+    }
     return button;
   }
 
@@ -884,6 +902,9 @@ import {
       ui.goldAmount.textContent = `金币 ${Math.floor(finite(player.gold, 0))}`;
       ui.dewAmount.textContent = `复苏露 ${Math.floor(finite(player.dew, 0))}`
         + (sigils > 0 ? ` · 护炉印 ${sigils}` : "");
+      const honor = Math.floor(finite(player.honor, 0));
+      const tier = HONOR_TIERS.find((entry) => honor >= entry.at) ?? HONOR_TIERS[HONOR_TIERS.length - 1];
+      ui.goldAmount.textContent += ` · 荣誉 ${honor}（${tier.label}）`;
     }
     updateShop(player);
     updateSocial(player);
@@ -1004,6 +1025,10 @@ import {
       // to the server: folding `will` in here would redraw the whole list on
       // every kill.
       state.shopId,
+      // Standing gates the last two rungs, so the control's enabled state has
+      // to track it — but only as "how many gates are met", which changes twice
+      // in a player's life rather than on every elite kill.
+      REFINE_HONOR_GATE.filter((gate) => finite(player.honor, 0) >= gate).length,
     ]);
     if (signature === state.gearSignature) return;
     state.gearSignature = signature;
@@ -1534,6 +1559,12 @@ import {
       sfx(440, 0.14, "sawtooth", 0.05);
       return;
     }
+    if (eventName === "honorchanged") {
+      if (String(event.playerId) !== String(state.id)) return;
+      const delta = finite(event.delta, 0);
+      if (delta > 0) pushEvent(`荣誉 +${delta} // 共 ${finite(event.honor, 0)}`);
+      return;
+    }
     if (eventName === "dueldeclined") {
       pushEvent(`${event.fromName} 回绝了决斗`);
       return;
@@ -1632,6 +1663,7 @@ import {
       REFINE_MAX_STAGE: "该装备已达最高精炼阶数",
       REFINE_TIER_TOO_LOW: "只有稀有及以上的装备可以精炼",
       NOT_ENOUGH_WILL: "意志不足",
+      NOT_ENOUGH_HONOR: "荣誉不足（击杀精英与 Boss 可积累）",
       NO_PROTECTION: "没有护炉印（可向黑市商人·影三购买）",
       PLAYER_DEAD: "阵亡状态下无法执行该操作",
       INVALID_ITEM: "背包中没有该装备",
