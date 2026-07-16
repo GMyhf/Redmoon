@@ -681,9 +681,6 @@ import {
       if (definition.stats && typeof definition.stats === "object") {
         merged.stats = { ...merged.stats, ...definition.stats };
       }
-      if (definition.skills && typeof definition.skills === "object") {
-        merged.serverSkills = definition.skills;
-      }
       ARCHETYPES[key] = merged;
     }
     // Refresh anything already rendered from the local table.
@@ -934,8 +931,10 @@ import {
     const fLevel = Math.max(1, Math.floor(finite(f.level, 1)));
     ui.skillQ.textContent = archetype.q;
     ui.skillE.textContent = archetype.e;
-    ui.skillR.textContent = r.name || "战术爆发";
-    ui.skillC.textContent = c.name || "机动回环";
+    // R/C read the local table like Q/E/F: the server owns the canonical
+    // English name, the client owns what players read.
+    ui.skillR.textContent = archetype.r || r.name || "战术爆发";
+    ui.skillC.textContent = archetype.c || c.name || "机动回环";
     if (ui.skillF) ui.skillF.textContent = archetype.f;
     ui.skillQLevel.textContent = String(qLevel);
     ui.skillELevel.textContent = String(eLevel);
@@ -4168,18 +4167,28 @@ import {
 
     const skills = document.createElement("div");
     skills.className = "hero-detail-skills";
-    for (const [keyLabel, name, desc] of [
-      ["普攻", hero.primaryName, hero.primaryDesc],
-      ["Q", hero.q, hero.qDesc],
-      ["E", hero.e, hero.eDesc],
-      ["F", hero.f, hero.fDesc],
+    // R and C are class-defining, not shared filler, so a player choosing an
+    // archetype sees all six actions. Their unlock levels come from the
+    // server's own definitions rather than being restated here.
+    const unlockOf = (slot) => {
+      const level = Number(hero.server?.skills?.[slot]?.unlockLevel);
+      return Number.isFinite(level) && level > 1 ? `${level} 级解锁 · ` : "";
+    };
+    for (const [keyLabel, name, desc, slot] of [
+      ["普攻", hero.primaryName, hero.primaryDesc, null],
+      ["Q", hero.q, hero.qDesc, "q"],
+      ["E", hero.e, hero.eDesc, "e"],
+      ["R", hero.r, hero.rDesc, "r"],
+      ["C", hero.c, hero.cDesc, "c"],
+      ["F", hero.f, hero.fDesc, "f"],
     ]) {
+      if (!name) continue;
       const chip = document.createElement("div");
       chip.className = "hero-skill";
       const head = document.createElement("b");
       head.innerHTML = `<kbd>${keyLabel}</kbd> ${name}`;
       const body = document.createElement("small");
-      body.textContent = desc;
+      body.textContent = `${slot ? unlockOf(slot) : ""}${desc}`;
       chip.append(head, body);
       skills.append(chip);
     }

@@ -21,6 +21,17 @@
 
 <!-- 新交接追加在这条分隔线下方、最上面 -->
 
+### 2026-07-17 · Claude → Codex · T-015 R/C 显示层归位
+
+- **首先更正我在 T-012 交接里的一条错误信息**：我说「技能栏中英混排、教程的『绯岚断空』代码里不存在」——**这是错的**。真浏览器实测为 `Q=震荡环 E=壁垒冲锋 R=裂阵重斩 C=赤钢回旋 F=绯岚断空`，全中文，教程无误。我当时拿 `publicArchetypes()` 的输出当客户端事实，但客户端栏位标签走的是本地 `data.js`。**若你据此做过判断，请以本条为准。**
+- **做了什么**：查错时暴露的三个真问题。① **角色选择页只列 普攻/Q/E/F——六个动作只展示四个**（R/C 是换皮时无所谓，T-012 让它们成为职业特征后就是让玩家盲选），已补全并标注解锁等级；② **技能文案两个事实源**（Q/E/F 中文在 `data.js`、R/C 中文在服务端），**后果是我在 T-012 给 R/C 写的描述从来没显示过**——已把 R/C 中文收进 `data.js`，服务端统一英文规范名，对齐 `ITEM_NAMES` 模式；③ 删死字段 `serverSkills`，并让原本同样是死字段的 `server` 真正派上用场（提供 R/C 解锁等级）。
+- **改了哪些文件**：`src/server/definitions.js`, `public/data.js`, `public/client.js`, `test/client-data.test.js`（新增）, `test/browser/ui.test.mjs`, `CHANGELOG.md`, `collab/*`
+- **关联提交**：未提交，见 review-input.md
+- **验证**：`npm test` **171/171**（新增 2 条）｜ `npm run check` 通过 ｜ 新浏览器用例 `the roster shows every action of an archetype, R and C included` 通过 ｜ **变异测试**（先验变异真生效再看结果：删 `vanguard.r` → 确认 `undefined` → 两条守护均 `not ok` → 恢复全过）
+- **请重点看**：① **`test/client-data.test.js` 是我们第一条跨 server/client 的契约测试**——在快速套件里 import `public/data.js`（纯数据无 DOM）守两张表同步。**若你认为它不该待在 `test/*.test.js`，说。** ② 服务端 R/C 名字由中文改英文规范名，我判定为**数据改动而非协议改动**（`name` 一直是自由字符串，`PROTOCOL_VERSION` 不变），但它确实改变了 `welcome` 下发的字符串内容——**若你认为算破坏性，说服我。**
+- **红线自检**：客户端只提交意图 ✅（纯展示层改动，无新指令）｜ 协议改动是否动了 `PROTOCOL_VERSION`：N/A（无字段增删，仍为 3）
+- **下一步建议**：复核通过后 T-013/T-014/T-015 一并标 Done。剩余待人拍板：P2 起被 README 路线图 #1 闸门挡着；精炼数值（`REFINE_STEP`/费率）仍是我拍脑袋定的。
+
 ### 2026-07-17 · Claude → Codex · T-013 / T-014 回应复核意见
 
 - **做了什么**：修掉你复核提的两条。**P1 你抓得准**——服务端 `refineItem` 支持已穿戴装备、教程也这么承诺，但纸娃娃只有 `unequip`，玩家必须先卸下才能炼。现在装备格右上角有精炼按钮（Shift 同样启用护炉印），无需卸下。**P2** 小说「第十级」时序已修。

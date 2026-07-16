@@ -395,6 +395,30 @@ test("equipping from the bag fills the paper-doll slot", async (t) => {
 // Worn gear refines in place server-side and the tutorial says so, but the
 // paper doll shipped with no entry point, forcing an unequip first. This
 // drives the real doll button through the real protocol.
+// R and C stopped being shared filler, so the roster has to show all six
+// actions rather than the four it listed while they were reskins.
+test("the roster shows every action of an archetype, R and C included", async (t) => {
+  const { url } = await startServer(t);
+  const page = await newPage(t, browser);
+  await page.goto(url);
+
+  await page.waitForSelector(".hero-detail-skills .hero-skill");
+  const chips = await page.$eval(".hero-detail-skills", (panel) =>
+    [...panel.querySelectorAll(".hero-skill")].map((chip) => chip.textContent));
+
+  assert.equal(chips.length, 6, "primary plus Q/E/R/C/F");
+  const joined = chips.join(" | ");
+  for (const key of ["普攻", "Q", "E", "R", "C", "F"]) {
+    assert.ok(joined.includes(key), `${key} is missing from the roster detail`);
+  }
+  // Vanguard is the default selection; its R/C copy comes from the client
+  // table, and the unlock levels from the server's own definitions.
+  assert.match(joined, /裂阵重斩/, "R shows its localised name");
+  assert.match(joined, /赤钢回旋/, "C shows its localised name");
+  assert.match(joined, /5 级解锁/, "R states the level it unlocks at");
+  assert.match(joined, /10 级解锁/, "C states the level it unlocks at");
+});
+
 test("refining worn gear at the smith needs no unequip", async (t) => {
   // 0.5 clears the 0 -> 1 rung's 90%: without a fixed roll this test would
   // fail one run in ten.

@@ -323,36 +323,36 @@ export const BASE_STATS = Object.freeze({
 // invests in (see ALLOC_WEIGHTS). Behaviors live in SKILL_BEHAVIORS below.
 const EXTRA_SKILLS = Object.freeze({
   vanguard: Object.freeze({
-    r: Object.freeze({ name: "裂阵重斩", description: "Step into the line and break it open with a wide cleave." }),
-    c: Object.freeze({ name: "赤钢回旋", description: "Spin crimson steel into a tight ring of shrapnel." }),
+    r: Object.freeze({ name: "Line Cleaver", description: "Step into the line and break it open with a wide cleave." }),
+    c: Object.freeze({ name: "Crimson Spin", description: "Spin crimson steel into a tight ring of shrapnel." }),
   }),
   channeler: Object.freeze({
-    r: Object.freeze({ name: "星核坠落", description: "Drop a slow, heavy star core that punches through a line." }),
-    c: Object.freeze({ name: "潮汐跃迁", description: "Blink with the tide and leave a wave ring behind." }),
+    r: Object.freeze({ name: "Starfall Core", description: "Drop a slow, heavy star core that punches through a line." }),
+    c: Object.freeze({ name: "Tidal Blink", description: "Blink with the tide and leave a wave ring behind." }),
   }),
   strider: Object.freeze({
-    r: Object.freeze({ name: "追风连星", description: "Chain wind-fast darts along a narrow lane." }),
-    c: Object.freeze({ name: "残影回刃", description: "Slip back behind an afterimage as the blades fan out." }),
+    r: Object.freeze({ name: "Windchase Volley", description: "Chain wind-fast darts along a narrow lane." }),
+    c: Object.freeze({ name: "Afterimage Edge", description: "Slip back behind an afterimage as the blades fan out." }),
   }),
   bulwark: Object.freeze({
-    r: Object.freeze({ name: "震岳壁击", description: "Slam the wall forward; short reach, mountain weight." }),
-    c: Object.freeze({ name: "守望铁环", description: "Hold the ground and throw a wide iron ring — no retreat." }),
+    r: Object.freeze({ name: "Mountain Slam", description: "Slam the wall forward; short reach, mountain weight." }),
+    c: Object.freeze({ name: "Iron Vigil", description: "Hold the ground and throw a wide iron ring — no retreat." }),
   }),
   longshot: Object.freeze({
-    r: Object.freeze({ name: "猎隼标记", description: "Mark the target and drive one shot through the column." }),
-    c: Object.freeze({ name: "折光箭雨", description: "Give ground and scatter refracted arrows all around." }),
+    r: Object.freeze({ name: "Falcon Mark", description: "Mark the target and drive one shot through the column." }),
+    c: Object.freeze({ name: "Refracted Rain", description: "Give ground and scatter refracted arrows all around." }),
   }),
   pyre: Object.freeze({
-    r: Object.freeze({ name: "灼地火柱", description: "Raise a slow pillar of fire on scorched ground." }),
-    c: Object.freeze({ name: "焰影穿行", description: "Pass through as flame and leave the burn behind." }),
+    r: Object.freeze({ name: "Scorch Pillar", description: "Raise a slow pillar of fire on scorched ground." }),
+    c: Object.freeze({ name: "Flamewalk", description: "Pass through as flame and leave the burn behind." }),
   }),
   eclipse: Object.freeze({
-    r: Object.freeze({ name: "暮光裁决", description: "Pass twilight judgement through everything in the lane." }),
-    c: Object.freeze({ name: "双魂轮转", description: "Step aside and turn twin souls in two staggered rings." }),
+    r: Object.freeze({ name: "Twilight Verdict", description: "Pass twilight judgement through everything in the lane." }),
+    c: Object.freeze({ name: "Twin Soul Turn", description: "Step aside and turn twin souls in two staggered rings." }),
   }),
   moonblade: Object.freeze({
-    r: Object.freeze({ name: "银月交叉", description: "Cross two silver arcs through everything at close range." }),
-    c: Object.freeze({ name: "镜花回舞", description: "Dance out and scatter mirrored petals in a dense ring." }),
+    r: Object.freeze({ name: "Silver Cross", description: "Cross two silver arcs through everything at close range." }),
+    c: Object.freeze({ name: "Mirrorbloom Dance", description: "Dance out and scatter mirrored petals in a dense ring." }),
   }),
 });
 
@@ -377,76 +377,76 @@ export const SKILL_BEHAVIORS = Object.freeze({
     { act: "dash", distance: [90, 8] },
     { act: "burst", count: [8, 0], damage: [12, 5, ["agility"], 1.2], speed: 500, range: [170, 9], radius: 8 },
   ],
-  // 裂阵重斩 — walk into the line, wide power cleave at short reach.
+  // Line Cleaver（裂阵重斩）— walk into the line, wide power cleave at short reach.
   "vanguard:r": [
     { act: "dash", distance: [44, 4] },
     { act: "fan", angles: [-0.34, -0.17, 0, 0.17, 0.34], damage: [22, 8, ["power"], 1.6], speed: 600, range: [300, 10], radius: 13 },
   ],
-  // 赤钢回旋 — a short step and a tight ring; the durable class does not flee.
+  // Crimson Spin（赤钢回旋）— a short step and a tight ring; the durable class does not flee.
   "vanguard:c": [
     { act: "dash", distance: [58, 5] },
     { act: "burst", count: [10, 1], damage: [16, 6, ["power"], 1.5], speed: 460, range: [190, 10], radius: 12 },
   ],
-  // 星核坠落 — one slow heavy core that keeps going through a line.
+  // Starfall Core（星核坠落）— one slow heavy core that keeps going through a line.
   "channeler:r": [
     { act: "fan", angles: [0], damage: [34, 11, ["spirit"], 2.1], speed: 420, range: [560, 10], radius: 20, pierce: [3, 1] },
   ],
-  // 潮汐跃迁 — the long blink of the roster's ranged caster.
+  // Tidal Blink（潮汐跃迁）— the long blink of the roster's ranged caster.
   "channeler:c": [
     { act: "dash", distance: [124, 10] },
     { act: "burst", count: [10, 1], damage: [14, 5, ["spirit"], 1.3], speed: 520, range: [220, 12], radius: 9 },
   ],
-  // 追风连星 — narrow, fastest projectiles in the game, piercing.
+  // Windchase Volley（追风连星）— narrow, fastest projectiles in the game, piercing.
   "strider:r": [
     { act: "fan", angles: [-0.08, 0, 0.08], damage: [20, 7, ["agility"], 1.5], speed: 900, range: [600, 0], radius: 6, pierce: [2, 1] },
   ],
-  // 残影回刃 — disengage backwards, blades cover the retreat.
+  // Afterimage Edge（残影回刃）— disengage backwards, blades cover the retreat.
   "strider:c": [
     { act: "dash", distance: [140, 12], back: true },
     { act: "burst", count: [9, 1], damage: [15, 5, ["agility"], 1.35], speed: 560, range: [200, 10], radius: 8 },
   ],
-  // 震岳壁击 — shortest reach, heaviest single arc.
+  // Mountain Slam（震岳壁击）— shortest reach, heaviest single arc.
   "bulwark:r": [
     { act: "fan", angles: [-0.4, -0.2, 0, 0.2, 0.4], damage: [24, 9, ["power"], 1.7], speed: 400, range: [200, 10], radius: 16 },
   ],
-  // 守望铁环 — the one C with no dash at all: the tank trades the escape for
+  // Iron Vigil（守望铁环）— the one C with no dash at all: the tank trades the escape for
   // the widest, densest ring on the roster. Holding ground is the fantasy.
   "bulwark:c": [
     { act: "burst", count: [14, 1], damage: [15, 6, ["power"], 1.4], speed: 420, range: [175, 11], radius: 12 },
   ],
-  // 猎隼标记 — the sniper's R: one shot, longest reach, deepest pierce.
+  // Falcon Mark（猎隼标记）— the sniper's R: one shot, longest reach, deepest pierce.
   "longshot:r": [
     { act: "fan", angles: [0], damage: [32, 11, ["agility"], 1.9], speed: 1150, range: [950, 0], radius: 6, pierce: [5, 1] },
   ],
-  // 折光箭雨 — give ground, then rain arrows in every direction.
+  // Refracted Rain（折光箭雨）— give ground, then rain arrows in every direction.
   "longshot:c": [
     { act: "dash", distance: [130, 11], back: true },
     { act: "burst", count: [12, 1], damage: [13, 5, ["agility"], 1.2], speed: 600, range: [260, 14], radius: 7 },
   ],
-  // 灼地火柱 — slowest projectile, largest radius; a pillar, not a bolt.
+  // Scorch Pillar（灼地火柱）— slowest projectile, largest radius; a pillar, not a bolt.
   "pyre:r": [
     { act: "fan", angles: [0], damage: [30, 10, ["spirit"], 1.9], speed: 360, range: [400, 12], radius: 22 },
   ],
-  // 焰影穿行 — dash through and leave the burn where you were.
+  // Flamewalk（焰影穿行）— dash through and leave the burn where you were.
   "pyre:c": [
     { act: "dash", distance: [150, 12] },
     { act: "burst", count: [12, 1], damage: [14, 5, ["spirit"], 1.3], speed: 400, range: [180, 10], radius: 10 },
   ],
-  // 暮光裁决 — r/c do not branch on reputation; only q/e/f do.
+  // Twilight Verdict（暮光裁决）— r/c do not branch on reputation; only q/e/f do.
   "eclipse:r": [
     { act: "fan", angles: [-0.2, 0, 0.2], damage: [24, 8, ["spirit"], 1.7], speed: 680, range: [520, 0], radius: 9, pierce: [2, 1] },
   ],
-  // 双魂轮转 — two staggered rings, one per soul.
+  // Twin Soul Turn（双魂轮转）— two staggered rings, one per soul.
   "eclipse:c": [
     { act: "dash", distance: [110, 9] },
     { act: "burst", count: [8, 1], damage: [13, 5, ["spirit"], 1.2], speed: 520, range: [210, 11], radius: 9 },
     { act: "burst", count: [6, 0], damage: [10, 4, ["spirit"], 0.9], speed: 660, range: [150, 8], radius: 7 },
   ],
-  // 银月交叉 — two crossing arcs, closest range, agility.
+  // Silver Cross（银月交叉）— two crossing arcs, closest range, agility.
   "moonblade:r": [
     { act: "fan", angles: [-0.5, 0.5], damage: [26, 9, ["agility"], 1.8], speed: 700, range: [260, 8], radius: 12 },
   ],
-  // 镜花回舞 — the densest close ring, matching the fastest attacker.
+  // Mirrorbloom Dance（镜花回舞）— the densest close ring, matching the fastest attacker.
   "moonblade:c": [
     { act: "dash", distance: [150, 13] },
     { act: "burst", count: [12, 1], damage: [13, 5, ["agility"], 1.3], speed: 560, range: [170, 9], radius: 8 },
