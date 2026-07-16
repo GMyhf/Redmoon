@@ -317,11 +317,43 @@ export const BASE_STATS = Object.freeze({
   eclipse: Object.freeze({ power: 3, agility: 4, spirit: 7, vitality: 4 }),
 });
 
-const EXTRA_SKILL_NAMES = Object.freeze({
-  vanguard: ["裂阵重斩", "赤钢回旋"], channeler: ["星核坠落", "潮汐跃迁"],
-  strider: ["追风连星", "残影回刃"], bulwark: ["震岳壁击", "守望铁环"],
-  longshot: ["猎隼标记", "折光箭雨"], pyre: ["灼地火柱", "焰影穿行"],
-  eclipse: ["暮光裁决", "双魂轮转"], moonblade: ["银月交叉", "镜花回舞"],
+// R and C keep their roles across the roster — R is the heavy committed
+// strike, C repositions and releases a ring — but each archetype expresses
+// them in its own shape and, crucially, scales them off the stat it actually
+// invests in (see ALLOC_WEIGHTS). Behaviors live in SKILL_BEHAVIORS below.
+const EXTRA_SKILLS = Object.freeze({
+  vanguard: Object.freeze({
+    r: Object.freeze({ name: "裂阵重斩", description: "Step into the line and break it open with a wide cleave." }),
+    c: Object.freeze({ name: "赤钢回旋", description: "Spin crimson steel into a tight ring of shrapnel." }),
+  }),
+  channeler: Object.freeze({
+    r: Object.freeze({ name: "星核坠落", description: "Drop a slow, heavy star core that punches through a line." }),
+    c: Object.freeze({ name: "潮汐跃迁", description: "Blink with the tide and leave a wave ring behind." }),
+  }),
+  strider: Object.freeze({
+    r: Object.freeze({ name: "追风连星", description: "Chain wind-fast darts along a narrow lane." }),
+    c: Object.freeze({ name: "残影回刃", description: "Slip back behind an afterimage as the blades fan out." }),
+  }),
+  bulwark: Object.freeze({
+    r: Object.freeze({ name: "震岳壁击", description: "Slam the wall forward; short reach, mountain weight." }),
+    c: Object.freeze({ name: "守望铁环", description: "Hold the ground and throw a wide iron ring — no retreat." }),
+  }),
+  longshot: Object.freeze({
+    r: Object.freeze({ name: "猎隼标记", description: "Mark the target and drive one shot through the column." }),
+    c: Object.freeze({ name: "折光箭雨", description: "Give ground and scatter refracted arrows all around." }),
+  }),
+  pyre: Object.freeze({
+    r: Object.freeze({ name: "灼地火柱", description: "Raise a slow pillar of fire on scorched ground." }),
+    c: Object.freeze({ name: "焰影穿行", description: "Pass through as flame and leave the burn behind." }),
+  }),
+  eclipse: Object.freeze({
+    r: Object.freeze({ name: "暮光裁决", description: "Pass twilight judgement through everything in the lane." }),
+    c: Object.freeze({ name: "双魂轮转", description: "Step aside and turn twin souls in two staggered rings." }),
+  }),
+  moonblade: Object.freeze({
+    r: Object.freeze({ name: "银月交叉", description: "Cross two silver arcs through everything at close range." }),
+    c: Object.freeze({ name: "镜花回舞", description: "Dance out and scatter mirrored petals in a dense ring." }),
+  }),
 });
 
 // Declarative skill behaviors, interpreted by World._castBehavior. Every
@@ -335,12 +367,89 @@ const EXTRA_SKILL_NAMES = Object.freeze({
 // (pierce = base + ⌊level/2⌋ × perTwoLevels). Eclipse q/e/f branch on
 // reputation and stay hand-written in World._useEclipseSkill.
 export const SKILL_BEHAVIORS = Object.freeze({
+  // Fallback only. Every shipped archetype overrides r and c below; these stay
+  // as the safety net for an archetype added without its own pair, and are
+  // deliberately stat-neutral rather than favouring one build.
   "shared:r": [
     { act: "fan", angles: [-0.26, -0.13, 0, 0.13, 0.26], damage: [18, 7, ["power", "spirit"], 0.9], speed: 690, range: [470, 0], radius: 8 },
   ],
   "shared:c": [
     { act: "dash", distance: [90, 8] },
     { act: "burst", count: [8, 0], damage: [12, 5, ["agility"], 1.2], speed: 500, range: [170, 9], radius: 8 },
+  ],
+  // 裂阵重斩 — walk into the line, wide power cleave at short reach.
+  "vanguard:r": [
+    { act: "dash", distance: [44, 4] },
+    { act: "fan", angles: [-0.34, -0.17, 0, 0.17, 0.34], damage: [22, 8, ["power"], 1.6], speed: 600, range: [300, 10], radius: 13 },
+  ],
+  // 赤钢回旋 — a short step and a tight ring; the durable class does not flee.
+  "vanguard:c": [
+    { act: "dash", distance: [58, 5] },
+    { act: "burst", count: [10, 1], damage: [16, 6, ["power"], 1.5], speed: 460, range: [190, 10], radius: 12 },
+  ],
+  // 星核坠落 — one slow heavy core that keeps going through a line.
+  "channeler:r": [
+    { act: "fan", angles: [0], damage: [34, 11, ["spirit"], 2.1], speed: 420, range: [560, 10], radius: 20, pierce: [3, 1] },
+  ],
+  // 潮汐跃迁 — the long blink of the roster's ranged caster.
+  "channeler:c": [
+    { act: "dash", distance: [124, 10] },
+    { act: "burst", count: [10, 1], damage: [14, 5, ["spirit"], 1.3], speed: 520, range: [220, 12], radius: 9 },
+  ],
+  // 追风连星 — narrow, fastest projectiles in the game, piercing.
+  "strider:r": [
+    { act: "fan", angles: [-0.08, 0, 0.08], damage: [20, 7, ["agility"], 1.5], speed: 900, range: [600, 0], radius: 6, pierce: [2, 1] },
+  ],
+  // 残影回刃 — disengage backwards, blades cover the retreat.
+  "strider:c": [
+    { act: "dash", distance: [140, 12], back: true },
+    { act: "burst", count: [9, 1], damage: [15, 5, ["agility"], 1.35], speed: 560, range: [200, 10], radius: 8 },
+  ],
+  // 震岳壁击 — shortest reach, heaviest single arc.
+  "bulwark:r": [
+    { act: "fan", angles: [-0.4, -0.2, 0, 0.2, 0.4], damage: [24, 9, ["power"], 1.7], speed: 400, range: [200, 10], radius: 16 },
+  ],
+  // 守望铁环 — the one C with no dash at all: the tank trades the escape for
+  // the widest, densest ring on the roster. Holding ground is the fantasy.
+  "bulwark:c": [
+    { act: "burst", count: [14, 1], damage: [15, 6, ["power"], 1.4], speed: 420, range: [175, 11], radius: 12 },
+  ],
+  // 猎隼标记 — the sniper's R: one shot, longest reach, deepest pierce.
+  "longshot:r": [
+    { act: "fan", angles: [0], damage: [32, 11, ["agility"], 1.9], speed: 1150, range: [950, 0], radius: 6, pierce: [5, 1] },
+  ],
+  // 折光箭雨 — give ground, then rain arrows in every direction.
+  "longshot:c": [
+    { act: "dash", distance: [130, 11], back: true },
+    { act: "burst", count: [12, 1], damage: [13, 5, ["agility"], 1.2], speed: 600, range: [260, 14], radius: 7 },
+  ],
+  // 灼地火柱 — slowest projectile, largest radius; a pillar, not a bolt.
+  "pyre:r": [
+    { act: "fan", angles: [0], damage: [30, 10, ["spirit"], 1.9], speed: 360, range: [400, 12], radius: 22 },
+  ],
+  // 焰影穿行 — dash through and leave the burn where you were.
+  "pyre:c": [
+    { act: "dash", distance: [150, 12] },
+    { act: "burst", count: [12, 1], damage: [14, 5, ["spirit"], 1.3], speed: 400, range: [180, 10], radius: 10 },
+  ],
+  // 暮光裁决 — r/c do not branch on reputation; only q/e/f do.
+  "eclipse:r": [
+    { act: "fan", angles: [-0.2, 0, 0.2], damage: [24, 8, ["spirit"], 1.7], speed: 680, range: [520, 0], radius: 9, pierce: [2, 1] },
+  ],
+  // 双魂轮转 — two staggered rings, one per soul.
+  "eclipse:c": [
+    { act: "dash", distance: [110, 9] },
+    { act: "burst", count: [8, 1], damage: [13, 5, ["spirit"], 1.2], speed: 520, range: [210, 11], radius: 9 },
+    { act: "burst", count: [6, 0], damage: [10, 4, ["spirit"], 0.9], speed: 660, range: [150, 8], radius: 7 },
+  ],
+  // 银月交叉 — two crossing arcs, closest range, agility.
+  "moonblade:r": [
+    { act: "fan", angles: [-0.5, 0.5], damage: [26, 9, ["agility"], 1.8], speed: 700, range: [260, 8], radius: 12 },
+  ],
+  // 镜花回舞 — the densest close ring, matching the fastest attacker.
+  "moonblade:c": [
+    { act: "dash", distance: [150, 13] },
+    { act: "burst", count: [12, 1], damage: [13, 5, ["agility"], 1.3], speed: 560, range: [170, 9], radius: 8 },
   ],
   "vanguard:q": [
     { act: "dash", distance: [94, 10] },
@@ -419,12 +528,15 @@ export const SKILL_BEHAVIORS = Object.freeze({
 export function skillDefinition(archetype, slot) {
   const native = ARCHETYPES[archetype]?.skills?.[slot];
   if (native) return native;
-  const names = EXTRA_SKILL_NAMES[archetype];
-  if (!names || (slot !== "r" && slot !== "c")) return null;
+  const extra = EXTRA_SKILLS[archetype]?.[slot];
+  if (!extra) return null;
   return Object.freeze({
     id: `${archetype}-${slot}-technique`,
-    name: names[slot === "r" ? 0 : 1],
-    description: slot === "r" ? "Concentrate power into a heavy five-point assault." : "Reposition and release a defensive ring.",
+    name: extra.name,
+    description: extra.description,
+    // Cooldowns stay uniform across the roster on purpose: this change is
+    // about shape and scaling, and per-class cooldowns would move the balance
+    // surface too in one step.
     cooldown: slot === "r" ? 8.5 : 10,
     maxLevel: 1000,
     unlockLevel: slot === "r" ? 5 : 10,

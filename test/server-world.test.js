@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { INVENTORY_LIMIT, LEVEL_CAP, MAX_ITEM_SEQUENCE, PROTOCOL_VERSION, REBIRTH_LEVEL, REFINE_MAX_STAGE } from "../src/server/definitions.js";
+import {
+  ALLOC_WEIGHTS, INVENTORY_LIMIT, LEVEL_CAP, MAX_ITEM_SEQUENCE, PROTOCOL_VERSION,
+  REBIRTH_LEVEL, REFINE_MAX_STAGE, SKILL_BEHAVIORS, skillDefinition,
+} from "../src/server/definitions.js";
 import { hashSecret } from "../src/server/session.js";
 import { World, WorldError, refineStage, xpRequiredForLevel } from "../src/server/world.js";
 
@@ -576,6 +579,60 @@ test("items carry a level requirement that gates equipping", () => {
   assert.ok(player.level >= 5);
   world.handleCommand("player-1", { type: "equip", item: relic.id });
   assert.equal(player.equipment.helm.id, relic.id);
+});
+
+// R and C used to be one shared behavior for the whole roster, which meant
+// they scaled off stats half the roster never buys: shared:c keyed on agility,
+// but bulwark only sends 8.8% of its auto-allocated points there. These guard
+// the fix rather than merely counting keys.
+test("every archetype owns its R and C instead of falling back to the shared pair", () => {
+  const archetypes = Object.keys(ALLOC_WEIGHTS);
+  const names = new Set();
+  for (const archetype of archetypes) {
+    for (const slot of ["r", "c"]) {
+      assert.ok(
+        SKILL_BEHAVIORS[`${archetype}:${slot}`],
+        `${archetype}:${slot} must define its own behavior, not reuse shared:${slot}`,
+      );
+      names.add(skillDefinition(archetype, slot).name);
+    }
+  }
+  assert.equal(names.size, archetypes.length * 2, "every R/C name is distinct");
+});
+
+test("no archetype's R or C scales off a stat it does not invest in", () => {
+  const damageStats = (key) => {
+    const stats = new Set();
+    for (const step of SKILL_BEHAVIORS[key]) {
+      if (step.damage) for (const stat of step.damage[2]) stats.add(stat);
+    }
+    return [...stats];
+  };
+
+  for (const [archetype, weights] of Object.entries(ALLOC_WEIGHTS)) {
+    const total = Object.values(weights).reduce((sum, weight) => sum + weight, 0);
+    for (const slot of ["r", "c"]) {
+      const stats = damageStats(`${archetype}:${slot}`);
+      const share = stats.reduce((sum, stat) => sum + weights[stat], 0) / total;
+      // A quarter of auto-allocated points is the floor for a skill to grow
+      // with the character at all; the old shared:c gave bulwark 0.088.
+      assert.ok(
+        share >= 0.25,
+        `${archetype}:${slot} scales off ${stats.join("+")}, only ${(share * 100).toFixed(1)}% of ${archetype}'s points`,
+      );
+    }
+  }
+});
+
+test("R and C differ across archetypes in shape, not just in name", () => {
+  const shapes = new Map();
+  for (const archetype of Object.keys(ALLOC_WEIGHTS)) {
+    for (const slot of ["r", "c"]) {
+      const shape = JSON.stringify(SKILL_BEHAVIORS[`${archetype}:${slot}`]);
+      assert.ok(!shapes.has(shape), `${archetype}:${slot} is a reskin of ${shapes.get(shape)}`);
+      shapes.set(shape, `${archetype}:${slot}`);
+    }
+  }
 });
 
 test("heroes begin with four actions and unlock two more skills by level", () => {
