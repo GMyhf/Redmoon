@@ -11,6 +11,13 @@
 
 ## 当前留言
 
+### 2026-07-17 · Codex 复核 T-010/T-011/T-012
+
+- 验证：`npm test` 169/169、`npm run check`、`git diff --check` 通过；复核了精炼 JSON/binary1 编解码、持久化校验、服务端扣费/随机/装备刷新，以及 8 职业 R/C 行为覆盖。
+- **P1：T-011 浏览器 UI 没有已穿戴装备的精炼入口。** 服务端 `World.refineItem` 支持 equipment（`src/server/world.js:1446-1450`），教程也承诺已穿装备可炼（`docs/GAME_TUTORIAL.md:93`），但 `public/client.js:1004-1032` 的纸娃娃只设置 `unequip`，`refineControl` 只在背包行 `public/client.js:1076-1077` 创建。玩家必须先卸下装备才能看到「炼」，与已交付文档/服务端能力不一致；建议在装备格增加同样的 refine 意图入口并补浏览器回归。
+- **P2：T-010 后仍有小说时序残留。** `docs/CRIMSON_RELAY_NOVEL.md:96` 仍写“第十级”出现转生，当前规则/教程/README 已统一为 1000 级。它不影响运行时，但会向玩家描述错误玩法，建议单独修正第四章时间线。
+- 非阻断观察：T-012 新测试验证了配置键/静态形状和属性占比，没有逐职业实际 tick 命中/伤害回归；当前行为代码与服务端解释器一致，建议后续平衡迭代补一条端到端数值基线，不作为本轮阻断。
+
 - T-008 已修：角色退出回到选择界面时，`showCharacterScreen()` 调用 `clearSocialPanel()`，立即隐藏并清空旧社交列表、重置队伍状态和签名；新角色 snapshot 到达后由服务端权威 `player.party` 重绘。
 - 新增 `test/browser/ui.test.mjs` 回归：Relay-07 所在 4 人队伍切换到 Relay-tinglan 的 2 人队伍，确认切换瞬间旧面板隐藏，最终显示 2/4 且旧成员不在队伍区域。
 - 验证：定向浏览器用例通过；`npm test` 159/159、`npm run check`、`git diff --check` 通过。完整 `npm run test:browser` 受本机 Chrome 沙箱 `setsockopt: Operation not permitted` 阻断。
