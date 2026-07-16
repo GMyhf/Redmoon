@@ -1075,6 +1075,39 @@ button {
     center / auto 92% no-repeat;
 }
 
+/* Wraps one doll slot so the refine control can sit over it: the slot itself
+   is a button and cannot contain another one. */
+.slot-cell {
+  position: relative;
+  display: grid;
+}
+
+.slot-refine {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  z-index: 1;
+  min-width: 16px;
+  padding: 0 3px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: rgba(18, 12, 10, 0.92);
+  color: #f0c15e;
+  font: inherit;
+  font-size: 9px;
+  line-height: 14px;
+  cursor: pointer;
+}
+
+.slot-refine:hover:not(:disabled) {
+  filter: brightness(1.35);
+}
+
+.slot-refine:disabled {
+  cursor: default;
+  color: var(--muted);
+}
+
 .slot-box {
   display: grid;
   place-items: center;

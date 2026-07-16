@@ -392,6 +392,48 @@ test("equipping from the bag fills the paper-doll slot", async (t) => {
   assert.equal(player.inventory.length, 0, "the item left the bag");
 });
 
+// Worn gear refines in place server-side and the tutorial says so, but the
+// paper doll shipped with no entry point, forcing an unequip first. This
+// drives the real doll button through the real protocol.
+test("refining worn gear at the smith needs no unequip", async (t) => {
+  // 0.5 clears the 0 -> 1 rung's 90%: without a fixed roll this test would
+  // fail one run in ten.
+  const { server, url } = await startServer(t, { rng: () => 0.5 });
+  const page = await newPage(t, browser);
+  await joinAs(page, url, "Smithy");
+
+  const player = playerByName(server, "Smithy");
+  player.level = 10;
+  player.will = 1_000_000;
+  player.gold = 1_000_000;
+  player.equipment.weapon = {
+    id: "item-doll-1",
+    slot: "weapon",
+    rarity: "rare",
+    tier: 3,
+    level: 10,
+    name: "pulse-blade",
+    bonuses: { power: 10, agility: 0, spirit: 0, vitality: 0 },
+  };
+  // Walk the player onto the smith so the server's range check passes and the
+  // client shows his panel.
+  const smith = server.world.shops.find((shop) => shop.id === "smith");
+  player.x = smith.x;
+  player.y = smith.y;
+
+  // The control only exists at the smith, on the slot, without unequipping.
+  await page.waitForSelector('.slot-cell.slot-weapon button[data-action="refine"]', { state: "visible" });
+  await page.click('.slot-cell.slot-weapon button[data-action="refine"]');
+
+  await waitForServer(() => player.equipment.weapon.refine === 1);
+  assert.equal(player.equipment.weapon.refine, 1, "the worn piece advanced a stage");
+  assert.equal(player.inventory.length, 0, "and never passed through the bag");
+  // The doll redraws with the new stage rather than keeping the stale label.
+  // The name is clipped to four characters, so the stage rides the level line.
+  await page.waitForFunction(() =>
+    document.querySelector(".slot-cell.slot-weapon .slot-level")?.textContent.includes("+1"));
+});
+
 test("focused controls keep native keys and V consumes the shown potion", async (t) => {
   const { server, url } = await startServer(t);
   const page = await newPage(t, browser);

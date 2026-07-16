@@ -1003,6 +1003,11 @@ import {
     // Paper-doll: one box per body slot arranged around a figure silhouette.
     ui.equipmentDoll.replaceChildren(...DOLL_SLOTS.map((slot) => {
       const label = SLOT_LABELS[slot];
+      // The slot itself stays a plain unequip button; the refine control has to
+      // be a sibling rather than a child, since a button cannot nest one. The
+      // cell takes the grid area so the doll layout is unchanged.
+      const cell = document.createElement("div");
+      cell.className = `slot-cell slot-${slot}`;
       const box = document.createElement("button");
       box.type = "button";
       box.className = `slot-box slot-${slot}`;
@@ -1015,11 +1020,19 @@ import {
         box.title = `${itemTooltip(item)}\n点击卸下`;
         box.dataset.action = "unequip";
         box.dataset.slot = slot;
+        box.dataset.item = String(item.id);
         const name = document.createElement("b");
         name.textContent = itemLabel(item).slice(0, 4);
         name.style.color = info.color;
         const level = document.createElement("i");
-        level.textContent = `L${Math.max(1, finite(item.level, 1))}`;
+        // gearIcon() is an <i> too, so this one is named to stay addressable.
+        level.className = "slot-level";
+        // The name is clipped to four characters to fit the slot, which would
+        // swallow itemLabel's "+N" suffix — carry the stage on the level line,
+        // where there is room for it.
+        const stage = refineStage(item);
+        level.textContent = `L${Math.max(1, finite(item.level, 1))}${stage > 0 ? ` +${stage}` : ""}`;
+        if (stage > 0) level.style.color = "#f0c15e";
         box.append(gearIcon(item.slot), name, level);
       } else {
         box.disabled = true;
@@ -1028,7 +1041,18 @@ import {
         empty.textContent = label;
         box.append(gearIcon(slot), empty);
       }
-      return box;
+      cell.append(box);
+      // Worn gear refines in place — the server accepts it and the tutorial
+      // promises it, so the entry point belongs on the piece itself rather
+      // than forcing an unequip first.
+      if (item) {
+        const refine = refineControl(item, player);
+        if (refine) {
+          refine.classList.add("slot-refine");
+          cell.append(refine);
+        }
+      }
+      return cell;
     }));
 
     // The comparison target: same key, or the weakest of the three rings.
@@ -4351,6 +4375,12 @@ import {
     send({ type: button.dataset.action, item: button.dataset.item });
   });
   ui.equipmentDoll?.addEventListener("click", (event) => {
+    // Refine sits on top of the slot, so it has to win the hit test.
+    const refine = event.target.closest('button[data-action="refine"]');
+    if (refine) {
+      send({ type: "refine", item: refine.dataset.item, useProtection: event.shiftKey === true });
+      return;
+    }
     const box = event.target.closest("button[data-slot]");
     if (!box) return;
     send({ type: "unequip", slot: box.dataset.slot });
