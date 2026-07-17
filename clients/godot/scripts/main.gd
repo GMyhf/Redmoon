@@ -10,7 +10,7 @@ extends Node2D
 
 # Override with CRIMSON_SERVER=ws://host:port/ws (no code edit needed).
 var server_url := "ws://127.0.0.1:3000/ws"
-const CLIENT_PROTOCOL := 3
+const CLIENT_PROTOCOL := 4
 # Mirrors src/server/definitions.js REFINE_HONOR_GATE — display only.
 const REFINE_HONOR_GATE: Array[int] = [0, 0, 200, 400]
 const SNAPSHOT_CODEC := "binary1"

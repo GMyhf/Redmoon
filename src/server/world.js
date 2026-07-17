@@ -42,6 +42,9 @@ import {
   SKILL_BEHAVIORS,
   MOB_TYPES,
   PORTAL_DESTINATIONS,
+  BATTLE_GOLD_SHARE,
+  BATTLE_HONOR_TAKE,
+  BATTLE_ZONE_MAP,
   HONOR_LIMIT,
   HONOR_PER_BOSS,
   HONOR_PER_ELITE,
@@ -112,6 +115,7 @@ const DEFAULT_MAP_MOB_TARGETS = Object.freeze({
   castle: 24,
   starship: 24,
   skycity: 26,
+  battlezone: 24,
 });
 
 const MAP_NAMES = Object.freeze({
@@ -125,6 +129,7 @@ const MAP_NAMES = Object.freeze({
   castle: "坠落城堡",
   starship: "失落星港",
   skycity: "悬空天城",
+  battlezone: "血斗回廊",
 });
 
 // Highest numeric suffix among persisted "item-N" ids (inventory and
@@ -1706,6 +1711,38 @@ export class World {
     }
   }
 
+  // A kill in the battle zone moves gold and standing, and nothing else. Gear
+  // stays put — with no bank, mail or trade yet, a lost piece would be gone for
+  // good — and no experience is lost either.
+  _settleBattleKill(victim, sourceId) {
+    const killer = this.players.get(String(sourceId));
+    // Falling to a mob in the battle zone costs nothing extra.
+    if (!killer || killer.id === victim.id) return;
+
+    const gold = Math.floor(Math.max(0, victim.gold) * BATTLE_GOLD_SHARE);
+    if (gold > 0) {
+      victim.gold -= gold;
+      killer.gold += gold;
+    }
+    // Only what the loser actually holds can be taken. An alt carries no
+    // standing, so farming one yields nothing; two friends trading kills move
+    // the same points back and forth and net zero. The only way up is to beat
+    // someone who has standing to lose.
+    const honor = Math.min(BATTLE_HONOR_TAKE, Math.max(0, victim.honor));
+    if (honor > 0) {
+      this._grantHonor(victim, -honor);
+      this._grantHonor(killer, honor);
+    }
+    this._emit("battleKill", {
+      killerId: killer.id,
+      killerName: killer.name,
+      victimId: victim.id,
+      victimName: victim.name,
+      gold,
+      honor,
+    }, { players: [killer.id, victim.id] });
+  }
+
   _duelOf(playerId) {
     for (const duel of this.duels.values()) {
       if (duel.members.includes(String(playerId))) return duel;
@@ -2496,11 +2533,13 @@ export class World {
           projectile.hitsRemaining -= 1;
           if (projectile.hitsRemaining <= 0) break;
         }
-        // Player-to-player damage exists in exactly one place: inside a duel
-        // the two sides consented to. The opponent is read from that duel's
-        // own member list, so a shot can never reach a player who is not in
-        // this arena — including one standing at the same coordinates on
-        // another map.
+        // Player-to-player damage reaches exactly two places, and both are
+        // opted into. In a duel the target is read from that duel's own member
+        // list — never by scanning nearby players — so a shot cannot touch
+        // anyone outside the arena, including someone at the same coordinates
+        // on another map. In the battle zone anyone on that map is a target,
+        // which is the whole point of walking through its gate; the mapId
+        // comparison is what keeps that from meaning anywhere else.
         const duel = this.duels.get(duelIdOfMap(projectile.mapId));
         if (duel && projectile.hitsRemaining > 0) {
           const opponentId = duel.members.find((memberId) => memberId !== projectile.ownerId);
@@ -2514,6 +2553,21 @@ export class World {
             )) {
             projectile.hitIds.add(opponent.id);
             this._damagePlayer(opponent, projectile.damage, projectile.ownerId);
+            projectile.hitsRemaining -= 1;
+          }
+        } else if (projectile.mapId === BATTLE_ZONE_MAP) {
+          for (const other of this.players.values()) {
+            if (projectile.hitsRemaining <= 0) break;
+            if (other.id === projectile.ownerId || !other.alive) continue;
+            if (other.mapId !== projectile.mapId) continue;
+            if (other.pendingAuth || other.connectionDetached) continue;
+            if (projectile.hitIds.has(other.id)) continue;
+            if (!segmentHitsCircle(
+              oldX, oldY, projectile.x, projectile.y,
+              other.x, other.y, other.radius + projectile.radius,
+            )) continue;
+            projectile.hitIds.add(other.id);
+            this._damagePlayer(other, projectile.damage, projectile.ownerId);
             projectile.hitsRemaining -= 1;
           }
         }
@@ -2854,6 +2908,9 @@ export class World {
         reason: "defeat",
       });
     }
+    else if (player.mapId === BATTLE_ZONE_MAP) {
+      this._settleBattleKill(player, sourceId);
+    }
   }
 
   _grantXp(player, amount) {
@@ -2952,6 +3009,7 @@ export class World {
       maxMp: player.maxMp,
       reputation: player.reputation,
       will: player.will,
+      honor: player.honor,
       attunement: player.attunement,
       barrier: player.soulBarrier.active
         ? {
@@ -3008,7 +3066,6 @@ export class World {
       gold: player.gold,
       dew: player.dew,
       protections: player.protections,
-      honor: player.honor,
       friends: player.friends.map((name) => {
         const onlinePlayer = online.get(this._accountKey(name));
         return {

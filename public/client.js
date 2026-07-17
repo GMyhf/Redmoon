@@ -111,7 +111,7 @@ import {
   // Protocol version this client speaks; sent with join and compared with
   // the server's welcome. Keep in sync with PROTOCOL_VERSION in
   // src/server/definitions.js.
-  const CLIENT_PROTOCOL = 3;
+  const CLIENT_PROTOCOL = 4;
   // Mirrors of src/server/definitions.js — presentation only. The server owns
   // the roll, the cost and the outcome; these just render them.
   const REFINE_MAX_STAGE = 4;

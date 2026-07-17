@@ -13,7 +13,7 @@
 //        str id, name, archetype, color, attunement, targetId ("" = null)
 //        u8  running, alive
 //        f32 x, y, facingX, facingY, hp, maxHp, mp, maxMp, respawnIn, moveSpeed
-//        i32 reputation; u32 will
+//        i32 reputation, honor; u32 will
 //        u16 radius, rebirths, level
 //        u8  equipCount, then per equipped piece:
 //            str key, name, rarity, dropClass ("" = none); u16 level; u8 refine
@@ -125,6 +125,7 @@ function packPlayer(writer, player) {
     writer.f32(player.respawnIn);
     writer.f32(player.moveSpeed);
     writer.i32(player.reputation);
+    writer.i32(player.honor ?? 0);
     writer.u32(player.will);
     writer.u16(player.radius);
     writer.u16(player.rebirths);
@@ -304,6 +305,7 @@ export function decodeSnapshotBinary(buffer) {
       respawnIn: reader.f32(),
       moveSpeed: reader.f32(),
       reputation: reader.i32(),
+      honor: reader.i32(),
       will: reader.u32(),
       radius: reader.u16(),
       rebirths: reader.u16(),

@@ -292,6 +292,7 @@ export const RENDER_AS = {
 };
 
 export const ZONE_LABELS = {
+  battle: "血斗",
   town: "城镇",
   grass: "草原",
   grassland: "草原",
@@ -312,6 +313,9 @@ export const ZONE_LABELS = {
 };
 
 export const ZONE_TEXTURE = Object.freeze({
+  // The battle zone reuses the castle ground texture — it has no art of its
+  // own — but carries its own crimson ramp below so it still reads apart.
+  battle: "castle",
   residential: "residential",
   downtown: "downtown",
   mountain: "mountain",
@@ -338,6 +342,7 @@ export const HERO_SPRITES = Object.freeze({
 // Each biome is a colour ramp; the ground blends smoothly between the
 // two ends so terrain reads as rolling fields, not a checkerboard.
 export const BIOME_RAMPS = {
+  battle: ["#4a2229", "#6e2f38"],
   town: ["#3d312c", "#4c3d35"],
   grass: ["#24401f", "#3f6132"],
   mountain: ["#2e3540", "#4d5868"],

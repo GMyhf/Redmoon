@@ -2,7 +2,10 @@
 // message, and protected names reject NAME_IN_USE / INVALID_TOKEN.
 // v3: items carry a `refine` stage and players carry a `protections` count;
 // the `refine` command spends will/gold to push gear up the stage ladder.
-export const PROTOCOL_VERSION = 3;
+// v4: `honor` moves onto every player record, not just the recipient's own.
+// Standing is meant to be read off the people around you — that is what its
+// tiers are for — and the battle zone is where it starts to matter.
+export const PROTOCOL_VERSION = 4;
 export const TICK_RATE = 20;
 export const SNAPSHOT_RATE = 10;
 export const MAX_ITEM_SEQUENCE = 1_000_000_000_000;
@@ -94,6 +97,24 @@ export const HONOR_TIERS = Object.freeze([
 // Refinement past +2 asks for standing. The first two rungs stay open to
 // everyone: a fresh drop should always be improvable.
 export const REFINE_HONOR_GATE = Object.freeze([0, 0, 200, 400]);
+
+// ---- Battle zone -----------------------------------------------------
+// The one map where anyone can attack anyone. It is opted into by walking
+// through a gate, and it is a hunting ground as much as an arena: honour comes
+// from the elites in it, and honour is what other players can take from you
+// there. Source and risk in the same place.
+//
+// Only gold and honour are at stake. Gear is not: there is no bank, no mail
+// and no trade yet (P4), so a lost piece would be lost for good — and a +4
+// piece costs 400 honour and a mountain of will and gold to rebuild.
+export const BATTLE_ZONE_MAP = "battlezone";
+export const BATTLE_GOLD_SHARE = 0.1;
+
+// The killer takes standing, but never more than the loser actually has. An
+// alt holds none, so farming one yields nothing; two friends trading kills
+// move the same points back and forth and net zero. The only way up is to beat
+// someone who has standing to lose.
+export const BATTLE_HONOR_TAKE = 10;
 
 // ---- Duels -----------------------------------------------------------
 // The first place a player's attack can land on another player. Consent is
@@ -289,6 +310,8 @@ export const ZONES = Object.freeze([
   Object.freeze({ id: "castle", theme: "castle", x: 0.09, y: 0.52, rx: 0.085, ry: 0.11, minLevel: 480, maxLevel: 680 }),
   Object.freeze({ id: "starship", theme: "spaceport", x: 0.445, y: 0.85, rx: 0.14, ry: 0.12, minLevel: 650, maxLevel: 860 }),
   Object.freeze({ id: "skycity", theme: "skycity", x: 0.875, y: 0.14, rx: 0.135, ry: 0.13, minLevel: 820, maxLevel: 1000 }),
+  // Contested ground: a wide late band, because honour is what veterans carry.
+  Object.freeze({ id: "battlezone", theme: "battle", x: 0.72, y: 0.78, rx: 0.12, ry: 0.12, minLevel: 300, maxLevel: 1000 }),
 ]);
 
 // Gate ring around town: one portal per hunting ground, paired with a
@@ -303,6 +326,7 @@ export const PORTAL_DESTINATIONS = Object.freeze([
   Object.freeze({ id: "castle", x: 0.09, y: 0.52 }),
   Object.freeze({ id: "starship", x: 0.445, y: 0.85 }),
   Object.freeze({ id: "skycity", x: 0.875, y: 0.14 }),
+  Object.freeze({ id: "battlezone", x: 0.72, y: 0.78 }),
 ]);
 
 // One boss per hunting ground, in rising order of level and experience.

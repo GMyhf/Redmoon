@@ -40,6 +40,8 @@
 
 | T-019 | **修复 Codex 复核 P1**：Godot 把决斗**平局显示成失败**——服务端平局时 `duelEnded.winner` 是 JSON `null`，我先 `str(winner)` 再判空串，但 GDScript 的 `str(null)` 是 `"<null>"` 不是 `""` | **Review** | Claude | 已修（先判 null 本身）。**并按 Codex 要求补了 Godot 端回归**：新增 `npm run test:godot`（原生客户端首条脚本测试，CI 已接），判定提成纯静态 `duel_end_status()`。变异验证：改回 Codex 抓到的写法 → `expected '决斗平局', got '决斗失败'`、exit=1 |
 
+| T-020 | **P2 第三步 · 战斗区**（`docs/IMPROVEMENT_PLAN.md` P2）：开放 PvP 独立地图「血斗回廊」，荣誉的来源与风险在同一张地图上。**协议 3→4**（荣誉转公开） | **Review** | Claude | 人拍板：① 只赌金币+荣誉、**装备与经验不掉**（无银行/邮件/交易兜底）；② 反刷用**荣誉转移上限=对方实际拥有量**（小号无可夺、互喂零和）。`npm test` 200/200 + 变异 ×3 + 真协议端到端 6/6。**暴露并补上了协议漂移守护**：服务端升 v4 后 189 测试全绿而两客户端都连不上。未做红月的 `BattleMatch`（需 P3 阵营 + P5 调度器）|
+
 <!-- 追加新任务时复制下面这行：
 | T-00X | <一句话任务> | Backlog | - | - |
 -->

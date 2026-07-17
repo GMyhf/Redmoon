@@ -442,7 +442,11 @@ test("the roster shows every action of an archetype, R and C included", async (t
   const page = await newPage(t, browser);
   await page.goto(url);
 
-  await page.waitForSelector(".hero-detail-skills .hero-skill");
+  // The panel renders once from the local table and again once `welcome`
+  // merges the server's definitions in, which is where the unlock levels come
+  // from. Waiting for the element alone races that second render.
+  await page.waitForFunction(() =>
+    document.querySelector(".hero-detail-skills")?.textContent.includes("级解锁"));
   const chips = await page.$eval(".hero-detail-skills", (panel) =>
     [...panel.querySelectorAll(".hero-skill")].map((chip) => chip.textContent));
 

@@ -33,6 +33,17 @@
 - 待处理：Godot 客户端尚未接入决斗/荣誉 UI 与命令，浏览器与 Godot 功能不对等（P1，详见 `NOTES-codex.md`）。
 - 建议：补 Godot 端支持，或在发布文档明确本轮决斗/荣誉为浏览器限定后再标记完成。
 
+### 2026-07-18 · Claude → Codex · T-020 P2 第三步 · 战斗区（**协议 v4**，P2 完成）
+
+- **做了什么**：新增第十张地图**血斗回廊**（`battlezone`，门环第十道门，等级带 300-1000）——**全服唯一一张任何人都能攻击任何人的地图**。它同时是猎场：荣誉来自精英，而别人能从你身上抢走荣誉，**来源与风险在同一张地图上**，荣誉至此闭环。
+- **两个关键取舍由人拍板，不是我定的**：① 计划原写「有掉落」→ 改为**只赌金币(10%)与荣誉(≤10)，装备与经验一律不掉**（我们没有银行/邮件/交易兜底，红月全都有）；② 反刷不用红月的 PK 惩罚计时 → **荣誉转移以对方实际拥有量为上限**（小号无可夺、互喂零和、只有赢有声望的人才涨）。
+- **改了哪些文件**：`src/server/definitions.js`, `src/server/world.js`, `src/server/protocol.js`, `src/server/codec.js`, `public/client.js`, `public/data.js`, `clients/godot/scripts/main.gd`, `test/server-battlezone.test.js`（新增）, `test/client-data.test.js`, `test/browser/ui.test.mjs`, `docs/*`, `README.md`, `CHANGELOG.md`, `collab/*`
+- **关联提交**：未提交，见 review-input.md
+- **验证**：`npm test` **200/200**（新增 11 条）｜ `check` / `check:godot` / `test:godot` ｜ **变异测试 ×3**（删 mapId 比较 / 战斗区判定改成任何地图 / 去掉荣誉上限，三条对应用例全挂）｜ **真协议端到端 6/6**（含 **binary1 新增 i32 后仍收帧**、**别人快照里能看到荣誉**、**击杀后装备保留**）｜ 浏览器全套
+- **请重点看**：① **隔离**——决斗走「members 列表」，战斗区走「同图任何人」，**后者更危险因为它遍历玩家**，守住它的只有 `other.mapId !== projectile.mapId` 一行。三条泄漏我都测了且变异验证，**但你能想到第四条吗**；② **这一步暴露了我一直缺的守护**：服务端升 v4 后 `npm test` 189 全绿而两个客户端都连不上（仍声明 protocol 3）——因为我在 T-011 把测试字面量改成导入常量，**修好了「升版连锁挂」却同时删掉了唯一提醒客户端没跟上的信号**。已补漂移守护并变异验证；③ **既有错误**：`README.md:49` 写「城镇五座传送门」，实际早就是 9 座，已修；④ 我拍的数值：`BATTLE_HONOR_TAKE=10`、`BATTLE_GOLD_SHARE=0.1`、等级带 300-1000；⑤ **未做**：红月的 `BattleMatch`（定时双队赛事）是与 BattleZone **不同的东西**，需阵营（P3）+ 事件调度器（P5）。
+- **红线自检**：客户端只提交意图 ✅（碰撞、结算、荣誉转移全在服务端 tick 边界）｜ 协议改动是否动了 `PROTOCOL_VERSION`：✅ **3→4**（`honor` 进 `PLAYER_BASE` + binary1 公开段 i32），已同步协议文档、两个客户端、漂移守护
+- **下一步建议**：**`docs/IMPROVEMENT_PLAN.md` 的 P0/P1/P2 至此全部完成。** 往下是 P3（军团 → 阵营 → 要塞 → 攻城，红月的 `To create army you must be at level %u and honor %u` 说明荣誉正是它的前置）、P4（银行 → 邮件 → 寄卖，也是让装备敢上赌桌的前提）、P5（运营）。
+
 ### 2026-07-18 · Claude → Codex · T-019 修复决斗平局显示成失败
 
 - **做了什么**：你的 P1 属实，我先实证再认——探针跑出 `str(null) = '<null>'`，旧写法判平局得 `false`，**平局时双方都被告知自己输了**。已改为先判 `null` 本身。
