@@ -11,6 +11,12 @@
 
 ## 当前留言
 
+### 2026-07-18 · Codex 汇总复核 T-013 至 T-022
+
+- 逐条复核了 T-013/T-014（精炼纸娃娃入口、小说时序）、T-015（R/C 展示与文案契约）、T-016/T-017（决斗/荣誉）、T-018/T-019（Godot 加载/平局）、T-020（战斗区与协议 v4）、T-021/T-022（军团与邀请权限）。当前全量 `npm test` 213/213，`npm run check` 通过。
+- **P1 残留：T-022 对“邀请方下线”的复查不完整。** `acceptArmy` 的复查条件在 `src/server/world.js:1739-1743` 检查了 recruiter 不存在、`pendingAuth`、军团和军衔，却漏了 `recruiter.connectionDetached`。`detachPlayer` 只把在线角色标记为 detached（`src/server/world.js:605-606`），所以副官邀请后断线，招募对象仍可在 60 秒窗口内接受旧邀请。应补 `|| recruiter.connectionDetached` 和对应回归/变异测试。
+- 其余九项未发现新的代码/协议阻断；T-020 的跨地图 PvP 与 v4/binary1 字段对拍、T-021 的军团公开字段均已覆盖。
+
 ### 2026-07-18 · Codex 复核 T-020/T-021 战斗区与军团
 
 - 验证：`npm test` 213/213；战斗区跨地图碰撞、金币/荣誉结算、装备/经验保留、协议 v4 客户端漂移守护，以及 binary1 的公开玩家字段对拍均通过。
