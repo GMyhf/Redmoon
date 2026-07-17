@@ -38,6 +38,8 @@
 
 | T-018 | **修复 Codex 复核 P1 + 一个更严重的自查发现**：① Godot 未接入决斗/荣誉（Codex 指出）；② **排查时发现 Godot 客户端在已推的 `fa4235e` 上根本无法加载**（`main.gd` Parse Error，我在 T-017 引入）；③ **`npm run check:godot` 报错却 exit 0——这个检查从来不可能失败**，识别错误的 grep 只在 CI 里 | **Review** | Claude | Godot 补齐决斗（U 应战/I 回绝）+ 荣誉 HUD + 精炼门槛禁用；parse error 已修；`check:godot` 的 grep 移进 npm script，注入同一错误可复现 exit=1；本地真跑 CI 那条无头冒烟（`joined as CI` / `smoke: joined=true`）|
 
+| T-019 | **修复 Codex 复核 P1**：Godot 把决斗**平局显示成失败**——服务端平局时 `duelEnded.winner` 是 JSON `null`，我先 `str(winner)` 再判空串，但 GDScript 的 `str(null)` 是 `"<null>"` 不是 `""` | **Review** | Claude | 已修（先判 null 本身）。**并按 Codex 要求补了 Godot 端回归**：新增 `npm run test:godot`（原生客户端首条脚本测试，CI 已接），判定提成纯静态 `duel_end_status()`。变异验证：改回 Codex 抓到的写法 → `expected '决斗平局', got '决斗失败'`、exit=1 |
+
 <!-- 追加新任务时复制下面这行：
 | T-00X | <一句话任务> | Backlog | - | - |
 -->

@@ -2,6 +2,11 @@
 
 本文件记录 CRIMSON RELAY 每轮迭代的玩法与架构改进。协议层面的字段变化见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
+## 2026-07-18 · 修复 Godot 把决斗平局显示成失败
+
+- 修复：超时平局时服务端 `duelEnded.winner` 是 JSON `null`，而 Godot 先 `str(winner)` 再判空串——**GDScript 的 `str(null)` 是 `"<null>"` 不是 `""`**，于是平局落进「决斗失败」分支。双方都会被告知自己输了。改为先判 `null` 本身。
+- 新增 `npm run test:godot`：原生客户端第一条脚本测试。此前 Godot 侧对协议的解读**没有任何自动化覆盖**，而它出的第一个问题就是 JSON null。判定逻辑提成纯静态函数 `duel_end_status()` 以便直接测试；CI 已接入。
+
 ## 2026-07-18 · 修复 Godot 客户端崩溃，并补齐决斗/荣誉
 
 - **修复：Godot 客户端在上一个提交（`fa4235e`）里完全无法加载。** `main.gd` 有一处 `var gate := [0, 0, 200, 400][stage]`——无类型数组字面量取下标得到 Variant，`:=` 推断不出类型，整个脚本 Parse Error。Godot 玩家在那个提交上根本进不去游戏。

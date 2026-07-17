@@ -629,11 +629,7 @@ func _handle_event(event: Dictionary) -> void:
 			var names: Array = event.get("names", [])
 			_set_status("决斗开始：%s" % " vs ".join(PackedStringArray(names)))
 		"duelEnded":
-			var winner := str(event.get("winner", ""))
-			if winner == "":
-				_set_status("决斗平局 — 时限已到")
-			else:
-				_set_status("决斗胜利" if winner == self_id else "决斗失败")
+			_set_status(duel_end_status(event, self_id))
 		"honorChanged":
 			if str(event.get("playerId", "")) == self_id:
 				_set_status("荣誉 +%d // 共 %d" % [int(event.get("delta", 0)), int(event.get("honor", 0))])
@@ -719,6 +715,11 @@ func _send_input(delta: float) -> void:
 	_send(message)
 	for key in pulses:
 		pulses[key] = false
+
+static func duel_end_status(event: Dictionary, viewer_id: String) -> String:
+	if event.get("winner", null) == null:
+		return "决斗平局 — 时限已到"
+	return "决斗胜利" if str(event.get("winner", "")) == viewer_id else "决斗失败"
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not joined:

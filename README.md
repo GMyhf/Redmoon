@@ -67,7 +67,8 @@ npm run dev     # 文件变更后自动重启
 npm test        # 运行服务器测试（快速，无浏览器）
 npm run test:browser  # 浏览器真实交互测试（CDP 驱动系统 Chrome；可用 CHROME_BIN 指定路径）
 npm run check   # 检查服务器与浏览器脚本语法
-npm run check:godot  # 需要 Godot 4.3+，检查原生客户端项目
+npm run check:godot  # 需要 Godot 4.3+，检查原生客户端项目（脚本解析失败即失败）
+npm run test:godot   # 需要 Godot 4.3+，原生客户端脚本测试
 ```
 
 代码分为 `src/server/`（Linux 服务端）、`public/`（浏览器客户端）、`test/`（自动化测试）和 `deploy/`（部署样例）。协议与演进方案见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，历次改进见 [CHANGELOG.md](CHANGELOG.md)。

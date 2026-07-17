@@ -123,6 +123,8 @@ jobs:
         run: |
           npm run check:godot 2>&1 | tee /tmp/godot-check.log
           ! grep -Ei "SCRIPT ERROR|Parse Error" /tmp/godot-check.log
+      - name: Godot script tests
+        run: npm run test:godot
       - name: Linux headless release export
         run: |
           rm -rf /tmp/crimson-godot-export
