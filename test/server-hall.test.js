@@ -7,7 +7,7 @@ import test from "node:test";
 
 import {
   ARMY_HALL_FLOORS, ARMY_HALL_PERIOD, ARMY_HALL_RENT, ARMY_HONOR, ARMY_LEVEL,
-  ARMY_SIEGE_RANGE, BATTLE_ZONE_MAP, CAMPS, CAMP_HQ, CAMP_STAGING,
+  ARMY_SIEGE_DURATION, ARMY_SIEGE_RANGE, BATTLE_ZONE_MAP, CAMPS, CAMP_HQ, CAMP_STAGING,
 } from "../src/server/definitions.js";
 import { World, WorldError } from "../src/server/world.js";
 
@@ -204,9 +204,63 @@ test("a commander must reach the enemy HQ before evicting one rented floor", () 
   commander.y = CAMP_HQ[COVENANT].y;
   throwsCode(() => world.handleCommand("cmd", { type: "armySiege", camp: FREEHOLD, floor: 4 }), "SIEGE_FRIENDLY_HQ");
   world.handleCommand("cmd", { type: "armySiege", camp: COVENANT, floor: 4 });
+  assert.ok(world._armySieges.size === 1, "the siege remains active during its assault window");
+  assert.equal(rival.army.hall.floor, 4, "the defender keeps the hall until the assault is resolved");
+  world.time += ARMY_SIEGE_DURATION;
+  world.update(0.05);
   assert.equal(rival.army.hall, undefined, "the enemy floor is evicted");
   assert.equal(world._hallHolder(COVENANT, 4), null);
   assert.ok(world.drainEvents().some((event) => event.event === "armyHallEvicted"));
+});
+
+test("a defender holding the HQ repels the siege at the deadline", () => {
+  const { world, commander } = commanding(FREEHOLD);
+  world.handleCommand("cmd", { type: "armyRentHall", floor: 4 });
+  const rival = world.addPlayer("riv", { name: "Riv", archetype: "vanguard" });
+  rival.level = ARMY_LEVEL;
+  rival.honor = ARMY_HONOR;
+  rival.gold = ARMY_HALL_RENT * 2;
+  world.handleCommand("riv", { type: "armyCreate", name: "契约军", camp: COVENANT });
+  world.handleCommand("riv", { type: "armyRentHall", floor: 4 });
+
+  commander.mapId = BATTLE_ZONE_MAP;
+  commander.x = CAMP_HQ[COVENANT].x;
+  commander.y = CAMP_HQ[COVENANT].y;
+  rival.mapId = BATTLE_ZONE_MAP;
+  rival.x = CAMP_HQ[COVENANT].x;
+  rival.y = CAMP_HQ[COVENANT].y;
+  world.handleCommand("cmd", { type: "armySiege", camp: COVENANT, floor: 4 });
+  world.time += ARMY_SIEGE_DURATION;
+  world.update(0.05);
+
+  assert.equal(rival.army.hall.floor, 4, "a live defender at HQ keeps the lease");
+  assert.equal(world._armySieges.size, 0, "the resolved siege is removed");
+  const ended = world.drainEvents().find((event) => event.event === "armySiegeEnded");
+  assert.equal(ended.result, "defender");
+  assert.equal(ended.reason, "defenders_present");
+});
+
+test("losing the attacking commander aborts the siege without evicting the hall", () => {
+  const { world, commander } = commanding(FREEHOLD);
+  world.handleCommand("cmd", { type: "armyRentHall", floor: 4 });
+  const rival = world.addPlayer("riv", { name: "Riv", archetype: "vanguard" });
+  rival.level = ARMY_LEVEL;
+  rival.honor = ARMY_HONOR;
+  rival.gold = ARMY_HALL_RENT * 2;
+  world.handleCommand("riv", { type: "armyCreate", name: "契约军", camp: COVENANT });
+  world.handleCommand("riv", { type: "armyRentHall", floor: 4 });
+
+  commander.mapId = BATTLE_ZONE_MAP;
+  commander.x = CAMP_HQ[COVENANT].x;
+  commander.y = CAMP_HQ[COVENANT].y;
+  world.handleCommand("cmd", { type: "armySiege", camp: COVENANT, floor: 4 });
+  world._damagePlayer(commander, 1_000_000, "defender");
+  world.update(0.05);
+
+  assert.equal(rival.army.hall.floor, 4, "a broken assault cannot evict the lease");
+  const ended = world.drainEvents().find((event) => event.event === "armySiegeEnded");
+  assert.equal(ended.result, "defender");
+  assert.equal(ended.reason, "commander_lost_position");
 });
 
 test("siege guards location, range, floor, rank, and cooldown independently", () => {
@@ -239,6 +293,8 @@ test("siege guards location, range, floor, rank, and cooldown independently", ()
   throwsCode(() => world.handleCommand("rec", { type: "armySiege", camp: COVENANT, floor: 4 }), "ARMY_RANK_FORBIDDEN");
 
   world.handleCommand("cmd", { type: "armySiege", camp: COVENANT, floor: 4 });
+  world.time += ARMY_SIEGE_DURATION;
+  world.update(0.05);
   rival.gold = ARMY_HALL_RENT;
   world.handleCommand("riv", { type: "armyRentHall", floor: 4 });
   throwsCode(() => world.handleCommand("cmd", { type: "armySiege", camp: COVENANT, floor: 4 }), "SIEGE_COOLDOWN");

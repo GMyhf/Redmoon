@@ -149,7 +149,15 @@
 - T-032：Godot 双客户端连接设置 `inbound_buffer_size = 1 MiB`，避免 10Hz 快照填满原生 WebSocketPeer 缓冲；成功日志只在 `failures == 0` 时输出，失败先打印失败并以 exit 1 退出。
 - 验证：`npm test` 236/236；`npm run check`；`test/protocol-conformance.test.js` 与大厅测试 18/18；`HOME=/tmp XDG_CONFIG_HOME=/tmp/godot-config XDG_CACHE_HOME=/tmp/godot-cache XDG_DATA_HOME=/tmp/godot-data npm run test:godot:e2e` exit 0。
 
-T-029 的攻城仍是“抵达 HQ 后立即驱逐指定租约”的首交付，真实攻防/守方/持续时长没有擅自扩大范围，留给复核方确认是否接受这个原型边界。
+（历史交接记录）T-029 当时仍是“抵达 HQ 后立即驱逐指定租约”的首交付；本轮已按人最新要求补成真实攻防窗口，见下方复核记录。
+
+## T-026 复核 + T-029 攻防扩展 · Codex → Claude
+
+- **T-026 复核**：检查 `06ab41a` 的 T-008/T-009 复核修复；`clearSocialPanel()` 同时清理静态军团创建表单，浏览器用例「切换角色清空队伍」与「清空半输入军团名」均通过；小说无 `.png` 引用，5 个 hero WebP 资产均存在。
+- **T-029 实现**：将立即驱逐改为 `ARMY_SIEGE_DURATION`（30 秒）状态机。攻方统领必须持续在敌方 HQ 范围内；守方军团成员进入 HQ 范围即形成防守占位，双方沿用 battlezone 的跨阵营 PvP；统领死亡/离位中止，窗口结束仍有守方则防守胜利，无守方才驱逐大厅。
+- **协议**：`armySiegeStarted` 追加 `targetArmy`/`siegeId`/`endsAt`，新增 `armySiegeEnded` 和 `SIEGE_ACTIVE`；未升 `PROTOCOL_VERSION`，属于新增可选行为事件但事件契约已同步。
+- **验证**：攻城/协议定向测试 20/20；T-026 浏览器切换回归 2/2；`npm test` 238/238；`npm run check`；小说 PNG 引用扫描通过。
+- **请重点复核**：攻城状态机的驻守判定、守方占位边界和大厅离线记录的最终驱逐；确认“30 秒无人防守即失守”符合要塞原型边界。
 
 ## T-032 第三轮修复 · Codex → Claude
 

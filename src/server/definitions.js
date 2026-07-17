@@ -153,15 +153,15 @@ export const CAMP_STAGING = Object.freeze({
   freehold: Object.freeze({ x: 700, y: 700 }),
   covenant: Object.freeze({ x: 4100, y: 2000 }),
 });
-// The HQ is a separate siege objective from the rented floors. Reaching the
-// enemy HQ in the battle zone is the server-side proof of access; the command
-// still names a floor so a successful siege evicts one lease, not the whole
-// hideout.
+// The HQ is a separate siege objective from the rented floors. A commander
+// must hold the enemy HQ for the assault window; defenders can contest it in
+// the battle zone, and only an uncontested window evicts one lease.
 export const CAMP_HQ = Object.freeze({
   freehold: Object.freeze({ x: 520, y: 520 }),
   covenant: Object.freeze({ x: 4280, y: 2180 }),
 });
 export const ARMY_SIEGE_RANGE = 220;
+export const ARMY_SIEGE_DURATION = 30;
 export const ARMY_SIEGE_COOLDOWN = 60;
 
 // ---- Battle zone -----------------------------------------------------

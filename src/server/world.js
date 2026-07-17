@@ -47,6 +47,7 @@ import {
   ARMY_HALL_RENT,
   ARMY_HONOR,
   ARMY_SIEGE_COOLDOWN,
+  ARMY_SIEGE_DURATION,
   ARMY_SIEGE_RANGE,
   CAMPS,
   CAMP_HQ,
@@ -232,6 +233,8 @@ export class World {
     this._partySequence = 0;
     this._armyInvites = new Map();
     this._armyTransfers = new Map();
+    this._armySieges = new Map();
+    this._armySiegeSequence = 0;
     this.duels = new Map();
     this._duelInvites = new Map();
     this._duelSequence = 0;
@@ -1839,28 +1842,107 @@ export class World {
     const targetArmy = this._hallHolder(wantedCamp, wantedFloor);
     if (!targetArmy) throw new WorldError("HALL_EMPTY", "No army holds that floor.");
 
-    const army = player.army.name;
-    this._setArmy(player, { ...player.army, siegeAt: round(this.time) });
-    this._emit("armySiegeStarted", {
-      playerId: id, army, targetCamp: wantedCamp, floor: wantedFloor,
-    }, { players: this._onlineArmyMembers(army).map((member) => member.id) });
-
-    const targetCommander = this._armyCommander(targetArmy);
-    if (targetCommander) {
-      this._dropHall(targetCommander, "siege");
-    } else {
-      const record = this._armyCommanderRecord(targetArmy);
-      if (record?.army?.hall) {
-        delete record.army.hall;
-        this._emit("armyHallLost", {
-          playerId: "", army: targetArmy, floor: wantedFloor, reason: "siege",
-        }, { players: this._onlineArmyMembers(targetArmy).map((member) => member.id) });
+    for (const siege of this._armySieges.values()) {
+      if (this._armyKey(siege.attackerArmy) === this._armyKey(player.army.name)
+        || (siege.targetCamp === wantedCamp && siege.floor === wantedFloor)) {
+        throw new WorldError("SIEGE_ACTIVE", "That army is already committed to a siege.");
       }
     }
-    this._emit("armyHallEvicted", {
-      playerId: id, army, targetArmy, targetCamp: wantedCamp, floor: wantedFloor,
-    });
+
+    const army = player.army.name;
+    const siegeId = `siege-${++this._armySiegeSequence}`;
+    const siege = {
+      id: siegeId,
+      attackerArmy: army,
+      attackerCamp: player.army.camp,
+      targetArmy,
+      targetCamp: wantedCamp,
+      floor: wantedFloor,
+      startedAt: round(this.time),
+      endsAt: round(this.time + ARMY_SIEGE_DURATION),
+    };
+    this._armySieges.set(siegeId, siege);
+    this._setArmy(player, { ...player.army, siegeAt: round(this.time) });
+    this._emit("armySiegeStarted", {
+      playerId: id,
+      army,
+      targetArmy,
+      targetCamp: wantedCamp,
+      floor: wantedFloor,
+      siegeId,
+      endsAt: siege.endsAt,
+    }, { mapId: BATTLE_ZONE_MAP });
     return player;
+  }
+
+  _siegeDefenders(siege) {
+    return this._onlineArmyMembers(siege.targetArmy).filter((member) => (
+      member.alive
+      && member.mapId === BATTLE_ZONE_MAP
+      && Math.hypot(member.x - CAMP_HQ[siege.targetCamp].x, member.y - CAMP_HQ[siege.targetCamp].y)
+        <= ARMY_SIEGE_RANGE
+    ));
+  }
+
+  _endArmySiege(siege, result, reason) {
+    if (!this._armySieges.delete(siege.id)) return;
+    this._emit("armySiegeEnded", {
+      siegeId: siege.id,
+      army: siege.attackerArmy,
+      targetArmy: siege.targetArmy,
+      targetCamp: siege.targetCamp,
+      floor: siege.floor,
+      result,
+      reason,
+    }, { mapId: BATTLE_ZONE_MAP });
+  }
+
+  _evictArmyHall(name) {
+    const commander = this._armyCommander(name);
+    if (commander) {
+      this._dropHall(commander, "siege");
+      return true;
+    }
+    const record = this._armyCommanderRecord(name);
+    if (!record?.army?.hall) return false;
+    const floor = record.army.hall.floor;
+    delete record.army.hall;
+    this._emit("armyHallLost", {
+      playerId: "", army: name, floor, reason: "siege",
+    }, { players: this._onlineArmyMembers(name).map((member) => member.id) });
+    return true;
+  }
+
+  _updateArmySieges() {
+    for (const siege of [...this._armySieges.values()]) {
+      const commander = this._armyCommander(siege.attackerArmy);
+      const hq = CAMP_HQ[siege.targetCamp];
+      if (!commander || !this._isActor(commander) || !commander.alive
+        || commander.mapId !== BATTLE_ZONE_MAP
+        || Math.hypot(commander.x - hq.x, commander.y - hq.y) > ARMY_SIEGE_RANGE) {
+        this._endArmySiege(siege, "defender", "commander_lost_position");
+        continue;
+      }
+      const hall = this._armyHall(siege.targetArmy);
+      if (!hall || hall.floor !== siege.floor) {
+        this._endArmySiege(siege, "cancelled", "hall_lost");
+        continue;
+      }
+      if (this.time < siege.endsAt) continue;
+      if (this._siegeDefenders(siege).length > 0) {
+        this._endArmySiege(siege, "defender", "defenders_present");
+        continue;
+      }
+      this._evictArmyHall(siege.targetArmy);
+      this._emit("armyHallEvicted", {
+        playerId: commander.id,
+        army: siege.attackerArmy,
+        targetArmy: siege.targetArmy,
+        targetCamp: siege.targetCamp,
+        floor: siege.floor,
+      }, { mapId: BATTLE_ZONE_MAP });
+      this._endArmySiege(siege, "attacker", "hq_captured");
+    }
   }
 
   _dropHall(commander, reason) {
@@ -2633,6 +2715,7 @@ export class World {
       this._updatePortals();
       this._updateMobs(step);
       this._updateProjectiles(step);
+      this._updateArmySieges();
       this._updateDrops(step);
       this._processMobSpawns();
     }
