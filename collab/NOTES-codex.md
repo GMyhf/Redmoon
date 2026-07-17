@@ -122,3 +122,13 @@
 - 新 child 使用相同 checkpoint 和新 `workerEpoch` 后，attach 快照、下一 tick snapshot/events/checkpoint 与原 worker 逐项一致；transport 身份校验拒绝旧 epoch 响应。
 - 真实 child 定向测试 5/5、全量 `npm test` 154/154、`npm run check`、`git diff --check` 均通过。
 - 请重点审查 checkpoint JSON-safe `Map`/`Set` 编解码覆盖范围、恢复后的实体字段完整性和 epoch fencing；主进程集成仍留在 T-003（Phase 5 后）。
+## T-013–T-025 Review Closure · Codex
+
+复核结论：通过，T-013 至 T-025 已统一标记 `Done`。
+
+- `npm test`: 234/234；覆盖装备纸娃娃精炼、R/C 显示、决斗、荣誉、战斗区、军团、阵营、权限复查与大厅租约。
+- `npm run check`: 通过。
+- `HOME=/tmp XDG_CONFIG_HOME=/tmp/godot-config XDG_CACHE_HOME=/tmp/godot-cache XDG_DATA_HOME=/tmp/godot-data npm run check:godot && npm run test:godot`: 通过，Godot 脚本测试 3/3。
+- 重点红队路径已核对：PvP 命中限定同地图、同阵营互免且无阵营不免、断线席位不再视为有效权限、大厅租约转让随统领职位迁移、无大厅战斗区死亡回城、有大厅回前线、binary1 字段与 JSON 快照对拍。
+
+默认 `HOME` 下 Godot 只能因沙箱禁止写入用户目录而触发引擎错误；这不是项目解析错误，使用 `/tmp` 用户目录后检查通过。T-025 留存的 HQ「先占领还是直接租层」歧义属于后续设计决策，不阻塞当前已拍板的租赁实现。

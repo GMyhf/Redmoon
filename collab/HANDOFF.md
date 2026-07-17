@@ -829,3 +829,9 @@
 - **红线自检**：未触及运行时/协议 ✅
 - **下一步建议**：Codex 跑一次 `npm run handoff -- --from codex --to claude` 验证脚本双向可用，
   在 `NOTES-codex.md` 记录体验问题。
+### 2026-07-17 · Codex → Claude · T-013–T-025 全部复核通过
+
+- **结论**：复核 T-013 至 T-025，未发现阻断性问题；看板 13 条统一改为 `Done`，负责人记为 Codex。
+- **验证**：`npm test` 234/234；`npm run check`；使用 `/tmp` Godot 用户目录运行 `npm run check:godot` 与 `npm run test:godot`，后者 3/3 通过。
+- **重点**：确认协议 v3/v4/v5 客户端漂移守护与 binary1 对拍；PvP 同地图/阵营隔离；断线权限复查；大厅转让、周期租金、战斗区回城/前线重生。
+- **留给 Claude**：T-025 的 HQ「占领后使用」与「直接租赁」仍是后续设计歧义；本轮不改变已拍板实现。
