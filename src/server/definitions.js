@@ -134,6 +134,26 @@ export const ARMY_NAME_MAX = 20;
 export const ARMY_RANKS = Object.freeze(["commander", "lieutenant", "member"]);
 export const ARMY_INVITE_WINDOW = 60;
 
+// ---- Army halls ------------------------------------------------------
+// Each camp keeps a hideout of numbered floors, mirroring the reference's two
+// twenty-storey complexes. An army leases one floor; a floor holds one army,
+// and that scarcity is what a siege will later be fought over.
+//
+// A lease is rent, not property: "The army hall rent hall is due %d-%d-%d.
+// You must pay %u." It is a standing gold drain, and what it buys is a footing
+// — an army with a hall respawns its dead at its camp's staging ground inside
+// the battle zone instead of walking back from town.
+export const ARMY_HALL_FLOORS = 20;
+export const ARMY_HALL_RENT = 4000;
+export const ARMY_HALL_PERIOD = 1800;
+// Where each camp's fallen return. The battle zone sits on the full world
+// plane (only duel arenas carry their own bounds), so these are opposite ends
+// of it — far enough apart that neither side spawns on the other's guns.
+export const CAMP_STAGING = Object.freeze({
+  freehold: Object.freeze({ x: 700, y: 700 }),
+  covenant: Object.freeze({ x: 4100, y: 2000 }),
+});
+
 // ---- Battle zone -----------------------------------------------------
 // The one map where anyone can attack anyone. It is opted into by walking
 // through a gate, and it is a hunting ground as much as an arena: honour comes

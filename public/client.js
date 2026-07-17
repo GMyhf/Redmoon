@@ -129,6 +129,7 @@ import {
   ];
   const REFINE_HONOR_GATE = [0, 0, 200, 400];
   const ARMY_RANK_LABELS = { commander: "统领", lieutenant: "副官", member: "团员" };
+  const ARMY_HALL_FLOORS = 20;
   const DUEL_REASONS = {
     defeat: "对手倒下",
     forfeit: "认输",
@@ -370,6 +371,7 @@ import {
     inventoryLimit: 240,
     shopId: null,
     socialSignature: "",
+    serverTime: 0,
     inputSeq: 0,
     lastInput: 0,
     lastFrame: performance.now(),
@@ -752,6 +754,8 @@ import {
     if (!state.joined && !state.entryRequested) return;
     const world = snapshot.world && typeof snapshot.world === "object" ? snapshot.world : snapshot;
     state.tick = finite(first(snapshot.tick, world.tick), state.tick);
+    // The rent clock is the server's, so the countdown has to read its time.
+    state.serverTime = finite(snapshot.serverTime, state.serverTime);
     state.id = String(first(snapshot.selfId, snapshot.playerId, world.selfId, state.id, ""));
     applyMap(first(world.map, world));
 
@@ -1293,6 +1297,45 @@ import {
       }
       const camp = CAMP_INFO[army.camp];
       addSection(`军团·${army.name}`, camp ? camp.label : `${members.length}`, actions[0]);
+      if (army.hall) {
+        const due = Math.max(0, Math.round(finite(army.hall.rentDueAt, 0) - finite(state.serverTime, 0)));
+        const give = document.createElement("button");
+        give.type = "button";
+        give.textContent = "撤";
+        give.title = "退租大厅";
+        give.dataset.social = "army-hall-release";
+        addRow(
+          `${army.hall.floor} 层大厅`,
+          `${Math.ceil(due / 60)} 分后收租`,
+          "is-online",
+          isCommander ? [give] : [],
+        );
+      } else if (isCommander && army.camp) {
+        const row = document.createElement("div");
+        row.className = "social-row";
+        const hint = document.createElement("b");
+        hint.className = "social-name";
+        hint.textContent = "租用大厅";
+        hint.title = "租下本阵营要塞的一层：团员在血斗回廊阵亡后于本阵营集结点重生，而不必从灰港走回来。租金周期性扣除，付不起即失去";
+        const field = document.createElement("input");
+        field.type = "number";
+        field.min = "1";
+        field.max = String(ARMY_HALL_FLOORS);
+        field.placeholder = "层";
+        field.className = "hall-floor-input";
+        const sign = document.createElement("button");
+        sign.type = "button";
+        sign.textContent = "租";
+        sign.addEventListener("click", () => {
+          const floor = Number(field.value);
+          if (Number.isFinite(floor) && floor > 0) send({ type: "armyRentHall", floor });
+        });
+        const group = document.createElement("span");
+        group.className = "social-actions";
+        group.append(field, sign);
+        row.append(hint, group);
+        rows.push(row);
+      }
       if (!army.camp && isCommander) {
         // Declared once and never again, so it is worth a deliberate click.
         const row = document.createElement("div");
@@ -1631,6 +1674,21 @@ import {
       sfx(520, 0.14, "triangle", 0.05);
       return;
     }
+    if (eventName === "armyhallrented") {
+      state.socialSignature = "";
+      pushEvent(`租下${CAMP_INFO[event.camp]?.label || event.camp} ${event.floor} 层大厅 // −${event.rent} 金`);
+      return;
+    }
+    if (eventName === "armyhallrentpaid") {
+      state.socialSignature = "";
+      pushEvent(`大厅租金已付 // −${event.rent} 金`);
+      return;
+    }
+    if (eventName === "armyhalllost") {
+      state.socialSignature = "";
+      pushEvent(event.reason === "unpaid" ? "大厅租金未付 // 已失去大厅" : "已退租大厅");
+      return;
+    }
     if (eventName === "armycampset") {
       state.socialSignature = "";
       pushEvent(`军团·${event.army} 宣誓加入${CAMP_INFO[event.camp]?.label || event.camp}`);
@@ -1785,6 +1843,11 @@ import {
       DUEL_NOT_READY: "双方都必须存活且不在副本中",
       NO_DUEL: "你不在决斗中",
       NO_DUEL_INVITE: "没有来自该玩家的决斗邀请（或已超时）",
+      HALL_HELD: "军团已持有一座大厅",
+      HALL_TAKEN: "该层已被其他军团租下",
+      INVALID_FLOOR: "没有这一层",
+      NO_CAMP: "先宣誓阵营，才能在本阵营要塞租厅",
+      NO_HALL: "军团没有大厅",
       CAMP_SETTLED: "阵营一经宣誓不可更改",
       INVALID_CAMP: "没有这个阵营",
       ARMY_ACTIVE: "该玩家已在某个军团中",
@@ -4587,6 +4650,7 @@ import {
     if (kind === "army-leave") send({ type: "armyLeave" });
     if (kind === "army-disband") send({ type: "armyDisband" });
     if (kind === "army-camp") send({ type: "armySetCamp", camp: button.dataset.camp });
+    if (kind === "army-hall-release") send({ type: "armyReleaseHall" });
     if (kind === "friend-add") send({ type: "friendAdd", name: button.dataset.name });
     if (kind === "friend-remove") send({ type: "friendRemove", name: button.dataset.name });
     state.socialSignature = "";

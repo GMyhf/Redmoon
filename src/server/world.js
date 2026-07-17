@@ -42,8 +42,12 @@ import {
   SKILL_BEHAVIORS,
   MOB_TYPES,
   PORTAL_DESTINATIONS,
+  ARMY_HALL_FLOORS,
+  ARMY_HALL_PERIOD,
+  ARMY_HALL_RENT,
   ARMY_HONOR,
   CAMPS,
+  CAMP_STAGING,
   ARMY_INVITE_WINDOW,
   ARMY_LEVEL,
   ARMY_LIMIT,
@@ -725,6 +729,10 @@ export class World {
         return this.createArmy(id, message.name, message.camp);
       case "armySetCamp":
         return this.setArmyCamp(id, message.camp);
+      case "armyRentHall":
+        return this.rentArmyHall(id, message.floor);
+      case "armyReleaseHall":
+        return this.releaseArmyHall(id);
       case "armyInvite":
         return this.inviteArmy(id, message.target);
       case "armyAccept":
@@ -1184,7 +1192,8 @@ export class World {
     // A defeated dungeon member respawns in town and leaves the instance;
     // in-place revival is the explicit way to continue the same run.
     if (String(player.mapId).startsWith("dungeon:")) this.leaveDungeon(id, true);
-    const spawn = this._playerSpawn();
+    const spawn = this._respawnPointFor(player);
+    player.mapId = spawn.mapId;
     player.x = spawn.x;
     player.y = spawn.y;
     player.hp = player.maxHp;
@@ -1704,6 +1713,137 @@ export class World {
     return player;
   }
 
+  // A lease lives on the commander's own record rather than on every member's.
+  // Rent ticks, and fanning a due-date out to the whole roster every period
+  // would be a great deal of writing for one number that only one person pays.
+  _armyCommander(name) {
+    const key = this._armyKey(name);
+    for (const player of this.players.values()) {
+      if (this._armyKey(player.army?.name) === key && player.army.rank === "commander") return player;
+    }
+    return null;
+  }
+
+  _armyCommanderRecord(name) {
+    const key = this._armyKey(name);
+    for (const record of Object.values(this.accountStore)) {
+      if (this._armyKey(record.army?.name) === key && record.army.rank === "commander") return record;
+    }
+    return null;
+  }
+
+  // The lease as stored, wherever the commander happens to be.
+  _armyHall(name) {
+    const live = this._armyCommander(name);
+    if (live) return live.army.hall ?? null;
+    return this._armyCommanderRecord(name)?.army?.hall ?? null;
+  }
+
+  _hallHolder(camp, floor) {
+    const seen = new Set();
+    const check = (army) => {
+      if (!army?.name || army.rank !== "commander") return null;
+      const key = this._armyKey(army.name);
+      if (seen.has(key)) return null;
+      seen.add(key);
+      return army.camp === camp && army.hall?.floor === floor ? army.name : null;
+    };
+    for (const player of this.players.values()) {
+      const hit = check(player.army);
+      if (hit) return hit;
+    }
+    for (const record of Object.values(this.accountStore)) {
+      const hit = check(record.army);
+      if (hit) return hit;
+    }
+    return null;
+  }
+
+  rentArmyHall(id, floor) {
+    const player = this._requirePlayer(id);
+    if (!player.army) throw new WorldError("NO_ARMY", "You are not in an army.");
+    if (this._rankOf(player) !== "commander") {
+      throw new WorldError("ARMY_RANK_FORBIDDEN", "Only the commander signs for a hall.");
+    }
+    if (!player.army.camp) {
+      throw new WorldError("NO_CAMP", "Declare a camp before leasing in its hideout.");
+    }
+    if (player.army.hall) throw new WorldError("HALL_HELD", "Your army already holds a hall.");
+    const wanted = Math.floor(Number(floor));
+    if (!Number.isFinite(wanted) || wanted < 1 || wanted > ARMY_HALL_FLOORS) {
+      throw new WorldError("INVALID_FLOOR", `Floors run 1..${ARMY_HALL_FLOORS}.`);
+    }
+    if (this._hallHolder(player.army.camp, wanted)) {
+      throw new WorldError("HALL_TAKEN", "Another army leases that floor.");
+    }
+    if (player.gold < ARMY_HALL_RENT) {
+      throw new WorldError("NO_GOLD", `The first rent is ${ARMY_HALL_RENT} gold.`);
+    }
+    player.gold -= ARMY_HALL_RENT;
+    this._setArmy(player, {
+      ...player.army,
+      hall: { floor: wanted, rentDueAt: round(this.time + ARMY_HALL_PERIOD) },
+    });
+    this._emit("armyHallRented", {
+      playerId: id,
+      army: player.army.name,
+      camp: player.army.camp,
+      floor: wanted,
+      rent: ARMY_HALL_RENT,
+    }, { players: this._onlineArmyMembers(player.army.name).map((member) => member.id) });
+    return player;
+  }
+
+  releaseArmyHall(id) {
+    const player = this._requirePlayer(id);
+    if (!player.army?.hall) throw new WorldError("NO_HALL", "Your army holds no hall.");
+    if (this._rankOf(player) !== "commander") {
+      throw new WorldError("ARMY_RANK_FORBIDDEN", "Only the commander gives up a hall.");
+    }
+    this._dropHall(player, "released");
+    return player;
+  }
+
+  _dropHall(commander, reason) {
+    const army = commander.army.name;
+    const floor = commander.army.hall?.floor ?? null;
+    const rest = { ...commander.army };
+    delete rest.hall;
+    this._setArmy(commander, rest);
+    this._emit("armyHallLost", {
+      playerId: commander.id,
+      army,
+      floor,
+      reason,
+    }, { players: this._onlineArmyMembers(army).map((member) => member.id) });
+  }
+
+  // Rent falls due whether or not anyone is watching. It is charged to the
+  // commander, and a lease that cannot be paid ends — which is the churn that
+  // keeps floors changing hands.
+  _updateArmyHalls() {
+    for (const player of this.players.values()) {
+      const hall = player.army?.hall;
+      if (!hall || player.army.rank !== "commander") continue;
+      if (this.time < hall.rentDueAt) continue;
+      if (player.gold < ARMY_HALL_RENT) {
+        this._dropHall(player, "unpaid");
+        continue;
+      }
+      player.gold -= ARMY_HALL_RENT;
+      this._setArmy(player, {
+        ...player.army,
+        hall: { ...hall, rentDueAt: round(this.time + ARMY_HALL_PERIOD) },
+      });
+      this._emit("armyHallRentPaid", {
+        playerId: player.id,
+        army: player.army.name,
+        rent: ARMY_HALL_RENT,
+        dueAt: round(this.time + ARMY_HALL_PERIOD),
+      }, { players: [player.id] });
+    }
+  }
+
   // A camp is declared once. It is never re-declared: see CAMPS on why a
   // switchable allegiance would be an escape button rather than a choice.
   setArmyCamp(id, camp) {
@@ -1938,8 +2078,13 @@ export class World {
       throw new WorldError("INVALID_TARGET", "That handover is no longer valid.");
     }
     const army = commander.army.name;
-    this._setArmy(commander, { ...commander.army, rank: "lieutenant" });
-    this._setArmy(player, { ...player.army, rank: "commander" });
+    // The lease rides with the office, not the person: leaving it behind would
+    // strand the hall on someone who no longer pays for it.
+    const hall = commander.army.hall ?? null;
+    const outgoing = { ...commander.army, rank: "lieutenant" };
+    delete outgoing.hall;
+    this._setArmy(commander, outgoing);
+    this._setArmy(player, { ...player.army, rank: "commander", ...(hall ? { hall } : {}) });
     const recipients = this._onlineArmyMembers(army).map((member) => member.id);
     this._emit("armyRankChanged", { playerId: player.id, name: player.name, army, rank: "commander" }, { players: recipients });
     this._emit("armyRankChanged", { playerId: commander.id, name: commander.name, army, rank: "lieutenant" }, { players: recipients });
@@ -2423,6 +2568,7 @@ export class World {
     for (let index = 0; index < steps; index += 1) {
       this.time += step;
       this._expireDungeons();
+      this._updateArmyHalls();
       this._updateDuels();
       this._updatePlayers(step);
       this._updatePortals();
@@ -3493,6 +3639,9 @@ export class World {
           name: player.army.name,
           rank: player.army.rank,
           camp: player.army.camp ?? null,
+          // The whole company sees the lease, since it is what brings them
+          // back to the front; only the commander is billed for it.
+          hall: this._armyHall(player.army.name),
           members: this._armyRoster(player.army.name).map((member) => ({
             name: member.name,
             rank: member.rank,
@@ -3562,6 +3711,21 @@ export class World {
       }
     }
     return nearest;
+  }
+
+  // Falling in the battle zone used to leave you standing in it, at the town's
+  // coordinates pasted onto the wrong map — a spot that meant nothing and cost
+  // nothing. Now the zone sends you home unless your army leases a hall, and a
+  // hall is exactly what buys the footing to come straight back.
+  _respawnPointFor(player) {
+    if (player.mapId === BATTLE_ZONE_MAP) {
+      const camp = player.army?.camp;
+      const staging = camp ? CAMP_STAGING[camp] : null;
+      if (staging && this._armyHall(player.army.name)) {
+        return { mapId: BATTLE_ZONE_MAP, x: staging.x, y: staging.y };
+      }
+    }
+    return { mapId: "town", ...this._playerSpawn() };
   }
 
   _playerSpawn() {

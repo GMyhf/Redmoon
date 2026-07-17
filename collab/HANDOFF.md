@@ -45,6 +45,18 @@
 - 待处理：Godot 客户端尚未接入决斗/荣誉 UI 与命令，浏览器与 Godot 功能不对等（P1，详见 `NOTES-codex.md`）。
 - 建议：补 Godot 端支持，或在发布文档明确本轮决斗/荣誉为浏览器限定后再标记完成。
 
+### 2026-07-18 · Claude → Codex · T-025 P3 第三步 · 要塞（军团大厅）
+
+- **做了什么**：每阵营要塞 20 层、一层一军团（对齐 `FreedomHall2/13`、`LiberationHall7/18` 两栋编号楼）。**租而非占**：签约先付一期，其后每 30 分钟自动从统领扣，**付不起即失去**、楼层放回市场。**收益 = 前线重生点**：持厅军团成员在血斗回廊阵亡后于本阵营集结点重生，无厅则送回灰港（依据 `will respawn at your team's camp`）。
+- **这一步的形状比「死字段」更糟**：它是**纯成本**——参照里银行/仓库独立（`Street1Bank1`/`FreedomVillageWarehouse`），大厅不是储物间。只有租金没收益就没人租。人拍板了收益。
+- **我给人的选项有一条前提是错的，已当场更正**：我说「无厅=送回灰港（现状）」，**实测不是**——`respawnPlayer` 只改坐标不改 `mapId`，回廊阵亡后**仍留在回廊**、落在 `(2400,1350)`（城镇坐标套错地图的无意义点）。**即我上一轮交付的战斗区，死亡几乎没有代价**。现在无厅即回城，这是新行为不是现状。
+- **改了哪些文件**：`src/server/definitions.js`, `src/server/world.js`, `src/server/protocol.js`, `src/server/server.js`, `public/client.js`, `clients/godot/scripts/main.gd`, `test/server-hall.test.js`（新增）, `docs/*`, `CHANGELOG.md`, `collab/*`
+- **关联提交**：未提交，见 review-input.md
+- **验证**：`npm test` **234/234**（新增 9 条）｜ `check` / `check:godot` / `test:godot` ｜ **变异 ×4** ｜ **真协议端到端 5/5** ｜ **Godot 真连活服务器冒烟**
+- **请重点看**：① **租约存在统领记录里**（租金只有他付，fan-out 到全团是大量写入换一个数）——**转让时租约必须跟着职位走**，我预判并测了、变异验证过；**但你能想到别的「租约滞留」路径吗**（统领被逐？统领退团？我推理说被现有规则拦住了，**但那是推理不是测试**）；② **`_updateArmyHalls` 只遍历在线玩家 → 统领离线时租金不扣也不失去，大厅冻结**。比「睡一觉起来厅没了」好，但**离线免租可被刻意利用**——这是我拍的；③ **未解歧义**：`Army must occupy the HQ to have access.` 暗示先占领后使用，与「直接租层」矛盾；`Insufficient funds for HQ repair.` / `HQ defense system has been installed.` 说明 HQ 是可修缮布防的独立控制点。我按「直接租层」实现，**HQ 是否为攻城的独立目标留给第四步**——若你能解出更准结构，说；④ 我拍的：20 层、4000 金/30 分、集结点坐标。
+- **红线自检**：客户端只提交意图 ✅（租约、计费、重生点全在服务端）｜ 协议改动是否动了 `PROTOCOL_VERSION`：N/A（**只新增指令与事件、`army.hall` 在自身记录内**，仍为 5）
+- **下一步建议**：P3 只剩**攻城**。参照给的赌注很清楚：`- Defeat: Hall lost if your Army rents one`（输了丢租约）、`evict them from their Hall.`、`if no hall free army disbands.`（没有大厅，组织本身解散）。这与我们「装备不上赌桌、金币与荣誉才上」的取舍是一路的。
+
 ### 2026-07-18 · Claude → Codex · T-024 P3 第二步 · 阵营（**协议 v5**）
 
 - **做了什么**：阵营（自由邦 / 契约同盟），**属于军团而非个人**（红月 `tblArmyList1.Camp` 在军团表上；地图里两座镜像要塞群各属一方）。**血斗回廊里同阵营互不可攻击、跨阵营才能开火**——回廊从混战变成两军交战。**无阵营者仍人人可打**（阵营是立场，不是护身符）。**一经宣誓不可更改**。

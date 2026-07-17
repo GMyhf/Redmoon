@@ -632,6 +632,12 @@ func _handle_event(event: Dictionary) -> void:
 				_set_status("%s 想把军团·%s 交给你 — 按 P 接掌" % [str(event.get("fromName", "?")), str(event.get("army", ""))])
 		"armyCreated":
 			_set_status("军团·%s 已建立" % str(event.get("name", "")))
+		"armyHallRented":
+			_set_status("租下 %d 层大厅 // −%d 金" % [int(event.get("floor", 0)), int(event.get("rent", 0))])
+		"armyHallRentPaid":
+			_set_status("大厅租金已付 // −%d 金" % int(event.get("rent", 0)))
+		"armyHallLost":
+			_set_status("大厅租金未付 // 已失去大厅" if str(event.get("reason", "")) == "unpaid" else "已退租大厅")
 		"armyCampSet":
 			var camp_id := str(event.get("camp", ""))
 			_set_status("军团·%s 宣誓加入%s" % [
@@ -1849,6 +1855,24 @@ func _build_ui() -> void:
 	army_leave.text = "退团"
 	army_leave.pressed.connect(func() -> void: _send({"type": "armyLeave"}))
 	army_row.add_child(army_leave)
+	var hall_row := HBoxContainer.new()
+	control_box.add_child(hall_row)
+	var hall_floor := SpinBox.new()
+	hall_floor.min_value = 1
+	hall_floor.max_value = 20
+	hall_floor.value = 1
+	hall_row.add_child(hall_floor)
+	var hall_rent := Button.new()
+	hall_rent.text = "租厅"
+	hall_rent.tooltip_text = "租下本阵营要塞的一层：团员在血斗回廊阵亡后于本阵营集结点重生，而非从灰港走回。租金周期扣除，付不起即失去"
+	hall_rent.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hall_rent.pressed.connect(func() -> void: _send({"type": "armyRentHall", "floor": int(hall_floor.value)}))
+	hall_row.add_child(hall_rent)
+	var hall_release := Button.new()
+	hall_release.text = "退租"
+	hall_release.pressed.connect(func() -> void: _send({"type": "armyReleaseHall"}))
+	hall_row.add_child(hall_release)
+
 	var camp_row := HBoxContainer.new()
 	control_box.add_child(camp_row)
 	for camp_id in CAMP_LABELS:
@@ -1998,10 +2022,12 @@ func _update_hud(data: Dictionary) -> void:
 	var army_text := ""
 	if army is Dictionary:
 		var camp_id := str(army.get("camp", ""))
-		army_text = "  [%s·%s%s]" % [
+		var hall: Variant = army.get("hall", null)
+		army_text = "  [%s·%s%s%s]" % [
 			str(army.get("name", "")),
 			ARMY_RANK_LABELS.get(str(army.get("rank", "")), str(army.get("rank", ""))),
 			("·" + CAMP_LABELS.get(camp_id, camp_id)) if camp_id != "" else "",
+			("·%d层" % int(hall.get("floor", 0))) if hall is Dictionary else "",
 		]
 	ui.hud.text = "%s  L%d  HP %d/%d  MP %d/%d  金币 %d  荣誉 %d%s  背包 %d  %s  在线 %d" % [
 		str(data.get("name", "")), int(data.get("level", 1)),

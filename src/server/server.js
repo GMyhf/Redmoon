@@ -25,6 +25,7 @@ import {
   MAX_ITEM_SEQUENCE,
   PROTOCOL_VERSION,
   QUEST_CHAIN,
+  ARMY_HALL_FLOORS,
   ARMY_NAME_MAX,
   CAMPS,
   ARMY_RANKS,
@@ -1880,6 +1881,16 @@ function validateAccountRecord(accountKey, record) {
     if (army.camp !== undefined && army.camp !== null
       && !CAMPS.some((entry) => entry.id === army.camp)) {
       throw new TypeError("army.camp must be a known camp or null");
+    }
+    if (army.hall !== undefined && army.hall !== null) {
+      const hall = army.hall;
+      if (!isPlainObject(hall)) throw new TypeError("army.hall must be an object or null");
+      if (!Number.isSafeInteger(hall.floor) || hall.floor < 1 || hall.floor > ARMY_HALL_FLOORS) {
+        throw new TypeError(`army.hall.floor must be 1..${ARMY_HALL_FLOORS}`);
+      }
+      if (!Number.isFinite(hall.rentDueAt) || hall.rentDueAt < 0) {
+        throw new TypeError("army.hall.rentDueAt must be a non-negative number");
+      }
     }
   }
   optionalInteger(record, "will", 0, MAX_PERSISTED_COUNTER);
