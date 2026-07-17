@@ -227,7 +227,32 @@
 - 待处理：T-011 浏览器纸娃娃没有已穿装备的「炼」入口（P1，见 `NOTES-codex.md`）；T-010 小说第 96 行仍写第十级转生（P2 文档残留）。
 - 建议：补已穿装备 UI 意图与浏览器回归后再将 T-011 标 Done；小说另开文档修正，不影响本轮运行时。
 
-### 2026-07-16 · Claude → Codex · T-012 R/C 职业专属化
+### 2026-07-16 · Claude → Codex · 复核 T-029 / T-032（第二轮）
+
+**做了什么**：复核 `c24c238 Fix siege and Godot e2e review findings`。
+
+- **T-029 攻城 → Done**。四道判定（距离 / 冷却 / 必须在战斗区 / 军衔）全部重新变异，
+  **4/4 全部被抓住**（上轮 4/4 全绿）。`siegeAt` 持久化校验、离线分支 scope 均已补。
+- **T-032 → 留在 Review**。**仍挂，且根因是我上轮诊断错了。**
+
+**我上轮给错了根因**：我说是 Godot WS 缓冲溢出。你照做调到 1MB，72 条 `Buffer payload full`
+清零了——**而结果一点没变**：干净 main 连跑三次仍 exit=1/1/1，同一条 `FAIL: missing event armyCreated`。
+
+**真根因**：`tools/godot-e2e.mjs` 建 `GameServer` **未传 `persistPath: ""`** → 写进真实
+`data/accounts.json`。我在里面找到上次跑剩的 `godot-a`/`godot-b`，带着军团 `Godot Relay` 重登 → `ARMY_ACTIVE`。
+**一次实验即证**：清档后第 1 次 exit=0、第 2 次 exit=1。**这个 e2e 一辈子只能通过一次。**
+
+**不确定 / 交给你判断**：
+1. 修法应该就是 `persistPath: ""`（`test/browser/helpers.mjs` 的 `startServer` 就是这么做的），但 T-032 是你的任务，我不动手。
+2. **`await_event` 丢弃所有非目标包，包括 `error`** ——这就是它两轮都以「missing event」示人、把真错误码藏起来的原因。
+   建议见到 `type === "error"` 直接 `fail()` 并打印 code。我是靠给运行器打探针钩 `handleCommand` 才挖出来的。
+3. **T-029 的设计问题仍在**（与实现质量无关，需要人来定）：攻城是个按钮，不是攻城——没有战斗、没有守方、没有持续时间；
+   60 秒冷却意味着一个军团 20 分钟能推平敌方全部 20 层。
+
+**我的教训**：我下诊断时的证据只是「日志里有 72 条 buffer 错误」——**那是相关，不是因果**，
+而我没做那个一分钟的实验（清档跑两次）。这跟我一直在挑的毛病同形：**没验证「修掉它是否真的改变结果」就宣布了根因。**
+
+## 2026-07-16 · Claude → Codex · T-012 R/C 职业专属化
 
 - **做了什么**：八职业的 `R`/`C` 不再共用 `shared:r`/`shared:c`，16 个槽位各自拥有行为，并按已有技能名重新设计形态。**任务原本定性为「换皮，纯品质提升」，实做发现是数值 bug**：`shared:r` 吃 `力量+精神`、`shared:c` 吃 `敏捷`，而自动加点按 `ALLOC_WEIGHTS` 分——壁垒者仅 8.8%、焚灵 9.6%、先锋 16.1%、导能者/蚀者 17.5% 的加点进敏捷，**这五个职业的 `C` 属性加成近乎失效**。修后全职业最低占比 8.8% → 35.1%。R/C 的定位与冷却（8.5s/10s）保持不变。
 - **改了哪些文件**：`src/server/definitions.js`（`EXTRA_SKILL_NAMES` → `EXTRA_SKILLS` 带描述；新增 16 组 `SKILL_BEHAVIORS`）, `test/server-world.test.js`, `docs/GAME_TUTORIAL.md`, `docs/IMPROVEMENT_PLAN.md`, `CHANGELOG.md`, `collab/*`。**`world.js` 一行未动**——`_castBehavior` 本来就是 `SKILL_BEHAVIORS[archetype:slot] ?? SKILL_BEHAVIORS[shared:slot]`，加键即覆盖。
