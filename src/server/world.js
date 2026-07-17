@@ -46,7 +46,10 @@ import {
   ARMY_HALL_PERIOD,
   ARMY_HALL_RENT,
   ARMY_HONOR,
+  ARMY_SIEGE_COOLDOWN,
+  ARMY_SIEGE_RANGE,
   CAMPS,
+  CAMP_HQ,
   CAMP_STAGING,
   ARMY_INVITE_WINDOW,
   ARMY_LEVEL,
@@ -733,6 +736,8 @@ export class World {
         return this.rentArmyHall(id, message.floor);
       case "armyReleaseHall":
         return this.releaseArmyHall(id);
+      case "armySiege":
+        return this.siegeArmy(id, message.camp, message.floor);
       case "armyInvite":
         return this.inviteArmy(id, message.target);
       case "armyAccept":
@@ -1801,6 +1806,60 @@ export class World {
       throw new WorldError("ARMY_RANK_FORBIDDEN", "Only the commander gives up a hall.");
     }
     this._dropHall(player, "released");
+    return player;
+  }
+
+  siegeArmy(id, targetCamp, floor) {
+    const player = this._requirePlayer(id);
+    if (!player.army || this._rankOf(player) !== "commander") {
+      throw new WorldError("ARMY_RANK_FORBIDDEN", "Only an army commander may lead a siege.");
+    }
+    if (!player.alive || player.mapId !== BATTLE_ZONE_MAP) {
+      throw new WorldError("SIEGE_LOCATION", "A siege must be led from the battle zone.");
+    }
+    if (!CAMPS.some((camp) => camp.id === String(targetCamp))) {
+      throw new WorldError("INVALID_CAMP", "That is not a camp.");
+    }
+    const wantedCamp = String(targetCamp);
+    if (!player.army.camp || player.army.camp === wantedCamp) {
+      throw new WorldError("SIEGE_FRIENDLY_HQ", "An army cannot besiege its own camp.");
+    }
+    const hq = CAMP_HQ[wantedCamp];
+    if (!hq || Math.hypot(player.x - hq.x, player.y - hq.y) > ARMY_SIEGE_RANGE) {
+      throw new WorldError("SIEGE_TOO_FAR", "Reach the enemy HQ before starting a siege.");
+    }
+    const wantedFloor = Math.floor(Number(floor));
+    if (!Number.isFinite(wantedFloor) || wantedFloor < 1 || wantedFloor > ARMY_HALL_FLOORS) {
+      throw new WorldError("INVALID_FLOOR", `Floors run 1..${ARMY_HALL_FLOORS}.`);
+    }
+    const lastSiegeAt = Number(player.army.siegeAt ?? -Infinity);
+    if (this.time - lastSiegeAt < ARMY_SIEGE_COOLDOWN) {
+      throw new WorldError("SIEGE_COOLDOWN", "Your army must regroup before another siege.");
+    }
+    const targetArmy = this._hallHolder(wantedCamp, wantedFloor);
+    if (!targetArmy) throw new WorldError("HALL_EMPTY", "No army holds that floor.");
+
+    const army = player.army.name;
+    this._setArmy(player, { ...player.army, siegeAt: round(this.time) });
+    this._emit("armySiegeStarted", {
+      playerId: id, army, targetCamp: wantedCamp, floor: wantedFloor,
+    }, { players: this._onlineArmyMembers(army).map((member) => member.id) });
+
+    const targetCommander = this._armyCommander(targetArmy);
+    if (targetCommander) {
+      this._dropHall(targetCommander, "siege");
+    } else {
+      const record = this._armyCommanderRecord(targetArmy);
+      if (record?.army?.hall) {
+        delete record.army.hall;
+        this._emit("armyHallLost", {
+          playerId: "", army: targetArmy, floor: wantedFloor, reason: "siege",
+        });
+      }
+    }
+    this._emit("armyHallEvicted", {
+      playerId: id, army, targetArmy, targetCamp: wantedCamp, floor: wantedFloor,
+    });
     return player;
   }
 

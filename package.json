@@ -18,7 +18,8 @@
     "migrate:postgres": "node tools/migrate-postgres.mjs",
     "check": "node --check src/server/server.js && node --check src/server/definitions.js && node --check src/server/world.js && node --check src/server/protocol.js && node --check src/server/session.js && node --check src/server/dungeon.js && node --check src/server/random.js && node --check src/server/dungeon-ipc.js && node --check src/server/dungeon-simulation.js && node --check src/server/dungeon-worker.js && node --check src/server/dungeon-transport.js && node --check src/server/dungeon-ticket.js && node --check src/server/postgres-store.js && node --check public/client.js && node --check tools/stress.mjs && node --check tools/stress-lib.js && node --check tools/migrate-postgres.mjs && node --check tools/handoff.mjs",
     "check:godot": "godot --headless --path clients/godot --editor --quit 2>&1 | tee /tmp/crimson-godot-check.log; ! grep -Eiq 'SCRIPT ERROR|Parse Error|Failed to load script' /tmp/crimson-godot-check.log",
-    "test:godot": "godot --headless --path clients/godot --script scripts/tests.gd 2>&1 | tee /tmp/crimson-godot-tests.log; ! grep -Eiq 'FAIL|SCRIPT ERROR|Parse Error|godot tests: [0-9]+ failed' /tmp/crimson-godot-tests.log"
+    "test:godot": "godot --headless --path clients/godot --script scripts/tests.gd 2>&1 | tee /tmp/crimson-godot-tests.log; ! grep -Eiq 'FAIL|SCRIPT ERROR|Parse Error|godot tests: [0-9]+ failed' /tmp/crimson-godot-tests.log",
+    "test:godot:e2e": "node tools/godot-e2e.mjs"
   },
   "dependencies": {
     "pg": "^8.16.3",

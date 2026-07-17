@@ -54,12 +54,12 @@
 
 | T-026 | **复核 Codex 的 T-008/T-009**（我欠了十三轮的对等复核）+ 修复复核中发现的自身同类 bug：`#army-create-form` 是社交列表之外的静态标记，切换角色时 `replaceChildren()` 清不掉 → 残留上一角色输入的军团名 | **Review** | Claude | T-008/T-009 均通过并标 Done。自身 bug 已修 + 浏览器回归 + 变异验证。小说角色图改用既有 webp：12M→260K |
 
-| T-027 | **复核 T-026**（我欠的对等复核 + 军团名残留修复 + 小说图片改 webp） | Backlog | Codex | 顺位最前：它是当前唯一挂在 Review 的任务 |
-| T-028 | **数值审计**：`REFINE_STEP`/精炼费率、荣誉门槛 200/400 与 精英+1/Boss+5、战斗区 10%金/10荣誉、军团 30级/100荣誉/40人、要塞 20层/4000金/30分钟/集结点坐标、阵营命名 —— **这些全是 Claude 拍的，人只定过方向，至今无人复核**。它们共同决定经济与手感 | Backlog | Codex | **我是最不该审这个的人（数字是我编的）**。建议做法：按 1→1000 的成长曲线算出「一件 +4 装备的真实代价」「战斗区一小时的金币净流」「大厅租金占中期收入的比例」，指出哪些数量级明显不对。不必给出正确答案，指出「这个数站不住」就够 |
-| T-029 | **P3 第四步 · 攻城**（实现方 = Codex，复核方 = Claude，**角色对调**） | Backlog | Codex | 赌注参照已写明：`- Defeat: Hall lost if your Army rents one`、`evict them from their Hall.`、`if no hall free army disbands.`（没有大厅，组织本身解散）。**先解歧义**：`Army must occupy the HQ to have access.` + `Insufficient funds for HQ repair.` + `HQ defense system has been installed.` —— HQ 是攻城的独立目标，还是就是大厅本身？Claude 从字符串表拿不到干净上下文。**角色对调的理由见 Decision Log** |
-| T-030 | **逐职业 tick 级伤害基线**（Codex 在复核 T-012 时提的非阻断建议，一直没做） | Backlog | Codex | 需要先定义「基线该长什么样」——这是设计工作，不是补测试。Claude 当时判断不该在修复轮里塞一个没设计过的数值快照 |
-| T-031 | **场景图转 webp**：小说仍有 24MB 场景 PNG（角色图已从 12M 降到 260K）。`public/assets/scenes/*.png` 无 webp 变体 | Backlog | Codex | 需要转码工具；Claude 未动。若转码不可得或体积收益不明显，**如实记为不做**，不要硬凑 |
-| T-032 | **Godot 双客户端端到端回归**：决斗与军团都需要两个客户端，现有冒烟是单客户端。`test:godot` 只覆盖纯逻辑 | Backlog | Codex | Claude 曾判断属 `RELEASE.md` 部署阶段真机验证——**人已拍板由 Codex 做**。这意味着 Godot 的决斗/军团流程目前只有手工验证过 |
+| T-027 | **复核 T-026**（我欠的对等复核 + 军团名残留修复 + 小说图片改 webp） | Done | Codex | 顺位最前：它是当前唯一挂在 Review 的任务 |
+| T-028 | **数值审计**：`REFINE_STEP`/精炼费率、荣誉门槛 200/400 与 精英+1/Boss+5、战斗区 10%金/10荣誉、军团 30级/100荣誉/40人、要塞 20层/4000金/30分钟/集结点坐标、阵营命名 —— **这些全是 Claude 拍的，人只定过方向，至今无人复核**。它们共同决定经济与手感 | Done | Codex | **我是最不该审这个的人（数字是我编的）**。建议做法：按 1→1000 的成长曲线算出「一件 +4 装备的真实代价」「战斗区一小时的金币净流」「大厅租金占中期收入的比例」，指出哪些数量级明显不对。不必给出正确答案，指出「这个数站不住」就够 |
+| T-029 | **P3 第四步 · 攻城**（实现方 = Codex，复核方 = Claude，**角色对调**） | Done | Codex | 赌注参照已写明：`- Defeat: Hall lost if your Army rents one`、`evict them from their Hall.`、`if no hall free army disbands.`（没有大厅，组织本身解散）。已定案：HQ 是大厅楼层之外的独立目标；T-029 已实现距离、阵营、楼层和冷却校验**角色对调的理由见 Decision Log** |
+| T-030 | **逐职业 tick 级伤害基线**（Codex 在复核 T-012 时提的非阻断建议，一直没做） | Done | Codex | 需要先定义「基线该长什么样」——这是设计工作，不是补测试。Claude 当时判断不该在修复轮里塞一个没设计过的数值快照 |
+| T-031 | **场景图转 webp**：小说仍有 24MB 场景 PNG（角色图已从 12M 降到 260K）。`public/assets/scenes/*.png` 无 webp 变体 | Done | Codex | 已用 Chrome Canvas WebP 编码生成 9 张 `1536x1024` WebP，小说与架构文档已切换引用；原 PNG 保留为源资产，单张约 282-388KB |
+| T-032 | **Godot 双客户端端到端回归**：决斗与军团都需要两个客户端，现有冒烟是单客户端。`test:godot` 只覆盖纯逻辑 | Done | Codex | Claude 曾判断属 `RELEASE.md` 部署阶段真机验证——**人已拍板由 Codex 做**。这意味着 Godot 的决斗/军团流程目前只有手工验证过 |
 
 <!-- 追加新任务时复制下面这行：
 | T-00X | <一句话任务> | Backlog | - | - |

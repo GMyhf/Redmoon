@@ -130,7 +130,7 @@ CRIMSON RELAY 已经继承了红月的**骨架**（1000 级上限、转生、四
    **一处未解的歧义**：`Army must occupy the HQ to have access.` 暗示「先占领 HQ 才能用」，
    与「租层」的顺序矛盾；`Insufficient funds for HQ repair.`、`HQ defense system has been installed.`
    说明 HQ 是可修缮、可布防的独立控制点。我按「直接租层」实现，**HQ 是否是攻城的独立目标留给第四步**。
-4. **攻城**：`- Defeat: Hall lost if your Army rents one`。结盟/宣战属于这一层。
+4. **攻城** · **首交付已完成**（T-029）：HQ 是大厅楼层之外的独立目标；统领在血斗回廊抵达敌方 HQ 后，可提交指定楼层的攻城意图。服务端验证阵营、距离、楼层、目标租约和冷却，成功只驱逐该层大厅，目标军团不会被静默删除。后续仍可扩展真实攻防、HQ 修缮与宣战调度。
 
 ### P4 · 经济与玩家互动
 

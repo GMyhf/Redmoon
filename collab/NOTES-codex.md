@@ -132,3 +132,14 @@
 - 重点红队路径已核对：PvP 命中限定同地图、同阵营互免且无阵营不免、断线席位不再视为有效权限、大厅租约转让随统领职位迁移、无大厅战斗区死亡回城、有大厅回前线、binary1 字段与 JSON 快照对拍。
 
 默认 `HOME` 下 Godot 只能因沙箱禁止写入用户目录而触发引擎错误；这不是项目解析错误，使用 `/tmp` 用户目录后检查通过。T-025 留存的 HQ「先占领还是直接租层」歧义属于后续设计决策，不阻塞当前已拍板的租赁实现。
+## T-027–T-032 完成记录 · Codex
+
+- T-027：复核 T-026，确认 T-008/T-009 与军团名残留修复、角色图 WebP 替换均通过。
+- T-028：新增 `docs/NUMERICAL_AUDIT.md`。精炼 +4 的真实期望成本约为 `148.43 * level` 意志、`222.65 * level` 金币；大厅 4000 金在高等级区偏轻，结论保留为审计而非平衡承诺。
+- T-029：新增 `armySiege`、HQ 坐标、距离/阵营/楼层/冷却验证，以及 `armySiegeStarted`/`armyHallEvicted` 事件；协议、架构、改进计划、CHANGELOG 与大厅测试同步。HQ 定为大厅楼层之外的独立目标。
+- T-030：新增 `docs/DAMAGE_BASELINE.md`，固定 R/C 的可复算展开规则和后续 tick 模拟边界，未把静态公式冒充 DPS 平衡。
+- T-031：历史核对显示 `99d01ab` 的 `gpt-image-2` 产物是 PNG；`2d854cc` 才执行了 WebP 瘦身。当前用 Chrome Canvas WebP 编码完成 9 张小说场景图，保持 `1536x1024`，文档引用已切换，原 PNG 保留为源资产。
+- **可复用转码方法已记录**：仓库 Playwright + `/usr/bin/google-chrome`，PNG → `ImageBitmap` → Canvas → `canvas.toBlob(..., "image/webp", 0.9)`；临时脚本为 `/tmp/convert-scenes.mjs`。`gpt-image-2` 只负责历史原图生成，不负责 WebP 编码。
+- T-032：新增 `clients/godot/scripts/e2e.gd`、`tools/godot-e2e.mjs` 和 `npm run test:godot:e2e`。两个 Godot WebSocket 客户端真实完成决斗邀请/应战、建团、军团邀请/接受；Node harness 只注入等级、荣誉和金币前置条件。
+
+验证：`npm test` 需在最终回归确认；`npm run check`；Godot 静态检查、原生脚本测试，以及带临时 localhost 监听的 `npm run test:godot:e2e` 均已单独通过。默认沙箱不能监听 TCP，E2E 需要受控本地权限。

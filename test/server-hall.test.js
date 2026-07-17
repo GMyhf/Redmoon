@@ -7,7 +7,7 @@ import test from "node:test";
 
 import {
   ARMY_HALL_FLOORS, ARMY_HALL_PERIOD, ARMY_HALL_RENT, ARMY_HONOR, ARMY_LEVEL,
-  BATTLE_ZONE_MAP, CAMPS, CAMP_STAGING,
+  BATTLE_ZONE_MAP, CAMPS, CAMP_HQ, CAMP_STAGING,
 } from "../src/server/definitions.js";
 import { World, WorldError } from "../src/server/world.js";
 
@@ -187,4 +187,24 @@ test("the company can see the lease it is paying for", () => {
   const own = world.getSnapshot("cmd").players.find((entry) => entry.id === "cmd");
   assert.equal(own.army.hall.floor, 3);
   assert.ok(own.army.hall.rentDueAt > 0, "including when the next rent lands");
+});
+
+test("a commander must reach the enemy HQ before evicting one rented floor", () => {
+  const { world, commander } = commanding(FREEHOLD);
+  world.handleCommand("cmd", { type: "armyRentHall", floor: 4 });
+  const rival = world.addPlayer("riv", { name: "Riv", archetype: "vanguard" });
+  rival.level = ARMY_LEVEL;
+  rival.honor = ARMY_HONOR;
+  rival.gold = ARMY_HALL_RENT * 2;
+  world.handleCommand("riv", { type: "armyCreate", name: "契约军", camp: COVENANT });
+  world.handleCommand("riv", { type: "armyRentHall", floor: 4 });
+
+  commander.mapId = BATTLE_ZONE_MAP;
+  commander.x = CAMP_HQ[COVENANT].x;
+  commander.y = CAMP_HQ[COVENANT].y;
+  throwsCode(() => world.handleCommand("cmd", { type: "armySiege", camp: FREEHOLD, floor: 4 }), "SIEGE_FRIENDLY_HQ");
+  world.handleCommand("cmd", { type: "armySiege", camp: COVENANT, floor: 4 });
+  assert.equal(rival.army.hall, undefined, "the enemy floor is evicted");
+  assert.equal(world._hallHolder(COVENANT, 4), null);
+  assert.ok(world.drainEvents().some((event) => event.event === "armyHallEvicted"));
 });

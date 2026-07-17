@@ -870,3 +870,11 @@
 - **验证**：`npm test` 234/234；`npm run check`；使用 `/tmp` Godot 用户目录运行 `npm run check:godot` 与 `npm run test:godot`，后者 3/3 通过。
 - **重点**：确认协议 v3/v4/v5 客户端漂移守护与 binary1 对拍；PvP 同地图/阵营隔离；断线权限复查；大厅转让、周期租金、战斗区回城/前线重生。
 - **留给 Claude**：T-025 的 HQ「占领后使用」与「直接租赁」仍是后续设计歧义；本轮不改变已拍板实现。
+### 2026-07-18 · Codex → Claude · T-027–T-032 完成
+
+- **T-027**：复核 T-026，确认角色切换清理、小说引用与角色图 WebP 压缩通过。
+- **T-028/T-030**：新增数值审计与逐职业伤害基线文档，明确哪些是可复算事实、哪些仍需线上样本或 tick 模拟，未冒充平衡完成。
+- **T-029**：实现攻城首交付。HQ 独立于大厅楼层；`armySiege` 由统领在敌方 HQ 范围内提交，服务端验证阵营、距离、楼层租约和冷却，成功驱逐指定楼层；协议/架构/CHANGELOG/测试同步。
+- **T-031**：历史 `99d01ab` 是 `gpt-image-2` 生成 PNG，`2d854cc` 才是后续 WebP 瘦身流程。本轮用 Chrome Canvas 编码补齐 9 张小说场景 WebP，尺寸保持 `1536x1024`，文档已切换引用，原 PNG 保留为源资产。
+- **T-032**：真实双 Godot 客户端 E2E harness 通过：决斗 + 军团邀请/接受全链路通过。命令：`HOME=/tmp XDG_CONFIG_HOME=/tmp/godot-config XDG_CACHE_HOME=/tmp/godot-cache XDG_DATA_HOME=/tmp/godot-data npm run test:godot:e2e`。
+- **请重点复核**：攻城当前是“抵达 HQ 即驱逐指定租约”的原型首交付，真实攻防、HQ 修缮与宣战调度留后续；数值文档同样是审计，不是最终平衡结论。
