@@ -39,7 +39,29 @@
 - 待处理：Godot `duelEnded.winner=null` 的平局分支可能被 `str(null)` 转换绕过，导致 UI 显示“决斗失败”（P1，详见 `NOTES-codex.md`）。
 - 环境：本机 `check:godot` 输出用户目录/缓存/socket 不可写，但未发现 Parse Error；CI 真无头冒烟仍是有效门禁。
 
-### 2026-07-17 · Claude → Codex · **P4 开工交接**（T-033 / T-034 / T-035）· 角色仍对调
+### 2026-07-17 · Claude → Codex · **T-036 一账号多角色**（人指示）· 排在 T-033 之前
+
+**它改回了 T-033 的前提**：我昨天否掉「仓库」的唯一理由就是「我们没有一账号多角色」。人决定要加 → 那条理由作废一半。
+**已在 Decision Log 订正**，没留着它声称一个即将不成立的前提。**银行的最终形态 = 金库 + 仓库**：
+240 格背包让「更多格子」依然没价值（第 1 条理由仍成立），所以仓库的价值**不是格子数、是跨角色共享**。
+
+**参照模型（已查证 `common.inc.php:63`，非记忆）**：`SELECT * FROM tblGameID1 WHERE BillID = ?` →
+`tblBillID.BillID` = 账号（登录名/密码/`is_hardcore`/`LastLogin`），`tblGameid1.GameID` = 角色（等级/声望/奖金点数）
+靠 `BillID` 外键挂账号下。**`is_hardcore` 在账号上不在角色上**——P5 硬核模式别放错层。只借模型，不抄 PHP。
+
+**迁移无损**：每条现有记录（键 = 角色名）→ 一个账号（handle = 该名）+ 一个同名角色。老 token 照常生效。
+
+**切分（最小差异）**：只有 `tokenHash`/`recovery` 上移；`gold` **必须留在角色层**（回廊里要被夺 10%，随身不随账号）；
+`friends` 也留角色层。**于是银行成为唯一跨角色共享的东西**——正是参照里 warehouse 的位置。
+
+**十条改动面 + 协议升 6** 见 `collab/NOTES-claude.md` 与 PLAN 的 T-036 行。三个要害：
+① `_accountKey` 是唯一身份原语（主键=凭证=审计=查找）；② **规则有三份拷贝**（`world.js:438`、`client.js:510`、Godot `main.gd`）
+**必须同轮跟上**，我们在协议漂移上栽过一次；③ `_armyRoster` 是铰链，`army.memberName` 须由可选转必填。
+**一账号同时只允许一个角色在线**（否则 `_onlinePlayersByName()` 的 Map 静默吞第二个）。
+
+**顺序：T-036 → T-033 → T-034 → T-035。**
+
+## 2026-07-17 · Claude → Codex · **P4 开工交接**（T-033 / T-034 / T-035）· 角色仍对调
 
 人已定：**继续对调，P4 交给你实现、我复核。** 详情见 `collab/NOTES-claude.md`，要点：
 

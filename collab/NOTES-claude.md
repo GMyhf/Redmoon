@@ -6,6 +6,68 @@
 
 ---
 
+## T-036 · 一账号多角色（人 2026-07-17 指示）· 交接给 Codex
+
+**它排在 T-033 之前，因为它把 T-033 的前提改回来了**——我昨天否掉「仓库」的理由正是「我们没有一账号多角色」。
+人决定要加，那条理由就作废了一半。我已经在 Decision Log 里订正，而不是留着它声称一个即将不成立的前提
+（同一把尺子我刚用在 `definitions.js:173` 上，也该用在自己身上）。
+
+### 参照的模型（已查证，非记忆）
+
+`User Interface Design/common.inc.php:63`：
+
+```sql
+SELECT * FROM tblGameID1 WHERE BillID = ?      -- 参数 = account['username']
+```
+
+- **`tblBillID.BillID`** = 账号：登录名 / `Password` / `is_hardcore` / `LastLogin`
+- **`tblGameid1.GameID`** = 角色：`Lvl` / `Face` / `SubQuestGiftFame` / `STotalBonus`，靠 **`BillID` 外键**挂在账号下
+- `HardcoreBonusPoints` 键为 **(GameID, BillID)**；`tblArmyList1` = 军团
+
+**注意 `is_hardcore` 挂在账号上而非角色上**——P5 的硬核模式将来要用这个位置，别放错层。
+（**只借模型，不抄 PHP**：门户代码无授权，我们只取「账号 1→N 角色」这个结构。）
+
+### 迁移可以无损
+
+现有每条记录（键 = 角色名）→ **一个账号（handle = 该名）下挂一个同名角色**。老玩家的 token 仍按原名生效，
+无人掉档。**建议就这么迁**，别造 handle 与角色名的第二套命名。
+
+### 切分：最小差异，且它让银行自己长出理由
+
+只把 **`tokenHash` / `recovery`** 上移到账号层；**其余 `ACCOUNT_FIELDS` 全部留在角色层**。特别是：
+
+- **`gold` 必须留在角色层**——它在血斗回廊里要被 `_settleBattleKill()` 夺走 10%，必须随身而非随账号。
+- **`friends` 也留在角色层**（与 `army` 同层，零改动，最小差异）。
+
+**于是银行（T-033）成为唯一跨角色共享的东西**——这恰好就是参照里 warehouse 的位置，
+而且它同时保住了金库的价值（进回廊带多少钱）。**金库 + 仓库，两个理由叠加，不是二选一。**
+
+### 我已勘定的改动面（全量扫描，file:line 见 PLAN）
+
+1. **`_accountKey`（`world.js:438`）是服务端唯一的身份原语**——同时是持久化主键、凭证主体、审计主体、跨玩家查找键。
+2. **规则有三份拷贝**：`world.js:438`、`public/client.js:510-515`、Godot `main.gd` 的 token 存储。**三处必须同时改**，
+   否则就是又一次「服务端升级、客户端落后」——我们在协议漂移上已经栽过一次（T-011），那次是我自己删掉了唯一的信号。
+3. **`_armyRoster`（`world.js:1636`）是铰链**：它拿 `accountKey` **既当去重键又当显示名兜底**。
+   角色名一旦不再是账号键，**`army.memberName`（今为可选，`server.js:1878`）必须转必填**，
+   否则历史记录会把原始账号键渲染到 UI 上。
+4. **`kickArmy`/`promoteArmy`（`world.js:2128`/`:2162`）直接拿打进来的角色名索引账号库**——今天哈希查找**就是**索引；
+   拆开后需要一个 名字→(账号,角色) 索引。
+5. **`_onlinePlayersByName()`（`world.js:2911`）的 Map 会静默吞掉同账号的第二个在线角色**
+   → **一账号同时只允许一个角色在线**（也顺带堵掉自己和自己组队/决斗）。
+6. **`_securityCheckpoint`（`server.js:1204`）假定一条凭证命令只碰一条记录。**
+7. **`archetype` 锁**（`world.js:342`「One name is one character, forever」）：语义重述为「一个**角色名**一个职业」，
+   注释要跟着改——现在一个**账号**可以有多个职业。
+8. **存储无需 DDL**：`crimson_accounts.record` 是 jsonb，记录内嵌 `characters: {}` 即可；
+   但 `schema_version` 须越过 2，`validateAccountRecord`（`server.js:1830`）须递归。
+9. **`highestItemSequence`（`world.js:154`）须多下潜一层**，否则物品 id 重号 → 与 T-034 的刷物风险叠加。
+10. **`session.js` 零身份耦合**——唯一不用改的一层。
+
+### 协议：升到 6
+
+**`join` 就是登录**，没有登录步骤，所以「选哪个角色」**现在没有地方问**——`join` 是第一条认证消息。
+需要新增前置意图（列角色）+ 两个客户端各加一个角色选择屏。`PROTOCOL_VERSION` → **6**，
+两个客户端**同一轮内跟上**（见上面第 2 条）。
+
 ## P4 交接给 Codex（角色仍对调：Codex 实现、Claude 复核）· T-033 / T-034 / T-035
 
 人已定：**继续对调，P4 交给你。** 我在下笔前核实了四件事，其中一件推翻了我自己的初始判断。
