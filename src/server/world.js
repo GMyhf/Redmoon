@@ -43,6 +43,7 @@ import {
   MOB_TYPES,
   PORTAL_DESTINATIONS,
   ARMY_HONOR,
+  CAMPS,
   ARMY_INVITE_WINDOW,
   ARMY_LEVEL,
   ARMY_LIMIT,
@@ -721,7 +722,9 @@ export class World {
       case "partyaccept":
         return this.acceptParty(id, message.from);
       case "armyCreate":
-        return this.createArmy(id, message.name);
+        return this.createArmy(id, message.name, message.camp);
+      case "armySetCamp":
+        return this.setArmyCamp(id, message.camp);
       case "armyInvite":
         return this.inviteArmy(id, message.target);
       case "armyAccept":
@@ -1595,6 +1598,14 @@ export class World {
   // through five minutes of reconnect grace, so they are neither gone nor
   // usable. Three separate paths each remembered a different subset of this,
   // so it lives in one place now.
+  // Two players are shielded from each other only by a camp they both hold.
+  // Anyone without one — no army, or an army that has not declared — is fair
+  // game, which is what keeps the battle zone from being a place to hide.
+  _sharesCamp(a, b) {
+    const left = a?.army?.camp;
+    return Boolean(left) && left === b?.army?.camp;
+  }
+
   _isActor(player) {
     return Boolean(player) && !player.pendingAuth && !player.connectionDetached;
   }
@@ -1668,7 +1679,7 @@ export class World {
     this._saveAccount(player);
   }
 
-  createArmy(id, name) {
+  createArmy(id, name, camp = null) {
     const player = this._requirePlayer(id);
     if (player.army) throw new WorldError("ARMY_ACTIVE", "Leave your army before founding another.");
     if (player.level < ARMY_LEVEL) {
@@ -1682,8 +1693,49 @@ export class World {
     if (!clean || clean === "Wayfarer") throw new WorldError("INVALID_MESSAGE", "That army name is not usable.");
     if (this._armyExists(clean)) throw new WorldError("ARMY_NAME_TAKEN", "That army name already exists.");
 
-    this._setArmy(player, { name: clean, rank: "commander", memberName: player.name });
-    this._emit("armyCreated", { playerId: id, name: clean });
+    const wantedCamp = camp == null ? null : String(camp);
+    if (wantedCamp !== null && !CAMPS.some((entry) => entry.id === wantedCamp)) {
+      throw new WorldError("INVALID_CAMP", "That is not a camp.");
+    }
+    this._setArmy(player, {
+      name: clean, rank: "commander", memberName: player.name, camp: wantedCamp,
+    });
+    this._emit("armyCreated", { playerId: id, name: clean, camp: wantedCamp });
+    return player;
+  }
+
+  // A camp is declared once. It is never re-declared: see CAMPS on why a
+  // switchable allegiance would be an escape button rather than a choice.
+  setArmyCamp(id, camp) {
+    const player = this._requirePlayer(id);
+    if (!player.army) throw new WorldError("NO_ARMY", "You are not in an army.");
+    if (this._rankOf(player) !== "commander") {
+      throw new WorldError("ARMY_RANK_FORBIDDEN", "Only the commander declares the camp.");
+    }
+    if (player.army.camp) {
+      throw new WorldError("CAMP_SETTLED", "An army declares its camp once, and keeps it.");
+    }
+    const wanted = String(camp ?? "");
+    if (!CAMPS.some((entry) => entry.id === wanted)) {
+      throw new WorldError("INVALID_CAMP", "That is not a camp.");
+    }
+    const army = player.army.name;
+    const key = this._armyKey(army);
+    // The camp belongs to the army, so it reaches every member — including the
+    // ones who are not here to see it, exactly as disbanding does.
+    for (const member of this.players.values()) {
+      if (this._armyKey(member.army?.name) === key) {
+        this._setArmy(member, { ...member.army, camp: wanted });
+      }
+    }
+    for (const record of Object.values(this.accountStore)) {
+      if (this._armyKey(record.army?.name) === key) record.army = { ...record.army, camp: wanted };
+    }
+    this._emit("armyCampSet", {
+      playerId: id,
+      army,
+      camp: wanted,
+    }, { players: this._onlineArmyMembers(army).map((member) => member.id) });
     return player;
   }
 
@@ -1759,7 +1811,10 @@ export class World {
     if (this._armyRoster(invite.army).length >= ARMY_LIMIT) {
       throw new WorldError("ARMY_FULL", `An army holds at most ${ARMY_LIMIT} members.`);
     }
-    this._setArmy(player, { name: invite.army, rank: "member", memberName: player.name });
+    this._setArmy(player, {
+      name: invite.army, rank: "member", memberName: player.name,
+      camp: recruiter.army.camp ?? null,
+    });
     this._emit("armyJoined", {
       playerId: id,
       name: player.name,
@@ -2917,11 +2972,14 @@ export class World {
             projectile.hitsRemaining -= 1;
           }
         } else if (projectile.mapId === BATTLE_ZONE_MAP) {
+          const owner = this.players.get(projectile.ownerId);
           for (const other of this.players.values()) {
             if (projectile.hitsRemaining <= 0) break;
             if (other.id === projectile.ownerId || !other.alive) continue;
             if (other.mapId !== projectile.mapId) continue;
-            if (other.pendingAuth || other.connectionDetached) continue;
+            if (!this._isActor(other)) continue;
+            // A camp decides who is shootable here; without one, everyone is.
+            if (this._sharesCamp(owner, other)) continue;
             if (projectile.hitIds.has(other.id)) continue;
             if (!segmentHitsCircle(
               oldX, oldY, projectile.x, projectile.y,
@@ -3373,6 +3431,7 @@ export class World {
       honor: player.honor,
       armyName: player.army?.name ?? null,
       armyRank: player.army?.rank ?? null,
+      armyCamp: player.army?.camp ?? null,
       attunement: player.attunement,
       barrier: player.soulBarrier.active
         ? {
@@ -3433,6 +3492,7 @@ export class World {
         ? {
           name: player.army.name,
           rank: player.army.rank,
+          camp: player.army.camp ?? null,
           members: this._armyRoster(player.army.name).map((member) => ({
             name: member.name,
             rank: member.rank,

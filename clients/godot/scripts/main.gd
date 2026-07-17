@@ -10,10 +10,11 @@ extends Node2D
 
 # Override with CRIMSON_SERVER=ws://host:port/ws (no code edit needed).
 var server_url := "ws://127.0.0.1:3000/ws"
-const CLIENT_PROTOCOL := 4
+const CLIENT_PROTOCOL := 5
 # Mirrors src/server/definitions.js REFINE_HONOR_GATE — display only.
 const REFINE_HONOR_GATE: Array[int] = [0, 0, 200, 400]
 const ARMY_RANK_LABELS := {"commander": "统领", "lieutenant": "副官", "member": "团员"}
+const CAMP_LABELS := {"freehold": "自由邦", "covenant": "契约同盟"}
 const SNAPSHOT_CODEC := "binary1"
 const INPUT_INTERVAL := 0.05          # 20 Hz, same as the browser client
 const LERP_RATE := 14.0               # snapshot smoothing, ~browser feel
@@ -631,6 +632,11 @@ func _handle_event(event: Dictionary) -> void:
 				_set_status("%s 想把军团·%s 交给你 — 按 P 接掌" % [str(event.get("fromName", "?")), str(event.get("army", ""))])
 		"armyCreated":
 			_set_status("军团·%s 已建立" % str(event.get("name", "")))
+		"armyCampSet":
+			var camp_id := str(event.get("camp", ""))
+			_set_status("军团·%s 宣誓加入%s" % [
+				str(event.get("army", "")), CAMP_LABELS.get(camp_id, camp_id),
+			])
 		"armyJoined":
 			pending_army = ""
 			_set_status("%s 加入了军团" % str(event.get("name", "")))
@@ -1843,6 +1849,16 @@ func _build_ui() -> void:
 	army_leave.text = "退团"
 	army_leave.pressed.connect(func() -> void: _send({"type": "armyLeave"}))
 	army_row.add_child(army_leave)
+	var camp_row := HBoxContainer.new()
+	control_box.add_child(camp_row)
+	for camp_id in CAMP_LABELS:
+		var pick := Button.new()
+		pick.text = "誓·" + str(CAMP_LABELS[camp_id])
+		pick.tooltip_text = "宣誓阵营（统领限定，一经宣誓不可更改；血斗回廊中同阵营互不可攻击）"
+		pick.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var wanted := str(camp_id)
+		pick.pressed.connect(func() -> void: _send({"type": "armySetCamp", "camp": wanted}))
+		camp_row.add_child(pick)
 
 	# Soft vignette for depth, and the bottom-right minimap.
 	var vignette := TextureRect.new()
@@ -1981,9 +1997,11 @@ func _update_hud(data: Dictionary) -> void:
 	var army: Variant = data.get("army", null)
 	var army_text := ""
 	if army is Dictionary:
-		army_text = "  [%s·%s]" % [
+		var camp_id := str(army.get("camp", ""))
+		army_text = "  [%s·%s%s]" % [
 			str(army.get("name", "")),
 			ARMY_RANK_LABELS.get(str(army.get("rank", "")), str(army.get("rank", ""))),
+			("·" + CAMP_LABELS.get(camp_id, camp_id)) if camp_id != "" else "",
 		]
 	ui.hud.text = "%s  L%d  HP %d/%d  MP %d/%d  金币 %d  荣誉 %d%s  背包 %d  %s  在线 %d" % [
 		str(data.get("name", "")), int(data.get("level", 1)),

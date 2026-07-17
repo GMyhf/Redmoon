@@ -6,6 +6,7 @@ import {
   HERO_SPRITES,
   ITEM_NAMES,
   MOB_NAMES,
+  CAMP_INFO,
   RARITY_INFO,
   RENDER_AS,
   SLOT_LABELS,
@@ -113,7 +114,7 @@ import {
   // Protocol version this client speaks; sent with join and compared with
   // the server's welcome. Keep in sync with PROTOCOL_VERSION in
   // src/server/definitions.js.
-  const CLIENT_PROTOCOL = 4;
+  const CLIENT_PROTOCOL = 5;
   // Mirrors of src/server/definitions.js — presentation only. The server owns
   // the roll, the cost and the outcome; these just render them.
   const REFINE_MAX_STAGE = 4;
@@ -1290,7 +1291,32 @@ import {
         quit.dataset.social = "army-leave";
         actions.push(quit);
       }
-      addSection(`军团·${army.name}`, `${members.length}`, actions[0]);
+      const camp = CAMP_INFO[army.camp];
+      addSection(`军团·${army.name}`, camp ? camp.label : `${members.length}`, actions[0]);
+      if (!army.camp && isCommander) {
+        // Declared once and never again, so it is worth a deliberate click.
+        const row = document.createElement("div");
+        row.className = "social-row";
+        const hint = document.createElement("b");
+        hint.className = "social-name";
+        hint.textContent = "宣誓阵营";
+        hint.title = "阵营一经宣誓不可更改；血斗回廊中同阵营互不可攻击";
+        row.append(hint);
+        const group = document.createElement("span");
+        group.className = "social-actions";
+        for (const [id, info] of Object.entries(CAMP_INFO)) {
+          const pick = document.createElement("button");
+          pick.type = "button";
+          pick.textContent = info.label;
+          pick.title = `宣誓加入${info.label}（不可更改）`;
+          pick.style.color = info.color;
+          pick.dataset.social = "army-camp";
+          pick.dataset.camp = id;
+          group.append(pick);
+        }
+        row.append(group);
+        rows.push(row);
+      }
       // Commander first, then lieutenants, then the rest; offline members stay
       // on the roster because they are still in the company.
       const order = { commander: 0, lieutenant: 1, member: 2 };
@@ -1605,6 +1631,11 @@ import {
       sfx(520, 0.14, "triangle", 0.05);
       return;
     }
+    if (eventName === "armycampset") {
+      state.socialSignature = "";
+      pushEvent(`军团·${event.army} 宣誓加入${CAMP_INFO[event.camp]?.label || event.camp}`);
+      return;
+    }
     if (eventName === "armycreated") {
       pushEvent(`军团·${event.name} 已建立`);
       state.socialSignature = "";
@@ -1754,6 +1785,8 @@ import {
       DUEL_NOT_READY: "双方都必须存活且不在副本中",
       NO_DUEL: "你不在决斗中",
       NO_DUEL_INVITE: "没有来自该玩家的决斗邀请（或已超时）",
+      CAMP_SETTLED: "阵营一经宣誓不可更改",
+      INVALID_CAMP: "没有这个阵营",
       ARMY_ACTIVE: "该玩家已在某个军团中",
       ARMY_FULL: "军团人数已满",
       ARMY_LEVEL_TOO_LOW: "等级不足，无法建立军团",
@@ -4553,6 +4586,7 @@ import {
     if (kind === "army-invite") send({ type: "armyInvite", target: button.dataset.target });
     if (kind === "army-leave") send({ type: "armyLeave" });
     if (kind === "army-disband") send({ type: "armyDisband" });
+    if (kind === "army-camp") send({ type: "armySetCamp", camp: button.dataset.camp });
     if (kind === "friend-add") send({ type: "friendAdd", name: button.dataset.name });
     if (kind === "friend-remove") send({ type: "friendRemove", name: button.dataset.name });
     state.socialSignature = "";

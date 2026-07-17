@@ -26,6 +26,7 @@ import {
   PROTOCOL_VERSION,
   QUEST_CHAIN,
   ARMY_NAME_MAX,
+  CAMPS,
   ARMY_RANKS,
   HONOR_LIMIT,
   REBIRTH_LEVEL,
@@ -1875,6 +1876,10 @@ function validateAccountRecord(accountKey, record) {
     }
     if (army.memberName !== undefined && typeof army.memberName !== "string") {
       throw new TypeError("army.memberName must be a string when present");
+    }
+    if (army.camp !== undefined && army.camp !== null
+      && !CAMPS.some((entry) => entry.id === army.camp)) {
+      throw new TypeError("army.camp must be a known camp or null");
     }
   }
   optionalInteger(record, "will", 0, MAX_PERSISTED_COUNTER);

@@ -5,7 +5,10 @@
 // v4: `honor` moves onto every player record, not just the recipient's own.
 // Standing is meant to be read off the people around you — that is what its
 // tiers are for — and the battle zone is where it starts to matter.
-export const PROTOCOL_VERSION = 4;
+// v5: armies carry a camp, and it rides the public record too. In the battle
+// zone a camp decides who may be shot at, so it has to be legible before the
+// shot rather than after it.
+export const PROTOCOL_VERSION = 5;
 export const TICK_RATE = 20;
 export const SNAPSHOT_RATE = 10;
 export const MAX_ITEM_SEQUENCE = 1_000_000_000_000;
@@ -109,6 +112,19 @@ export const REFINE_HONOR_GATE = Object.freeze([0, 0, 200, 400]);
 // this adds no table, no migration and no envelope change. The cost is that
 // looking one up scans accounts, which is fine at this scale and would not be
 // at a much larger one.
+// The two sides the reference splits its world into: `tblArmyList1` carries a
+// `Camp` column, and the maps hold two mirrored hideout complexes (a lobby and
+// twenty floors each) — one per camp. A camp belongs to an army, not a person.
+//
+// It is chosen once and never changed. A camp that could be switched would be
+// an escape button: hunted in the battle zone, an army would simply defect to
+// whoever was chasing it and become unshootable. Defection is a real design
+// question, and it belongs with sieges, not here.
+export const CAMPS = Object.freeze([
+  Object.freeze({ id: "freehold", label: "自由邦", color: "#5aa9e6" }),
+  Object.freeze({ id: "covenant", label: "契约同盟", color: "#e0596d" }),
+]);
+
 export const ARMY_LEVEL = 30;
 export const ARMY_HONOR = 100;
 export const ARMY_LIMIT = 40;

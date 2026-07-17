@@ -11,7 +11,7 @@
 //        (`self` is the recipient's full player entry, or null)
 //   u16  playerCount, then per public player (recipient excluded):
 //        str id, name, archetype, color, attunement, targetId ("" = null)
-//        str armyName, armyRank ("" = null)
+//        str armyName, armyRank, armyCamp ("" = null)
 //        u8  running, alive
 //        f32 x, y, facingX, facingY, hp, maxHp, mp, maxMp, respawnIn, moveSpeed
 //        i32 reputation, honor; u32 will
@@ -115,6 +115,7 @@ function packPlayer(writer, player) {
     writer.str(player.attunement);
     writer.str(player.armyName ?? "");
     writer.str(player.armyRank ?? "");
+    writer.str(player.armyCamp ?? "");
     writer.str(player.targetId ?? "");
     writer.u8(player.running ? 1 : 0);
     writer.u8(player.alive ? 1 : 0);
@@ -298,6 +299,7 @@ export function decodeSnapshotBinary(buffer) {
       attunement: reader.str(),
       armyName: reader.str() || null,
       armyRank: reader.str() || null,
+      armyCamp: reader.str() || null,
       targetId: reader.str() || null,
       running: reader.u8() === 1,
       alive: reader.u8() === 1,

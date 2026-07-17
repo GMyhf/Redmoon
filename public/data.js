@@ -291,6 +291,12 @@ export const RENDER_AS = {
   gravemarch: "scraphulk",
 };
 
+// Mirrors src/server/definitions.js CAMPS — presentation only.
+export const CAMP_INFO = Object.freeze({
+  freehold: { label: "自由邦", color: "#5aa9e6" },
+  covenant: { label: "契约同盟", color: "#e0596d" },
+});
+
 export const ZONE_LABELS = {
   battle: "血斗",
   town: "城镇",
