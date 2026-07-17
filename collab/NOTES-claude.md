@@ -6,6 +6,47 @@
 
 ---
 
+## 复核 T-037 / T-038 / T-039（`347ec86`）· **三条全过**；T-039 留一个一行测试缺口
+
+### ✅ T-039 掉落 · 核心防线全部能失败
+
+基线 247/247，四刀：
+
+| 砍掉什么 | 结果 |
+| --- | --- |
+| 精炼免疫失效（refined 也进池，违反 Q2） | 挂 2 条（`drops one unrefined carried item` + `only equipped or refined gear drops nothing`）✅ |
+| **落地但不移出背包（= 复制！我明令必须能被测出）** | 挂 2 条（含 `battle drop placement rolls back the inventory move if placement fails`）✅ |
+| 空池也硬掉 | 未响 —— **等价变异**：删掉显式空池守卫后，`candidates[0]=undefined → indexOf=-1 → return null` 第二道守卫兜住，行为没变；空池本身由测试2守着。非缺口 |
+| **掉落用错地图（→town 泄漏）** | 未响 —— **真缺口（轻微）**：测试只断言 `drops.length==1` 与 `item.id`，**从不断言 `drops[0].mapId`**。代码用 `BATTLE_ZONE_MAP` 是对的，但没测试守着，而这**正是 Codex 点名要我复核的那条**（「不泄漏到其他地图」）。补一行 `assert.equal(drops[0].mapId, BATTLE_ZONE_MAP)` 即可 |
+
+实现干净：`_dropBattleInventoryItem` 先 `splice` 出背包、再 `_placeDrop`、失败则 `splice` 回去并 rethrow —— 原子回滚正确。
+**注释第三次进场，这次说真话**：`definitions.js:173` 现为「Gold, honour and unrefined carried items are at stake.
+Equipped or refined gear is immune, and experience is never lost.」✅
+
+### ✅ T-038 flaky 修复 · 真修根因，非放宽断言
+
+**26/26 干净**（http 文件单跑 20 次 + 全套 6 次）。改法对症：原来依赖异步补怪 + 固定 200ms 轮询窗口
+（满载时怪没生成/首 tick 没跑完就断言 → 抖），现改为 `spawnMob` 确定性放怪 + 2 秒有界轮询，去掉异步时序依赖；
+HTTP 状态/HTML/缓存/健康/指标断言一个没松。
+
+### ✅ T-037 Godot 接入 · 真接入 + 加了静态契约守卫
+
+`check:godot` 真加载引擎解析（打印 Godot v4.3，非我们栽过的 CI-only 假绿）。bank/mail/market/loot 均接入
+（27/61/49/1 处引用）。协议三处仍为 5，无漂移。Codex 还加了契约测试 `Godot exposes the P4 bank, mail, and market intents`，
+**我删掉 Godot 一处 `bankDeposit` 接线，它立刻挂** —— 守卫真实，正对我建 T-037 的那个「浏览器有、Godot 没有」缺口。
+
+### 我这轮的测量错误（第四次同一个形状，记录在案）
+
+我第一次量 T-038 时，循环里**每轮跑了两次** `npm test`（一次取 fail 数、一次取失败名），一次失败被拆到两个运行里，
+`fail=0` 与 `not ok http` 同时出现、自相矛盾。**改成单次运行落盘、同一份输出取全部结论**后，26/26 干净。
+**这是我第四次把两次测量当成一次**（前三次：管道读 exit code、未断言的 `re.sub`、上一轮变异②）。
+那一次孤立失败无法干净归因（很可能是我背靠背两个 `npm test` 抢资源自造的），诚实说：不算数。
+
+### 结论
+
+**T-037 → Done，T-038 → Done，T-039 → Done。** 唯一遗留是 T-039 掉落地图的一行断言缺口（轻微，不阻塞），
+建议 Codex 顺手补 `assert.equal(drops[0].mapId, BATTLE_ZONE_MAP)`——它守的正是你让我确认的那条性质。
+
 ## T-039 · 回廊击杀掉落未精炼随身物品（人 2026-07-17 拍板）· 交接给 Codex
 
 人拍板：回廊风险「从『只丢金币和荣誉』升级到『也可能丢装备』」。我给了两个手感分叉（因为最坏情况会让回廊变空城），
