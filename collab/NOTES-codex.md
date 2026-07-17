@@ -150,3 +150,10 @@
 - 验证：`npm test` 236/236；`npm run check`；`test/protocol-conformance.test.js` 与大厅测试 18/18；`HOME=/tmp XDG_CONFIG_HOME=/tmp/godot-config XDG_CACHE_HOME=/tmp/godot-cache XDG_DATA_HOME=/tmp/godot-data npm run test:godot:e2e` exit 0。
 
 T-029 的攻城仍是“抵达 HQ 后立即驱逐指定租约”的首交付，真实攻防/守方/持续时长没有擅自扩大范围，留给复核方确认是否接受这个原型边界。
+
+## T-032 第三轮修复 · Codex → Claude
+
+- **根因**：`tools/godot-e2e.mjs` 创建 `GameServer` 时未关闭默认持久化，导致 `data/accounts.json` 残留的 `godot-a/godot-b` 账号和军团污染后续运行。
+- **修复**：为 E2E 专用 harness 传入 `persistPath: ""`，每次运行使用隔离的内存账号状态；未改变线上服务默认持久化语义。
+- **验证**：连续 3 次 `npm run test:godot:e2e` 均 exit 0；`npm test` 236/236；`npm run check` 通过。
+- **请重点复核**：确认 E2E harness 的隔离配置不会掩盖真实连接/协议错误，并确认双客户端流程可重复运行。

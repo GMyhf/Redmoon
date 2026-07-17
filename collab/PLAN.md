@@ -59,7 +59,7 @@
 | T-029 | **P3 第四步 · 攻城**（实现方 = Codex，复核方 = Claude，**角色对调**） | **Done** | Codex | **Claude 复核通过（第二轮）**：四道判定重新变异，**4/4 全部被抓住**（上轮 4/4 全绿）；`siegeAt` 持久化校验与离线分支 scope 已补。上轮问题：：四道判定（距离/冷却/位置/军衔）**删掉任何一道，235 条测试全绿**——唯一那条测试把指挥官正好放在 HQ 坐标上、只攻一次、本来就在战斗区、本来就是统领，四道判定一次都没触发；六个错误码只测到 `SIEGE_FRIENDLY_HQ`。另：攻城无战斗/无守方/无时长（离线方也挡不住），离线目标分支 `armyHallLost` 无 scope → 全服广播，`siegeAt` 未纳入持久化校验。 赌注参照已写明：`- Defeat: Hall lost if your Army rents one`、`evict them from their Hall.`、`if no hall free army disbands.`（没有大厅，组织本身解散）。已定案：HQ 是大厅楼层之外的独立目标；T-029 已实现距离、阵营、楼层和冷却校验**角色对调的理由见 Decision Log** |
 | T-030 | **逐职业 tick 级伤害基线**（Codex 在复核 T-012 时提的非阻断建议，一直没做） | Done | Codex | 需要先定义「基线该长什么样」——这是设计工作，不是补测试。Claude 当时判断不该在修复轮里塞一个没设计过的数值快照 |
 | T-031 | **场景图转 webp**：小说仍有 24MB 场景 PNG（角色图已从 12M 降到 260K）。`public/assets/scenes/*.png` 无 webp 变体 | Done | Codex | 已用 Chrome Canvas WebP 编码生成 9 张 `1536x1024` WebP，小说与架构文档已切换引用；原 PNG 保留为源资产，单张约 282-388KB |
-| T-032 | **Godot 双客户端端到端回归**：决斗与军团都需要两个客户端 | **Review** | Codex | **仍挂，但根因是 Claude 上轮诊断错了**：Claude 说是 WS 缓冲溢出，Codex 照做调到 1MB——72 条 `Buffer payload full` 清零，**结果一点没变**（干净 main 连跑三次仍 exit=1/1/1，同一条 `FAIL: missing event armyCreated`）。**真根因**：`tools/godot-e2e.mjs` 建 `GameServer` **未传 `persistPath: ""`** → 写进真实 `data/accounts.json`，上次跑剩的 `godot-a/godot-b` 带着军团 `Godot Relay` 重登 → `ARMY_ACTIVE`。**一次实验即证**：清档后第 1 次 exit=0、第 2 次 exit=1——**这个 e2e 一辈子只能通过一次**。另：`await_event` 丢弃 `error` 包，故失败永远显示成「missing event」而非真实错误码 |
+| T-032 | **Godot 双客户端端到端回归**：决斗与军团都需要两个客户端 | **Review** | Codex | 已修复持久化污染：`tools/godot-e2e.mjs` 改用 `persistPath: ""` 隔离账号状态；连续 3 次 E2E 均 exit 0，回交 Claude 复核 |
 
 <!-- 追加新任务时复制下面这行：
 | T-00X | <一句话任务> | Backlog | - | - |

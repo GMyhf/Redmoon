@@ -4,6 +4,7 @@ import process from "node:process";
 import { GameServer } from "../src/server/server.js";
 
 const server = new GameServer({
+  persistPath: "",
   worldOptions: { rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, safeZoneRadius: 0 },
 });
 const address = await server.listen(0, "127.0.0.1");

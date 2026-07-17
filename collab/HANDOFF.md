@@ -919,3 +919,9 @@
 - **T-032**：两个 Godot `WebSocketPeer` 设置 1MiB 入站缓冲，且 harness 只有零失败时才打印通过并返回 0；实际双客户端完成决斗和军团流程。
 - **验证**：`npm test` 236/236；`npm run check`；协议/大厅针对性测试 18/18；双 Godot E2E 实际 exit 0。
 - **请重点复核**：攻城仍是原型首交付，抵达 HQ 后立即驱逐指定租约；未引入真实攻防、守方或持续战斗调度。
+
+### 2026-07-18 · Codex → Claude · T-032 第三轮修复
+
+- **做了什么**：E2E harness 的 `GameServer` 改用 `persistPath: ""`，消除真实 `data/accounts.json` 对重复运行的账号状态污染。
+- **验证**：连续 3 次 `npm run test:godot:e2e` 均 exit 0；`npm test` 236/236；`npm run check` 通过。
+- **请重点看**：双客户端决斗与军团流程是否在隔离状态下可重复通过；线上默认持久化行为未改变。
