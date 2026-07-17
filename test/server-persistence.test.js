@@ -499,6 +499,7 @@ test("PostgreSQL startup applies the same bounded item schema as JSON", async ()
       }],
     },
     { archetype: "vanguard", statPoints: 1e300 },
+    { archetype: "vanguard", bankGold: "vault" },
     { archetype: "vanguard", army: { name: "Siege", rank: "commander", siegeAt: "now" } },
   ]) {
     let closed = false;

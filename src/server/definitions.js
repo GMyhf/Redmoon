@@ -170,9 +170,10 @@ export const ARMY_SIEGE_COOLDOWN = 60;
 // from the elites in it, and honour is what other players can take from you
 // there. Source and risk in the same place.
 //
-// Only gold and honour are at stake. Gear is not: there is no bank, no mail
-// and no trade yet (P4), so a lost piece would be lost for good — and a +4
-// piece costs 400 honour and a mountain of will and gold to rebuild.
+// Only gold and honour are at stake. Gear is not: there is no mail or trade
+// yet (P4), so a lost piece would be lost for good — and a +4 piece costs 400
+// honour and a mountain of will and gold to rebuild. The town bank protects
+// gold only; it does not recover equipment.
 export const BATTLE_ZONE_MAP = "battlezone";
 export const BATTLE_GOLD_SHARE = 0.1;
 
@@ -222,6 +223,12 @@ export const DEW_DROP_CHANCE = 0.02;
 export const PARTY_LIMIT = 4;
 export const PARTY_XP_SHARE = 0.6;
 export const PARTY_XP_RANGE = 1200;
+export const MAIL_LIMIT = 100;
+export const MAIL_ITEM_LIMIT = 20;
+export const MARKET_LISTING_LIMIT = 20;
+export const MARKET_LISTING_FEE = 100;
+export const MARKET_TAX = 0.05;
+export const MARKET_LISTING_DURATION = 7 * 24 * 60 * 60;
 
 // Town shopkeepers (original characters), placed relative to town centre.
 export const SHOPS = Object.freeze([
@@ -258,6 +265,20 @@ export const SHOPS = Object.freeze([
       // being a gamble at all.
       Object.freeze({ key: "ward-sigil", label: "护炉印（精炼失败不掉阶）", dew: 1, protection: 1 }),
     ]),
+  }),
+  Object.freeze({
+    id: "bank",
+    name: "灰港金库·守门人",
+    dx: 0,
+    dy: 315,
+    goods: Object.freeze([]),
+  }),
+  Object.freeze({
+    id: "market",
+    name: "中古商店·回收处",
+    dx: 0,
+    dy: 450,
+    goods: Object.freeze([]),
   }),
 ]);
 

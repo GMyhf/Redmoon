@@ -636,6 +636,7 @@ export class GameServer {
         while (backlog >= interval) {
           backlog -= interval;
           this.world.update(1 / this.tickRate);
+          this._markAccountsDirty(this.world.drainExternalAccountMutations());
           this._queueDungeonTick(1 / this.tickRate);
           tickAdvanced = true;
           this._runtime.hasSuccessfulTick = true;
@@ -1055,6 +1056,9 @@ export class GameServer {
   async _processCommandNow(socket, message) {
     const commandPlayer = this.world.players.get(socket.playerId);
     const dungeonBeforeCommand = this._dungeonForPlayer(socket.playerId);
+    const marketOwnerKey = message.type === "marketBuy"
+      ? this.world.marketListingOwnerKey(message.listingId)
+      : null;
     const commandAccountKey = commandPlayer
       ? this.world._accountKey(commandPlayer.name)
       : null;
@@ -1115,7 +1119,12 @@ export class GameServer {
         if (resumedDungeon?.workerTransport) await this._attachDungeonPlayer(resumedDungeon, result.id);
       }
       const resultAccountKey = result?.name ? this.world._accountKey(result.name) : null;
-      this._markAccountsDirty([commandAccountKey, resultAccountKey].filter(Boolean));
+      const relatedAccountKeys = [commandAccountKey, resultAccountKey, ...this.world.drainExternalAccountMutations()];
+      if (message.type === "mailSend" && typeof message.target === "string") {
+        relatedAccountKeys.push(this.world._accountKey(message.target));
+      }
+      if (marketOwnerKey) relatedAccountKeys.push(marketOwnerKey);
+      this._markAccountsDirty(relatedAccountKeys.filter(Boolean));
       if (securityCheckpoint && !securityCheckpoint.hadPlayer && result) result.pendingAuth = true;
       if (securityCheckpoint) this._captureSecurityEffects(securityCheckpoint);
       if (securityCheckpoint && this._persistenceEnabled()) {
@@ -1899,8 +1908,16 @@ function validateAccountRecord(accountKey, record) {
   }
   optionalInteger(record, "will", 0, MAX_PERSISTED_COUNTER);
   optionalInteger(record, "gold", 0, MAX_PERSISTED_CURRENCY);
+  optionalInteger(record, "bankGold", 0, MAX_PERSISTED_CURRENCY);
   optionalInteger(record, "dew", 0, MAX_PERSISTED_CURRENCY);
   optionalInteger(record, "protections", 0, MAX_PERSISTED_CURRENCY);
+  if (record.mailbox !== undefined && (!Array.isArray(record.mailbox) || record.mailbox.length > 100)) {
+    throw new TypeError("mailbox must be an array of at most 100 messages");
+  }
+  if (record.marketListings !== undefined
+    && (!Array.isArray(record.marketListings) || record.marketListings.length > 20)) {
+    throw new TypeError("marketListings must be an array of at most 20 listings");
+  }
   for (const field of ["autoFight", "autoLevel", "autoEquip"]) {
     if (record[field] !== undefined && typeof record[field] !== "boolean") {
       throw new TypeError(`${field} must be a boolean`);
@@ -1938,6 +1955,31 @@ function validateAccountRecord(accountKey, record) {
       const expectedSlot = slot.startsWith("ring") ? "ring" : slot;
       if (item.slot !== expectedSlot) throw new TypeError(`equipment.${slot} contains the wrong item slot`);
     }
+  }
+  if (record.mailbox !== undefined) {
+    record.mailbox.forEach((mail, index) => {
+      if (!isPlainObject(mail) || typeof mail.id !== "string" || mail.id.length < 1
+        || typeof mail.from !== "string" || typeof mail.subject !== "string"
+        || !Number.isSafeInteger(mail.createdAt) || mail.createdAt < 0
+        || !Number.isSafeInteger(mail.gold) || mail.gold < 0
+        || !Array.isArray(mail.items) || mail.items.length > 20) {
+        throw new TypeError(`mailbox[${index}] has an invalid envelope`);
+      }
+      mail.items.forEach((item, itemIndex) => validateItem(item, `mailbox[${index}].items[${itemIndex}]`, itemIds));
+    });
+  }
+  if (record.marketListings !== undefined) {
+    const listingIds = new Set();
+    record.marketListings.forEach((listing, index) => {
+      if (!isPlainObject(listing) || typeof listing.id !== "string" || listing.id.length < 1
+        || listingIds.has(listing.id) || !Number.isSafeInteger(listing.price) || listing.price <= 0
+        || !Number.isSafeInteger(listing.listedAt) || listing.listedAt < 0
+        || !Number.isSafeInteger(listing.expiresAt) || listing.expiresAt < listing.listedAt) {
+        throw new TypeError(`marketListings[${index}] has an invalid envelope`);
+      }
+      listingIds.add(listing.id);
+      validateItem(listing.item, `marketListings[${index}].item`, itemIds);
+    });
   }
   if (record.quest !== undefined) {
     const chainIndex = record.quest?.chainIndex;

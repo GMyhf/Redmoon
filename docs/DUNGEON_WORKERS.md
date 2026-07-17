@@ -206,4 +206,4 @@ export async function runDungeonWorker({ transport, rng, clock }) {
 
 - 首期载体为受监督的 `child_process`/独立进程；`DungeonWorkerTransport` 仍需保留以便未来跨机扩展。
 - 首期不要求主进程重启无损恢复；未恢复实例失败，成员回城，不发奖励。
-- 首期不允许离线补领；只结算完成时仍在副本地图且未奖励的成员。
+- T-034 后，副本完成时不在副本地图或已断线的成员通过邮箱领取金币结算；仍在副本地图的成员即时获得 XP/金币/复苏露。邮箱领取仍受附件与背包原子性校验。

@@ -32,6 +32,12 @@ import {
   INVENTORY_LIMIT,
   ITEM_SLOTS,
   LEVEL_CAP,
+  MAIL_ITEM_LIMIT,
+  MAIL_LIMIT,
+  MARKET_LISTING_DURATION,
+  MARKET_LISTING_FEE,
+  MARKET_LISTING_LIMIT,
+  MARKET_TAX,
   MAX_ITEM_SEQUENCE,
   PARTY_LIMIT,
   PARTY_XP_RANGE,
@@ -106,7 +112,8 @@ const SHOP_RANGE = 130;
 const ACCOUNT_FIELDS = Object.freeze([
   "archetype", "level", "xp", "xpToNext", "stats", "statPoints",
   "skillLevels", "skillPoints", "rebirths", "reputation", "will", "honor",
-  "attunement", "gold", "dew", "protections", "friends", "inventory", "equipment", "quest",
+  "attunement", "gold", "bankGold", "dew", "protections", "friends", "inventory", "equipment", "quest",
+  "mailbox", "marketListings",
   // { name, rank } or null. The army itself lives in its members' records.
   "army",
   // Automation toggles survive relogin — a dev-server restart must not
@@ -235,6 +242,7 @@ export class World {
     this._armyTransfers = new Map();
     this._armySieges = new Map();
     this._armySiegeSequence = 0;
+    this._externalAccountMutations = new Set();
     this.duels = new Map();
     this._duelInvites = new Map();
     this._duelSequence = 0;
@@ -409,6 +417,9 @@ export class World {
       nextPrimaryAt: 0,
       nextSkillAt: Object.fromEntries(SKILL_SLOTS.map((slot) => [slot, 0])),
       gold: 0,
+      bankGold: 0,
+      mailbox: [],
+      marketListings: [],
       dew: 0,
       // Ward sigils are a fungible counter, not inventory items: the pack has
       // no stacking, so a stock of eight would otherwise eat eight of the 240
@@ -721,6 +732,18 @@ export class World {
         return this.revivePlayer(id);
       case "buy":
         return this.buyGood(id, message.shop, message.good);
+      case "bankDeposit":
+        return this.depositBankGold(id, message.gold);
+      case "bankWithdraw":
+        return this.withdrawBankGold(id, message.gold);
+      case "mailSend":
+        return this.sendMail(id, message);
+      case "mailClaim":
+        return this.claimMail(id, message.mailId);
+      case "marketList":
+        return this.listMarketItem(id, message.item, message.price);
+      case "marketBuy":
+        return this.buyMarketItem(id, message.listingId);
       case "refine":
         return this.refineItem(id, message.item, message.useProtection);
       case "sell":
@@ -1045,7 +1068,20 @@ export class World {
     };
     for (const memberId of memberIds) {
       const member = this.players.get(memberId);
-      if (!member || member.mapId !== dungeon.plan.mapId || dungeon.rewarded.has(memberId)) continue;
+      if (!member || dungeon.rewarded.has(memberId)) continue;
+      if (member.connectionDetached || member.mapId !== dungeon.plan.mapId) {
+        const mail = this._newMail({
+          from: dungeon.plan.name,
+          subject: "副本离线结算金币",
+          gold: dungeon.plan.reward.gold,
+          kind: "dungeon-reward",
+        });
+        this._appendMail(member, mail, this._accountKey(member.name));
+        dungeon.rewarded.add(memberId);
+        dungeon.settlement.rewardedMembers.push(memberId);
+        this._audit("dungeon_completed_by_mail", member, { dungeonId: dungeon.id, reward: { gold: mail.gold } });
+        continue;
+      }
       dungeon.rewarded.add(memberId);
       dungeon.settlement.rewardedMembers.push(memberId);
       this._grantXp(member, dungeon.plan.reward.xp);
@@ -1511,6 +1547,291 @@ export class World {
       rarity: item.rarity,
     });
     return player;
+  }
+
+  _requireBankAccess(player) {
+    const bank = this.shops.find((shop) => shop.id === "bank");
+    if (!bank || player.mapId !== "town"
+      || Math.hypot(player.x - bank.x, player.y - bank.y) > SHOP_RANGE) {
+      throw new WorldError("BANK_TOO_FAR", "Walk up to the town bank first.");
+    }
+  }
+
+  _bankAmount(amount) {
+    const value = Number(amount);
+    if (!Number.isSafeInteger(value) || value <= 0) {
+      throw new WorldError("INVALID_AMOUNT", "Gold amount must be a positive integer.");
+    }
+    return value;
+  }
+
+  depositBankGold(id, amount) {
+    const player = this._requirePlayer(id);
+    this._requireBankAccess(player);
+    const value = this._bankAmount(amount);
+    if (value > player.gold) throw new WorldError("NO_GOLD", "Not enough carried gold.");
+    player.gold -= value;
+    player.bankGold += value;
+    this._saveAccount(player);
+    this._emit("bankDeposited", {
+      playerId: id, amount: value, carriedGold: player.gold, bankGold: player.bankGold,
+    }, { players: [id] });
+    return player;
+  }
+
+  withdrawBankGold(id, amount) {
+    const player = this._requirePlayer(id);
+    this._requireBankAccess(player);
+    const value = this._bankAmount(amount);
+    if (value > player.bankGold) throw new WorldError("BANK_FUNDS_LOW", "Not enough gold in the bank.");
+    player.bankGold -= value;
+    player.gold += value;
+    this._saveAccount(player);
+    this._emit("bankWithdrawn", {
+      playerId: id, amount: value, carriedGold: player.gold, bankGold: player.bankGold,
+    }, { players: [id] });
+    return player;
+  }
+
+  _mailSubject(subject, fallback = "深红中继投递") {
+    const text = typeof subject === "string" ? subject.trim().slice(0, 80) : "";
+    return text || fallback;
+  }
+
+  _mailGold(amount) {
+    const value = Number(amount ?? 0);
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new WorldError("INVALID_MAIL", "Mail gold must be a non-negative integer.");
+    }
+    return value;
+  }
+
+  _mailboxOf(target) {
+    if (!Array.isArray(target.mailbox)) target.mailbox = [];
+    return target.mailbox;
+  }
+
+  _mailTarget(name) {
+    const key = this._accountKey(name);
+    const live = [...this.players.values()].find((player) => this._accountKey(player.name) === key);
+    if (live) return { key, target: live, name: live.name, online: true };
+    const record = this._accountRecord(key);
+    if (record) return { key, target: record, name: record.name ?? sanitizeName(name), online: false };
+    return null;
+  }
+
+  _newMail({ from, subject, gold = 0, items = [], kind = "direct" }) {
+    return {
+      id: `mail-${randomUUID()}`,
+      kind,
+      from: String(from ?? "深红中继"),
+      subject: this._mailSubject(subject),
+      createdAt: round(this.time),
+      gold,
+      items: structuredClone(items),
+    };
+  }
+
+  _appendMail(target, mail, accountKey = null) {
+    const mailbox = this._mailboxOf(target);
+    if (mailbox.length >= MAIL_LIMIT) throw new WorldError("MAILBOX_FULL", "The recipient's mailbox is full.");
+    mailbox.push(structuredClone(mail));
+    if (target.id) this._saveAccount(target);
+    else this._markExternalAccountMutation(accountKey);
+  }
+
+  _markExternalAccountMutation(accountKey) {
+    if (accountKey) this._externalAccountMutations.add(accountKey);
+  }
+
+  drainExternalAccountMutations() {
+    const keys = [...this._externalAccountMutations];
+    this._externalAccountMutations.clear();
+    return keys;
+  }
+
+  sendMail(id, message = {}) {
+    const sender = this._requirePlayer(id);
+    const recipient = this._mailTarget(message.target);
+    if (!recipient) throw new WorldError("MAIL_TARGET_UNKNOWN", "That recipient has no account.");
+    if (recipient.key === this._accountKey(sender.name)) {
+      throw new WorldError("MAIL_SELF", "Mail cannot be sent to yourself.");
+    }
+    if (!Array.isArray(message.itemIds) || message.itemIds.length > MAIL_ITEM_LIMIT) {
+      throw new WorldError("INVALID_MAIL", `A mail can carry at most ${MAIL_ITEM_LIMIT} items.`);
+    }
+    const itemIds = message.itemIds.map((itemId) => String(itemId));
+    if (new Set(itemIds).size !== itemIds.length) throw new WorldError("INVALID_MAIL", "Mail item ids must be unique.");
+    const items = itemIds.map((itemId) => sender.inventory.find((item) => String(item.id) === itemId));
+    if (items.some((item) => !item)) throw new WorldError("INVALID_ITEM", "Every mailed item must be in your bag.");
+    const gold = this._mailGold(message.gold);
+    if (gold === 0 && items.length === 0) throw new WorldError("INVALID_MAIL", "Mail must carry gold or an item.");
+    if (this._mailboxOf(recipient.target).length >= MAIL_LIMIT) {
+      throw new WorldError("MAILBOX_FULL", "The recipient's mailbox is full.");
+    }
+    if (gold > sender.gold) throw new WorldError("NO_GOLD", "Not enough carried gold.");
+
+    const itemSet = new Set(itemIds);
+    sender.inventory = sender.inventory.filter((item) => !itemSet.has(String(item.id)));
+    sender.gold -= gold;
+    const mail = this._newMail({ from: sender.name, subject: message.subject, gold, items });
+    this._appendMail(recipient.target, mail, recipient.key);
+    this._saveAccount(sender);
+    this._emit("mailSent", {
+      playerId: id, mailId: mail.id, target: recipient.name, gold, itemCount: items.length,
+    }, { players: [id] });
+    if (recipient.online) {
+      this._emit("mailReceived", {
+        playerId: recipient.target.id, mailId: mail.id, from: sender.name, gold, itemCount: items.length,
+      }, { players: [recipient.target.id] });
+    }
+    return sender;
+  }
+
+  claimMail(id, mailId) {
+    const player = this._requirePlayer(id);
+    const mailbox = this._mailboxOf(player);
+    const index = mailbox.findIndex((mail) => mail.id === String(mailId));
+    if (index < 0) throw new WorldError("MAIL_EMPTY", "That mail is not in your mailbox.");
+    const mail = mailbox[index];
+    const items = Array.isArray(mail.items) ? mail.items : [];
+    if (player.inventory.length + items.length > INVENTORY_LIMIT) {
+      throw new WorldError("INVENTORY_FULL", "Make room before claiming the mail.");
+    }
+    const gold = this._mailGold(mail.gold);
+    mailbox.splice(index, 1);
+    player.inventory.push(...structuredClone(items));
+    player.gold += gold;
+    this._saveAccount(player);
+    this._emit("mailClaimed", { playerId: id, mailId: mail.id, gold, itemCount: items.length }, { players: [id] });
+    return player;
+  }
+
+  _requireMarketAccess(player) {
+    const market = this.shops.find((shop) => shop.id === "market");
+    if (!market || player.mapId !== "town"
+      || Math.hypot(player.x - market.x, player.y - market.y) > SHOP_RANGE) {
+      throw new WorldError("MARKET_TOO_FAR", "Walk up to the used-goods shop first.");
+    }
+  }
+
+  _marketEntries() {
+    const entries = [];
+    const seen = new Set();
+    for (const player of this.players.values()) {
+      for (const listing of player.marketListings ?? []) {
+        if (seen.has(listing.id)) continue;
+        seen.add(listing.id);
+        entries.push({ listing, owner: player, key: this._accountKey(player.name), online: true });
+      }
+    }
+    for (const [key, record] of Object.entries(this.accountStore)) {
+      for (const listing of record.marketListings ?? []) {
+        if (seen.has(listing.id)) continue;
+        seen.add(listing.id);
+        entries.push({ listing, owner: record, key, online: false });
+      }
+    }
+    return entries;
+  }
+
+  marketListingOwnerKey(listingId) {
+    return this._marketEntries().find((entry) => entry.listing.id === String(listingId))?.key ?? null;
+  }
+
+  listMarketItem(id, itemId, price) {
+    const seller = this._requirePlayer(id);
+    this._requireMarketAccess(seller);
+    const value = this._bankAmount(price);
+    if ((seller.marketListings ?? []).length >= MARKET_LISTING_LIMIT) {
+      throw new WorldError("MARKET_FULL", "Cancel an old listing before posting another.");
+    }
+    if (seller.gold < MARKET_LISTING_FEE) throw new WorldError("NO_GOLD", "Not enough gold for the listing fee.");
+    const index = seller.inventory.findIndex((item) => String(item.id) === String(itemId));
+    if (index < 0) throw new WorldError("INVALID_ITEM", "That item is not in your bag.");
+    const [item] = seller.inventory.splice(index, 1);
+    seller.gold -= MARKET_LISTING_FEE;
+    const listing = {
+      id: `listing-${randomUUID()}`,
+      item: structuredClone(item),
+      price: value,
+      listedAt: round(this.time),
+      expiresAt: round(this.time + MARKET_LISTING_DURATION),
+    };
+    seller.marketListings = [...(seller.marketListings ?? []), listing];
+    this._saveAccount(seller);
+    this._emit("marketListed", {
+      playerId: id, listingId: listing.id, itemId: item.id, price: value, expiresAt: listing.expiresAt,
+    }, { players: [id] });
+    return seller;
+  }
+
+  buyMarketItem(id, listingId) {
+    const buyer = this._requirePlayer(id);
+    this._requireMarketAccess(buyer);
+    const entry = this._marketEntries().find((candidate) => candidate.listing.id === String(listingId));
+    if (!entry) throw new WorldError("MARKET_LISTING_UNKNOWN", "That listing is no longer available.");
+    if (entry.key === this._accountKey(buyer.name)) throw new WorldError("MARKET_SELF", "You cannot buy your own listing.");
+    const listing = entry.listing;
+    if (this.time >= listing.expiresAt) {
+      throw new WorldError("MARKET_LISTING_UNKNOWN", "That listing has expired.");
+    }
+    if (buyer.gold < listing.price) throw new WorldError("NO_GOLD", "Not enough gold for that listing.");
+    const sellerMailbox = this._mailboxOf(entry.owner);
+    if (sellerMailbox.length >= MAIL_LIMIT || this._mailboxOf(buyer).length >= MAIL_LIMIT) {
+      throw new WorldError("MAILBOX_FULL", "A mailbox must have room before completing the sale.");
+    }
+    entry.owner.marketListings = (entry.owner.marketListings ?? []).filter((candidate) => candidate.id !== listing.id);
+    const tax = Math.floor(listing.price * MARKET_TAX);
+    const proceeds = listing.price - tax;
+    buyer.gold -= listing.price;
+    const sellerMail = this._newMail({
+      from: "中古商店",
+      subject: "寄卖成交款",
+      gold: proceeds,
+      kind: "market-sale",
+    });
+    const buyerMail = this._newMail({
+      from: entry.owner.name ?? "中古商店",
+      subject: "寄卖成交物品",
+      items: [listing.item],
+      kind: "market-purchase",
+    });
+    this._mailboxOf(entry.owner).push(sellerMail);
+    this._mailboxOf(buyer).push(buyerMail);
+    if (entry.online) this._saveAccount(entry.owner);
+    else this._markExternalAccountMutation(entry.key);
+    this._saveAccount(buyer);
+    this._emit("marketSold", {
+      playerId: id, listingId: listing.id, itemId: listing.item.id, price: listing.price, tax,
+    }, { players: [id] });
+    if (entry.online) {
+      this._emit("mailReceived", {
+        playerId: entry.owner.id, mailId: sellerMail.id, from: "中古商店", gold: proceeds, itemCount: 0,
+      }, { players: [entry.owner.id] });
+    }
+    return buyer;
+  }
+
+  _expireMarketListing(entry) {
+    const listing = entry.listing;
+    const mailbox = this._mailboxOf(entry.owner);
+    if (mailbox.length >= MAIL_LIMIT) return false;
+    entry.owner.marketListings = (entry.owner.marketListings ?? []).filter((candidate) => candidate.id !== listing.id);
+    const mail = this._newMail({ from: "中古商店", subject: "寄卖到期退回", items: [listing.item], kind: "market-expired" });
+    mailbox.push(mail);
+    if (entry.online) this._saveAccount(entry.owner);
+    else this._markExternalAccountMutation(entry.key);
+    if (entry.online) {
+      this._emit("marketExpired", { playerId: entry.owner.id, listingId: listing.id, itemId: listing.item.id }, { players: [entry.owner.id] });
+    }
+    return true;
+  }
+
+  _updateMarketListings() {
+    for (const entry of this._marketEntries()) {
+      if (this.time >= entry.listing.expiresAt) this._expireMarketListing(entry);
+    }
   }
 
   // Push one item up the refine ladder. The client only ever states intent —
@@ -2408,9 +2729,8 @@ export class World {
     }
   }
 
-  // A kill in the battle zone moves gold and standing, and nothing else. Gear
-  // stays put — with no bank, mail or trade yet, a lost piece would be gone for
-  // good — and no experience is lost either.
+  // A kill in the battle zone moves carried gold and standing, and nothing
+  // else. Banked gold, gear and experience stay out of the transfer.
   _settleBattleKill(victim, sourceId) {
     const killer = this.players.get(String(sourceId));
     // Falling to a mob in the battle zone costs nothing extra.
@@ -2710,6 +3030,7 @@ export class World {
       this.time += step;
       this._expireDungeons();
       this._updateArmyHalls();
+      this._updateMarketListings();
       this._updateDuels();
       this._updatePlayers(step);
       this._updatePortals();
@@ -2884,6 +3205,15 @@ export class World {
         portals: this.portals.filter((portal) => !mapId || portal.mapId === mapId).map((portal) => ({ ...portal })),
         shops: mapId === "town"
           ? this.shops.map((shop) => ({ id: shop.id, name: shop.name, x: shop.x, y: shop.y, goods: shop.goods.map((good) => ({ ...good })) }))
+          : [],
+        marketListings: mapId === "town"
+          ? this._marketEntries().map(({ listing, owner }) => ({
+            id: listing.id,
+            seller: owner.name ?? "中古商店",
+            item: publicItem(listing.item),
+            price: listing.price,
+            expiresAt: listing.expiresAt,
+          }))
           : [],
       },
       safeZone: mapId === "town" && this.safeZone ? { ...this.safeZone } : null,
@@ -3774,8 +4104,25 @@ export class World {
       autoLevel: player.autoLevel,
       autoEquip: player.autoEquip,
       gold: player.gold,
+      bankGold: player.bankGold,
       dew: player.dew,
       protections: player.protections,
+      mailbox: (player.mailbox ?? []).map((mail) => ({
+        id: mail.id,
+        kind: mail.kind,
+        from: mail.from,
+        subject: mail.subject,
+        createdAt: mail.createdAt,
+        gold: mail.gold,
+        items: (mail.items ?? []).map((item) => serializeItem(item)),
+      })),
+      marketListings: (player.marketListings ?? []).map((listing) => ({
+        id: listing.id,
+        item: serializeItem(listing.item),
+        price: listing.price,
+        listedAt: listing.listedAt,
+        expiresAt: listing.expiresAt,
+      })),
       army: player.army
         ? {
           name: player.army.name,

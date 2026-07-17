@@ -387,6 +387,65 @@ test("buying from a shopkeeper spends gold and lands in the bag", async (t) => {
       .some((entry) => entry.textContent.includes("购入")));
 });
 
+test("the town bank deposits and withdraws carried gold", async (t) => {
+  const { server, url } = await startServer(t);
+  const page = await newPage(t, browser);
+  await joinAs(page, url, "Banker");
+
+  const player = playerByName(server, "Banker");
+  const bank = server.world.shops.find((shop) => shop.id === "bank");
+  player.gold = 500;
+  player.x = bank.x;
+  player.y = bank.y;
+
+  await page.waitForSelector('#shop-goods button[data-bank="deposit"]', { state: "visible" });
+  await page.fill("#shop-goods input[type=number]", "300");
+  await page.click('#shop-goods button[data-bank="deposit"]');
+  await waitForServer(() => player.bankGold === 300);
+  assert.equal(player.gold, 200);
+  await page.waitForFunction(() => document.querySelector("#shop-goods")?.textContent.includes("300金"));
+
+  await page.fill("#shop-goods input[type=number]", "100");
+  await page.click('#shop-goods button[data-bank="withdraw"]');
+  await waitForServer(() => player.bankGold === 200);
+  assert.equal(player.gold, 300);
+});
+
+test("two browsers trade a listed item through market mail", async (t) => {
+  const { server, url } = await startServer(t);
+  const sellerPage = await newPage(t, browser);
+  const buyerPage = await newPage(t, browser);
+  await joinAs(sellerPage, url, "Seller");
+  await joinAs(buyerPage, url, "Buyer");
+
+  const seller = playerByName(server, "Seller");
+  const buyer = playerByName(server, "Buyer");
+  const market = server.world.shops.find((shop) => shop.id === "market");
+  seller.gold = 500;
+  buyer.gold = 1000;
+  seller.x = market.x;
+  seller.y = market.y;
+  buyer.x = market.x;
+  buyer.y = market.y;
+  seller.inventory.push({
+    id: "browser-market-item", slot: "weapon", rarity: "rare", tier: 3, level: 1,
+    name: "Browser Blade", bonuses: { power: 4 },
+  });
+
+  await sellerPage.waitForSelector('#shop-goods button[data-market="list"]', { state: "visible" });
+  await sellerPage.selectOption("#shop-goods select[data-market-item]", "browser-market-item");
+  await sellerPage.fill("#shop-goods input[data-market-price]", "400");
+  await sellerPage.click('#shop-goods button[data-market="list"]');
+  await waitForServer(() => seller.marketListings.length === 1);
+
+  await buyerPage.waitForSelector('#shop-goods button[data-market="buy"]', { state: "visible" });
+  await buyerPage.click('#shop-goods button[data-market="buy"]');
+  await waitForServer(() => buyer.mailbox.length === 1);
+  await buyerPage.click('#mail-list button[data-mail="claim"]');
+  await waitForServer(() => buyer.inventory.some((item) => item.id === "browser-market-item"));
+  assert.equal(buyer.gold, 600);
+});
+
 test("equipping from the bag fills the paper-doll slot", async (t) => {
   const { server, url } = await startServer(t);
   const page = await newPage(t, browser);

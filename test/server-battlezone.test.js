@@ -55,6 +55,7 @@ test("a battle-zone shot cannot reach the same spot on another map", () => {
 test("a kill moves gold and standing, and nothing else", () => {
   const { world, killer, victim } = arena();
   victim.gold = 1000;
+  victim.bankGold = 777;
   victim.honor = 500;
   victim.xp = 4242;
   victim.inventory.push({
@@ -68,10 +69,11 @@ test("a kill moves gold and standing, and nothing else", () => {
 
   assert.equal(killer.gold, Math.floor(1000 * BATTLE_GOLD_SHARE), "the killer takes a share of gold");
   assert.equal(victim.gold, 1000 - Math.floor(1000 * BATTLE_GOLD_SHARE));
+  assert.equal(victim.bankGold, 777, "banked gold is protected from battle-zone kills");
   assert.equal(killer.honor, BATTLE_HONOR_TAKE, "and standing");
   assert.equal(victim.honor, 500 - BATTLE_HONOR_TAKE);
-  // The line that has to hold: gear survives. There is no bank, mail or trade
-  // yet, so anything dropped here would be gone for good.
+  // The line that has to hold: gear survives. Mail and trade do not exist yet,
+  // so anything dropped here would be gone for good.
   assert.equal(victim.inventory.length, 1, "gear is not dropped");
   assert.equal(victim.inventory[0].refine, 4, "least of all a refined piece");
   assert.equal(victim.xp, 4242, "and no experience is lost");

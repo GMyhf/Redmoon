@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  ALLOC_WEIGHTS, INVENTORY_LIMIT, LEVEL_CAP, MAX_ITEM_SEQUENCE, PROTOCOL_VERSION,
+  ALLOC_WEIGHTS, INVENTORY_LIMIT, LEVEL_CAP, MAIL_LIMIT, MARKET_LISTING_DURATION,
+  MARKET_LISTING_FEE, MARKET_TAX, MAX_ITEM_SEQUENCE, PROTOCOL_VERSION,
   REBIRTH_LEVEL, REFINE_MAX_STAGE, SKILL_BEHAVIORS, skillDefinition,
 } from "../src/server/definitions.js";
 import { hashSecret } from "../src/server/session.js";
@@ -1433,6 +1434,99 @@ test("shop purchases enforce currency, stock, and inventory guards without charg
   world.sellItem("buyer-1", player.inventory[0].id);
   assert.ok(player.gold > goldBefore, "selling pays out");
   assert.equal(player.inventory.length, 0);
+});
+
+test("the town bank moves carried gold into protected savings and persists it", () => {
+  const store = {};
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, autoLevel: false, accountStore: store });
+  const player = world.addPlayer("banker-1", { name: "Banker", archetype: "vanguard" });
+  const bank = world.shops.find((shop) => shop.id === "bank");
+  player.x = bank.x;
+  player.y = bank.y;
+  player.gold = 1000;
+
+  throwsCode(() => world.depositBankGold(player.id, 0), "INVALID_AMOUNT");
+  world.handleCommand(player.id, { type: "bankDeposit", gold: 400 });
+  assert.equal(player.gold, 600);
+  assert.equal(player.bankGold, 400);
+  assert.equal(world.getSnapshot(player.id).players[0].bankGold, 400);
+
+  world.handleCommand(player.id, { type: "bankWithdraw", gold: 150 });
+  assert.equal(player.gold, 750);
+  assert.equal(player.bankGold, 250);
+  throwsCode(() => world.withdrawBankGold(player.id, 251), "BANK_FUNDS_LOW");
+
+  player.mapId = "battlezone";
+  throwsCode(() => world.depositBankGold(player.id, 1), "BANK_TOO_FAR");
+  assert.equal(player.bankGold, 250, "the battle zone has no bank access");
+
+  const restoredWorld = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, autoLevel: false, accountStore: store });
+  const restored = restoredWorld.addPlayer("banker-2", {
+    name: "Banker", archetype: "vanguard", token: player.token,
+  });
+  assert.equal(restored.bankGold, 250, "bank balance survives relogin");
+});
+
+test("mail moves gold and items atomically to an offline recipient", () => {
+  const store = {};
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, autoLevel: false, accountStore: store });
+  const sender = world.addPlayer("sender", { name: "Sender", archetype: "vanguard" });
+  const recipient = world.addPlayer("recipient", { name: "Recipient", archetype: "strider" });
+  const item = junkItem("mail-blade");
+  sender.inventory.push(item);
+  sender.gold = 500;
+  world.removePlayer(recipient.id);
+
+  world.handleCommand(sender.id, {
+    type: "mailSend", target: "Recipient", itemIds: [item.id], gold: 120, subject: "补给",
+  });
+  assert.equal(sender.inventory.length, 0, "the attachment leaves the sender exactly once");
+  assert.equal(sender.gold, 380);
+  assert.equal(store.recipient.mailbox.length, 1, "offline delivery lands in persistence");
+  assert.equal(store.recipient.mailbox[0].items[0].id, item.id);
+
+  const restored = world.addPlayer("recipient-again", {
+    name: "Recipient", archetype: "strider", token: recipient.token,
+  });
+  const mailId = restored.mailbox[0].id;
+  restored.inventory = Array.from({ length: INVENTORY_LIMIT }, (_, index) => junkItem(`full-${index}`));
+  throwsCode(() => world.claimMail(restored.id, mailId), "INVENTORY_FULL");
+  assert.equal(restored.mailbox.length, 1, "failed claim keeps the attachment in mail");
+  restored.inventory = [];
+  world.handleCommand(restored.id, { type: "mailClaim", mailId });
+  assert.equal(restored.inventory[0].id, item.id);
+  assert.equal(restored.gold, 120);
+  assert.equal(restored.mailbox.length, 0);
+});
+
+test("the used-goods shop sells through mail, taxes proceeds, and returns expired listings", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, autoLevel: false });
+  const seller = world.addPlayer("seller", { name: "Seller", archetype: "vanguard" });
+  const buyer = world.addPlayer("buyer", { name: "Buyer", archetype: "strider" });
+  const market = world.shops.find((shop) => shop.id === "market");
+  for (const player of [seller, buyer]) {
+    player.x = market.x;
+    player.y = market.y;
+  }
+  seller.gold = MARKET_LISTING_FEE + 100;
+  buyer.gold = 1000;
+  seller.inventory.push(junkItem("market-blade"));
+  world.handleCommand(seller.id, { type: "marketList", item: "market-blade", price: 500 });
+  const listing = seller.marketListings[0];
+  assert.equal(seller.gold, 100, "listing fee is charged once");
+  world.handleCommand(buyer.id, { type: "marketBuy", listingId: listing.id });
+  assert.equal(buyer.gold, 500, "buyer pays the listing price");
+  assert.equal(buyer.mailbox[0].items[0].id, "market-blade", "the purchased item is mailed");
+  assert.equal(seller.mailbox[0].gold, 475, "seller receives price minus five percent tax");
+  assert.equal(seller.marketListings.length, 0);
+
+  seller.inventory.push(junkItem("expired-blade"));
+  world.handleCommand(seller.id, { type: "marketList", item: "expired-blade", price: 200 });
+  world.time += MARKET_LISTING_DURATION;
+  world.update(0.05);
+  assert.ok(seller.mailbox.some((mail) => mail.items.some((item) => item.id === "expired-blade")));
+  assert.equal(seller.marketListings.length, 0, "expired listings leave the market");
+  assert.equal(MARKET_TAX, 0.05);
 });
 
 test("party membership enforces invite, capacity, and cleanup rules", () => {

@@ -86,6 +86,8 @@ import {
     shopPanel: document.querySelector("#shop-panel"),
     shopName: document.querySelector("#shop-name"),
     shopGoods: document.querySelector("#shop-goods"),
+    mailPanel: document.querySelector("#mail-panel"),
+    mailList: document.querySelector("#mail-list"),
     socialPanel: document.querySelector("#social-panel"),
     partyState: document.querySelector("#party-state"),
     socialList: document.querySelector("#social-list"),
@@ -747,6 +749,7 @@ import {
         (shop) => shop && Number.isFinite(shop.x) && Number.isFinite(shop.y),
       );
     }
+    if (Array.isArray(map.marketListings)) state.map.marketListings = map.marketListings;
     ui.sector.textContent = `节点 // ${state.map.name}`;
   }
 
@@ -915,6 +918,7 @@ import {
       ui.goldAmount.textContent += ` · 荣誉 ${honor}（${tier.label}）`;
     }
     updateShop(player);
+    updateMail(player);
     updateSocial(player);
     if (ui.alignmentRow) {
       const isEclipse = archetypeKey === "eclipse";
@@ -1175,6 +1179,35 @@ import {
     }
   }
 
+  function updateMail(player) {
+    if (!ui.mailPanel || !ui.mailList) return;
+    const mailbox = Array.isArray(player.mailbox) ? player.mailbox : [];
+    ui.mailPanel.hidden = mailbox.length === 0;
+    if (mailbox.length === 0) {
+      ui.mailList.replaceChildren();
+      return;
+    }
+    const signature = JSON.stringify(mailbox.map((mail) => [mail.id, mail.gold, mail.items?.length || 0]));
+    if (ui.mailList.dataset.signature === signature) return;
+    ui.mailList.dataset.signature = signature;
+    ui.mailList.replaceChildren(...mailbox.map((mail) => {
+      const row = document.createElement("div");
+      row.className = "gear-row";
+      const label = document.createElement("b");
+      label.textContent = `${mail.subject} · ${mail.from}`;
+      const contents = [];
+      if (finite(mail.gold, 0) > 0) contents.push(`${mail.gold}金`);
+      if (Array.isArray(mail.items) && mail.items.length > 0) contents.push(`${mail.items.length}件物品`);
+      const claim = document.createElement("button");
+      claim.type = "button";
+      claim.textContent = "领取";
+      claim.dataset.mail = "claim";
+      claim.dataset.mailId = mail.id;
+      row.append(label, document.createTextNode(contents.join(" · ")), claim);
+      return row;
+    }));
+  }
+
   // Shop panel appears while standing near a shopkeeper.
   function updateShop(player) {
     if (!ui.shopPanel) return;
@@ -1187,8 +1220,95 @@ import {
       return;
     }
     ui.shopPanel.hidden = false;
+    if (near.id === "market") {
+      const listings = Array.isArray(state.map.marketListings) ? state.map.marketListings : [];
+      const signature = JSON.stringify([
+        listings.map((listing) => [listing.id, listing.price]),
+        (player.inventory || []).map((item) => item.id),
+      ]);
+      state.shopId = near.id;
+      ui.shopName.textContent = near.name;
+      ui.shopGoods.dataset.marketSignature = signature;
+      const rows = listings.map((listing) => {
+        const row = document.createElement("div");
+        row.className = "gear-row";
+        const label = document.createElement("b");
+        label.textContent = `${listing.seller} · ${listing.item.name}`;
+        const price = document.createElement("span");
+        price.className = "gear-trend";
+        price.textContent = `${listing.price}金`;
+        const buy = document.createElement("button");
+        buy.type = "button";
+        buy.textContent = "买入";
+        buy.dataset.market = "buy";
+        buy.dataset.listing = listing.id;
+        row.append(label, price, buy);
+        return row;
+      });
+      const own = document.createElement("div");
+      own.className = "gear-row";
+      const select = document.createElement("select");
+      select.dataset.marketItem = "true";
+      select.innerHTML = `<option value="">选择背包物品</option>`;
+      for (const item of player.inventory || []) {
+        const option = document.createElement("option");
+        option.value = String(item.id);
+        option.textContent = item.name;
+        select.append(option);
+      }
+      const price = document.createElement("input");
+      price.type = "number";
+      price.min = "1";
+      price.step = "1";
+      price.placeholder = "售价";
+      price.dataset.marketPrice = "true";
+      const list = document.createElement("button");
+      list.type = "button";
+      list.textContent = "上架";
+      list.dataset.market = "list";
+      own.append(select, price, list);
+      ui.shopGoods.replaceChildren(...rows, own);
+      return;
+    }
+    delete ui.shopGoods.dataset.marketSignature;
+    if (near.id === "bank") {
+      const bankGold = Math.max(0, Math.floor(finite(player.bankGold, 0)));
+      if (state.shopId === near.id && ui.shopGoods.dataset.bankGold === String(bankGold)) return;
+      state.shopId = near.id;
+      ui.shopName.textContent = near.name;
+      ui.shopGoods.dataset.bankGold = String(bankGold);
+      const balance = document.createElement("div");
+      balance.className = "gear-row";
+      const label = document.createElement("b");
+      label.textContent = "金库余额";
+      const value = document.createElement("span");
+      value.className = "gear-trend";
+      value.textContent = `${bankGold}金`;
+      value.style.color = "#f0c15e";
+      balance.append(label, value);
+      const controls = document.createElement("div");
+      controls.className = "gear-row";
+      const input = document.createElement("input");
+      input.type = "number";
+      input.min = "1";
+      input.step = "1";
+      input.placeholder = "金币数";
+      input.className = "hall-floor-input";
+      const deposit = document.createElement("button");
+      deposit.type = "button";
+      deposit.textContent = "存入";
+      deposit.dataset.bank = "deposit";
+      const withdraw = document.createElement("button");
+      withdraw.type = "button";
+      withdraw.textContent = "取出";
+      withdraw.dataset.bank = "withdraw";
+      controls.append(input, deposit, withdraw);
+      ui.shopGoods.replaceChildren(balance, controls);
+      return;
+    }
     if (state.shopId === near.id) return;
     state.shopId = near.id;
+    delete ui.shopGoods.dataset.bankGold;
     ui.shopName.textContent = near.name;
     ui.shopGoods.replaceChildren(...(near.goods || []).map((good) => {
       const row = document.createElement("div");
@@ -4630,7 +4750,34 @@ import {
 
   ui.respawnButton.addEventListener("click", () => send({ type: "respawn" }));
   ui.reviveButton?.addEventListener("click", () => send({ type: "revive" }));
+  ui.mailList?.addEventListener("click", (event) => {
+    const claim = event.target.closest("button[data-mail=claim]");
+    if (claim) send({ type: "mailClaim", mailId: claim.dataset.mailId });
+  });
   ui.shopGoods?.addEventListener("click", (event) => {
+    const marketButton = event.target.closest("button[data-market]");
+    if (marketButton) {
+      if (marketButton.dataset.market === "buy") {
+        send({ type: "marketBuy", listingId: marketButton.dataset.listing });
+      } else {
+        const item = ui.shopGoods.querySelector("select[data-market-item]")?.value;
+        const price = Number(ui.shopGoods.querySelector("input[data-market-price]")?.value);
+        if (item && Number.isSafeInteger(price) && price > 0) {
+          send({ type: "marketList", item, price });
+        }
+      }
+      return;
+    }
+    const bankButton = event.target.closest("button[data-bank]");
+    if (bankButton) {
+      const input = ui.shopGoods.querySelector("input[type=number]");
+      const gold = Number(input?.value);
+      if (Number.isSafeInteger(gold) && gold > 0) {
+        send({ type: bankButton.dataset.bank === "deposit" ? "bankDeposit" : "bankWithdraw", gold });
+        if (input) input.value = "";
+      }
+      return;
+    }
     const button = event.target.closest("button[data-good]");
     if (!button) return;
     send({ type: "buy", shop: button.dataset.shop, good: button.dataset.good });
