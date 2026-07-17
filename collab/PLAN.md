@@ -46,6 +46,8 @@
 
 | T-022 | **修复 Codex 复核 P1**：军团邀请在邀请方被逐出/降级后仍可使用——`acceptArmy` 未复查邀请方当前军团与军衔 | **Review** | Claude | 已修（接受时复查）。**按一类而非一个处理**：`acceptDuel`/`acceptArmyTransfer` 本就有复查，`acceptParty` 核对后确认无此洞（队伍无军衔）。两条回归先证明会挂再修 + 变异验证。`npm test` 215/215 |
 
+| T-023 | **修复 Codex 复核 P1 残留**：`acceptArmy` 复查漏 `connectionDetached`（断线保席五分钟、记录仍在）。**核对同类又查出 `acceptArmyTransfer` 同漏**（Codex 未提） | **Review** | Claude | **改类不改实例**：「玩家此刻算不算数」散落十处、写法各异，含两处既有邀请补发同样漏检 → 收成单一 `_isActor()`。两条回归先证明会挂再修 + 变异验证。`npm test` 217/217 |
+
 <!-- 追加新任务时复制下面这行：
 | T-00X | <一句话任务> | Backlog | - | - |
 -->

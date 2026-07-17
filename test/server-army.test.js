@@ -232,3 +232,28 @@ test("an invitation dies with the recruiter's rank", () => {
   throwsCode(() => world.acceptArmy("out", "rec"), "NO_ARMY_INVITE");
   assert.equal(outsider.army, null);
 });
+
+// A dropped connection is not a departure: detachPlayer keeps the player for
+// five minutes of grace, so a recruiter who vanishes mid-window still has a
+// live record. Authority has to notice that too.
+test("an invitation dies with the recruiter's connection", () => {
+  const { world } = founded();
+  const outsider = qualified(world, "out", "Outsider");
+  world.handleCommand("cmd", { type: "armyPromote", name: "Recruit", rank: "lieutenant" });
+  world.handleCommand("rec", { type: "armyInvite", target: "out" });
+
+  world.detachPlayer("rec");
+
+  throwsCode(() => world.acceptArmy("out", "rec"), "NO_ARMY_INVITE");
+  assert.equal(outsider.army, null, "a recruiter who dropped enlists nobody");
+});
+
+test("a handover dies with the commander's connection", () => {
+  const { world, recruit } = founded();
+  world.handleCommand("cmd", { type: "armyTransfer", target: "rec" });
+
+  world.detachPlayer("cmd");
+
+  throwsCode(() => world.acceptArmyTransfer("rec", "cmd"), "INVALID_TARGET");
+  assert.equal(recruit.army.rank, "member", "the army is not handed over by a ghost");
+});

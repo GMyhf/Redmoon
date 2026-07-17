@@ -1590,6 +1590,15 @@ export class World {
   // no migration — at the price of scanning accounts to look one up, which is
   // affordable here and would not be at a much larger scale.
 
+  // A player is only an actor while they are authenticated and connected.
+  // `connectionDetached` is the trap: a dropped player keeps their record
+  // through five minutes of reconnect grace, so they are neither gone nor
+  // usable. Three separate paths each remembered a different subset of this,
+  // so it lives in one place now.
+  _isActor(player) {
+    return Boolean(player) && !player.pendingAuth && !player.connectionDetached;
+  }
+
   _armyKey(name) {
     return String(name ?? "").trim().toLowerCase();
   }
@@ -1616,7 +1625,7 @@ export class World {
         name: player.name,
         rank: player.army.rank,
         level: player.level,
-        online: !player.pendingAuth && !player.connectionDetached,
+        online: this._isActor(player),
         id: player.id,
       });
     }
@@ -1626,7 +1635,7 @@ export class World {
   _onlineArmyMembers(name) {
     const key = this._armyKey(name);
     return [...this.players.values()].filter((player) => (
-      this._armyKey(player.army?.name) === key && !player.pendingAuth && !player.connectionDetached
+      this._armyKey(player.army?.name) === key && this._isActor(player)
     ));
   }
 
@@ -1685,7 +1694,7 @@ export class World {
       throw new WorldError("ARMY_RANK_FORBIDDEN", "Only a commander or lieutenant may recruit.");
     }
     const target = this.players.get(String(targetId));
-    if (!target || target.pendingAuth || target.connectionDetached || target.id === id) {
+    if (!this._isActor(target) || target.id === id) {
       throw new WorldError("INVALID_TARGET", "No such player to recruit.");
     }
     if (target.army) throw new WorldError("ARMY_ACTIVE", "This player is already part of an army.");
@@ -1710,7 +1719,7 @@ export class World {
       return null;
     }
     const host = this.players.get(invite.from);
-    if (!host || host.pendingAuth) {
+    if (!this._isActor(host)) {
       this._armyInvites.delete(playerId);
       return null;
     }
@@ -1737,7 +1746,10 @@ export class World {
     // than trust who they were a minute ago — the same reason a duel re-checks
     // both sides on accept.
     const recruiter = this.players.get(invite.from);
-    if (!recruiter || recruiter.pendingAuth
+    // `connectionDetached` matters as much as the rest: a dropped player keeps
+    // their record through five minutes of reconnect grace, so absence here
+    // looks nothing like a missing player.
+    if (!this._isActor(recruiter)
       || this._armyKey(recruiter.army?.name) !== this._armyKey(invite.army)
       || this._rankOf(recruiter) === "member") {
       throw new WorldError("NO_ARMY_INVITE", "That invitation is no longer valid.");
@@ -1843,7 +1855,7 @@ export class World {
       throw new WorldError("ARMY_RANK_FORBIDDEN", "Only the commander may hand the army over.");
     }
     const target = this.players.get(String(targetId));
-    if (!target || target.pendingAuth || target.connectionDetached || target.id === id
+    if (!this._isActor(target) || target.id === id
       || this._armyKey(target.army?.name) !== this._armyKey(player.army.name)) {
       throw new WorldError("INVALID_TARGET", "That player is not an online member of your army.");
     }
@@ -1865,7 +1877,8 @@ export class World {
     }
     this._armyTransfers.delete(id);
     const commander = this.players.get(offer.from);
-    if (!commander || this._rankOf(commander) !== "commander"
+    if (!this._isActor(commander)
+      || this._rankOf(commander) !== "commander"
       || this._armyKey(commander.army?.name) !== this._armyKey(player.army?.name)) {
       throw new WorldError("INVALID_TARGET", "That handover is no longer valid.");
     }
@@ -1906,7 +1919,7 @@ export class World {
   inviteDuel(id, targetId) {
     const player = this._requirePlayer(id);
     const target = this.players.get(String(targetId));
-    if (!target || target.pendingAuth || target.connectionDetached || target.id === id) {
+    if (!this._isActor(target) || target.id === id) {
       throw new WorldError("INVALID_TARGET", "No such player to challenge.");
     }
     if (this.duels.size >= this.maxDuels) {
@@ -1936,7 +1949,7 @@ export class World {
       return null;
     }
     const host = this.players.get(invite.from);
-    if (!host || host.pendingAuth) {
+    if (!this._isActor(host)) {
       this._duelInvites.delete(playerId);
       return null;
     }
@@ -2175,7 +2188,7 @@ export class World {
       return null;
     }
     const host = this.players.get(invite.from);
-    if (!host || host.pendingAuth) {
+    if (!this._isActor(host)) {
       this._partyInvites.delete(playerId);
       return null;
     }
