@@ -206,6 +206,8 @@ test("a commander must reach the enemy HQ before evicting one rented floor", () 
   world.handleCommand("cmd", { type: "armySiege", camp: COVENANT, floor: 4 });
   assert.ok(world._armySieges.size === 1, "the siege remains active during its assault window");
   assert.equal(rival.army.hall.floor, 4, "the defender keeps the hall until the assault is resolved");
+  world.update(0.05);
+  assert.equal(rival.army.hall.floor, 4, "the window must elapse before the lease can change hands");
   world.time += ARMY_SIEGE_DURATION;
   world.update(0.05);
   assert.equal(rival.army.hall, undefined, "the enemy floor is evicted");
@@ -238,6 +240,75 @@ test("a defender holding the HQ repels the siege at the deadline", () => {
   const ended = world.drainEvents().find((event) => event.event === "armySiegeEnded");
   assert.equal(ended.result, "defender");
   assert.equal(ended.reason, "defenders_present");
+});
+
+test("leaving the enemy HQ aborts the assault before its window ends", () => {
+  const { world, commander } = commanding(FREEHOLD);
+  world.handleCommand("cmd", { type: "armyRentHall", floor: 4 });
+  const rival = world.addPlayer("riv", { name: "Riv", archetype: "vanguard" });
+  rival.level = ARMY_LEVEL;
+  rival.honor = ARMY_HONOR;
+  rival.gold = ARMY_HALL_RENT * 2;
+  world.handleCommand("riv", { type: "armyCreate", name: "契约军", camp: COVENANT });
+  world.handleCommand("riv", { type: "armyRentHall", floor: 4 });
+
+  commander.mapId = BATTLE_ZONE_MAP;
+  commander.x = CAMP_HQ[COVENANT].x;
+  commander.y = CAMP_HQ[COVENANT].y;
+  world.handleCommand("cmd", { type: "armySiege", camp: COVENANT, floor: 4 });
+  commander.x += ARMY_SIEGE_RANGE + 1;
+  world.update(0.05);
+
+  assert.equal(rival.army.hall.floor, 4, "leaving HQ abandons the assault");
+  assert.equal(world._armySieges.size, 0);
+});
+
+test("leaving the battle zone aborts the assault before its window ends", () => {
+  const { world, commander } = commanding(FREEHOLD);
+  world.handleCommand("cmd", { type: "armyRentHall", floor: 4 });
+  const rival = world.addPlayer("riv", { name: "Riv", archetype: "vanguard" });
+  rival.level = ARMY_LEVEL;
+  rival.honor = ARMY_HONOR;
+  rival.gold = ARMY_HALL_RENT * 2;
+  world.handleCommand("riv", { type: "armyCreate", name: "契约军", camp: COVENANT });
+  world.handleCommand("riv", { type: "armyRentHall", floor: 4 });
+
+  commander.mapId = BATTLE_ZONE_MAP;
+  commander.x = CAMP_HQ[COVENANT].x;
+  commander.y = CAMP_HQ[COVENANT].y;
+  world.handleCommand("cmd", { type: "armySiege", camp: COVENANT, floor: 4 });
+  commander.mapId = "town";
+  world.update(0.05);
+
+  assert.equal(rival.army.hall.floor, 4, "leaving the battle zone abandons the assault");
+  assert.equal(world._armySieges.size, 0);
+});
+
+test("killing the defending force leaves the HQ undefended", () => {
+  const { world, commander } = commanding(FREEHOLD);
+  world.handleCommand("cmd", { type: "armyRentHall", floor: 4 });
+  const rival = world.addPlayer("riv", { name: "Riv", archetype: "vanguard" });
+  rival.level = ARMY_LEVEL;
+  rival.honor = ARMY_HONOR;
+  rival.gold = ARMY_HALL_RENT * 2;
+  world.handleCommand("riv", { type: "armyCreate", name: "契约军", camp: COVENANT });
+  world.handleCommand("riv", { type: "armyRentHall", floor: 4 });
+
+  commander.mapId = BATTLE_ZONE_MAP;
+  commander.x = CAMP_HQ[COVENANT].x;
+  commander.y = CAMP_HQ[COVENANT].y;
+  rival.mapId = BATTLE_ZONE_MAP;
+  rival.x = CAMP_HQ[COVENANT].x;
+  rival.y = CAMP_HQ[COVENANT].y;
+  world.handleCommand("cmd", { type: "armySiege", camp: COVENANT, floor: 4 });
+  world._damagePlayer(rival, 1_000_000, commander.id);
+  world.time += ARMY_SIEGE_DURATION;
+  world.update(0.05);
+
+  assert.equal(rival.army.hall, undefined, "killing the defender clears the HQ");
+  const ended = world.drainEvents().find((event) => event.event === "armySiegeEnded");
+  assert.equal(ended.result, "attacker");
+  assert.equal(ended.reason, "hq_captured");
 });
 
 test("losing the attacking commander aborts the siege without evicting the hall", () => {
