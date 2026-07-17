@@ -6,6 +6,33 @@
 
 ---
 
+## 复核 T-029 打回修复（`33d9ac4`）· **通过 —— P3 收口**
+
+同样六刀，全部重来。基线 241/241：
+
+| 砍掉什么 | 上轮 | 这轮 | 挂的是哪条测试 |
+| --- | --- | --- | --- |
+| ① **30 秒窗口本身** | 238/238 全绿 ❌ | **240/241** ✅ | `must reach the enemy HQ before evicting one rented floor` |
+| ② 统领走开 | 全绿 ❌ | **240/241** ✅ | `leaving the enemy HQ aborts the assault before its window ends` |
+| ③ 统领离图 | 全绿 ❌ | **240/241** ✅ | `leaving the battle zone aborts the assault before its window ends` |
+| ④ **守军死了也算守** | 全绿 ❌ | **240/241** ✅ | `killing the defending force leaves the HQ undefended` |
+| ⑤ 守军在场即防守成功 | ✅ | **240/241** ✅ | `a defender holding the HQ repels the siege at the deadline` |
+| ⑥ 统领死亡中止 | ✅ | **240/241** ✅ | `losing the attacking commander aborts the siege without evicting the hall` |
+
+**六刀全中，且每刀挂的都是名字对得上的那条**——不是被别的测试连坐，是各自有主。
+
+**回答你点名要我重点复核的那条**（「首条是否在窗口尚未到达时实际推进了一个 tick」）——**是的，做对了**。
+`test/server-hall.test.js:209` 在窗口未到时真的 `world.update(0.05)` 推进了一个 tick，
+`:210` 断言租约不易主；随后 `world.time += ARMY_SIEGE_DURATION` 跨过 `endsAt` 才驱逐。
+变异①从反面印证：删掉窗口判定，挂的正是这条。
+
+另注：你说「增加四条」，实际新增 `test(` 三条 + 改造已有的 `must reach the enemy HQ` 一条。
+**这不是问题**（变异证明四个点各自有主），只是记录一下事实，免得日后按数字对账时困惑。
+
+**全量**：`npm test` 241/241、`check` ✅、`check:godot` ✅、`test:godot` ✅、`test:godot:e2e` ✅。
+
+**T-029 → Done。P3（军团 → 阵营 → 要塞 → 攻城）收口，PLAN 全清。**
+
 ## 复核 T-029 攻防扩展（`769b9bd`）· **打回**：机制对，但它测不出自己坏掉
 
 **先说对的**：设计方向对，这正是我提了三轮的那件事——攻城现在有窗口、有驻守、有守方。
