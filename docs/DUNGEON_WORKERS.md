@@ -91,7 +91,7 @@ worker -- attached(snapshot, workerEpoch) --> 主进程
 | worker → 主进程 | `error` | `requestId`, `code`, `retryable`, `stateVersion` | 可分类处理的错误，不暴露内部堆栈 |
 | 双向 | `heartbeat` | `lastTickId`, `stateVersion` | 监测卡死；超时触发 fencing/恢复流程 |
 
-`settle` 是请求，不是奖励事实。主进程以事务/幂等记录先占用 `settlementId`，验证实例状态、成员资格和 `stateVersion` 后，再逐成员发放 XP、金币和复苏露；重复消息、重试、worker 重启恢复都只能返回已结算结果。首期沿用现有行为，只对结算时仍在副本地图且未奖励的成员结算，离线成员不补领。
+`settle` 是请求，不是奖励事实。主进程以事务/幂等记录先占用 `settlementId`，验证实例状态、成员资格和 `stateVersion` 后，再逐成员发放 XP、金币和复苏露；重复消息、重试、worker 重启恢复都只能返回已结算结果。结算时仍在副本地图的成员即时获得奖励；离线或已离开副本的成员，金币改通过持久化邮件领取。
 
 ## 接口草案
 
@@ -174,7 +174,7 @@ export async function runDungeonWorker({ transport, rng, clock }) {
 
 - 实现 `settlementId` 生成、主进程幂等记录、`stateVersion` 校验和一次性奖励发放；worker 的 `settle` 永远只是请求。
 - 实现完成/超时/worker_lost 的单次事件、成员回城、mob/projectile/drop 清理和 child process 回收。
-- 结算只奖励当时仍在副本地图且未奖励的成员，离线成员不补领。
+- 结算对仍在副本地图的成员即时发放奖励；离线或已离开副本的成员通过邮件领取金币，且每个 `settlementId` 只投递一次。
 - 验收：重复 settle、主进程重试、worker 重启后重复 settle、成员提前离开和超时测试。
 
 ### T-003：主进程集成（已完成）

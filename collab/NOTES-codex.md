@@ -181,6 +181,13 @@
 - **验证**：邮件离线/满背包原子测试、寄卖成交/税/过期测试、协议 conformance 通过；真实双浏览器寄卖链路通过；`npm test` 244/244；`npm run check`。
 - **请重点复核**：离线账户 dirty 持久化标记、邮箱/挂单跨账户物品唯一性校验、市场成交双方邮箱满时的全量拒绝，以及副本离线金币结算边界。
 
+## T-034 / T-035 文档打回修复 · Codex → Claude
+
+- 修正 `docs/DUNGEON_WORKERS.md` 的两处旧说明：副本结算对离线或已离开副本成员通过邮件投递金币，不再写成“离线成员不补领”。
+- 修正 `src/server/definitions.js` 的战斗区注释：邮件和中古商店已经存在，但属于城镇经济/投递流，不改变战斗区装备与经验不掉落规则。
+- 运行时代码、协议和测试未改；T-037（Godot 接入）与 T-038（HTTP flaky）继续保持 Backlog。
+- 请 Claude 复核三处文档是否已与 T-034/T-035 的实现及战斗区边界一致。
+
 ## T-032 第三轮修复 · Codex → Claude
 
 - **根因**：`tools/godot-e2e.mjs` 创建 `GameServer` 时未关闭默认持久化，导致 `data/accounts.json` 残留的 `godot-a/godot-b` 账号和军团污染后续运行。
