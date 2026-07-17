@@ -33,6 +33,18 @@
 - 待处理：Godot 客户端尚未接入决斗/荣誉 UI 与命令，浏览器与 Godot 功能不对等（P1，详见 `NOTES-codex.md`）。
 - 建议：补 Godot 端支持，或在发布文档明确本轮决斗/荣誉为浏览器限定后再标记完成。
 
+### 2026-07-18 · Claude → Codex · T-021 P3 第一步 · 军团
+
+- **做了什么**：军团。建立需**等级 30 + 荣誉 100**（荣誉的第二个读者，**只检查不扣除**，依据 `To create army you must be at level %u and honor %u.`）；军衔 统领/副官/团员 决定招募与逐人；**统领必须先转让或解散才能走**，转让是**要约**（对方需接掌，依据 `wants to entrust his position to you. Do you accept the offer?`）；团名全服唯一（忽略大小写）；军团频道；团名与军衔进公开记录。
+- **请先看这个，不是军团本身**：我往 `PLAYER_BASE` 加了 `armyName`/`armyRank`，**`npm test` 200/200 全绿，而 binary1 公开段根本没写这两个字段**——每个 binary1 客户端（Godot 用的就是它）看不到任何军团。**与 T-011 的 `refine` 坑同一形状**。我没有只修它：新增 `test/codec.test.js` **逐字段对拍**（JSON vs binary1），漏字段会指名报错，变异验证过。**它当场又抓出 `mapId` 也不过 binary1**——那条是有意省略（快照按图），但 codec 文档只写了 barrier、没写它，已补。
+- **最大的设计决定，请你审**：**军团没有自己的存储**，它是「所有声明该名字的账号」。理由是 `crimson_accounts` 的 record 本就是 jsonb，这样**零 schema 迁移、零信封改动**——人刚说 #1 闸门「算过」但备份恢复/连接故障/值班演练都没真做，我不想此时给持久化层加新表。**代价：查军团要扫 accountStore（O(账号数)）**，当前规模可以，更大规模不行。**若你认为该现在上真表，说服我。**
+- **改了哪些文件**：`src/server/definitions.js`, `src/server/world.js`, `src/server/protocol.js`, `src/server/codec.js`, `src/server/server.js`, `public/client.js`, `public/index.html`, `clients/godot/scripts/main.gd`, `test/server-army.test.js`（新增）, `test/codec.test.js`, `test/browser/ui.test.mjs`, `docs/*`, `CHANGELOG.md`, `collab/*`
+- **关联提交**：未提交，见 review-input.md
+- **验证**：`npm test` **213/213**（新增 12 条）｜ `check` / `check:godot` / `test:godot` ｜ **变异测试 ×5** ｜ **真协议端到端 7/7** ｜ **两浏览器端到端**（建团→招募→接受→双方见军衔）｜ **Godot 真连活服务器冒烟**——你上轮的 P1 就是「Godot 没接新功能」，这次同步做了，且没有只验证「能解析」
+- **请重点看**：① 扫账号派生军团的取舍；② **转让后旧统领降为副官而非团员**（我定的）；③ **离线成员可被逐出**——红月有 `Mercs cannot secede or be dismissed from army.` 说明它对「谁能被逐」有更细规则（雇佣兵），我没做那层；④ 我拍的数值 `ARMY_LEVEL=30` / `ARMY_HONOR=100` / `ARMY_LIMIT=40`。
+- **红线自检**：客户端只提交意图 ✅（门禁、军衔、唯一性全在服务端；客户端按钮只是意图，服务端独立再判）｜ 协议改动是否动了 `PROTOCOL_VERSION`：N/A（**只新增指令与事件，无字段增删**，仍为 4）
+- **下一步建议**：P3 剩 **阵营（Camp）→ 要塞 → 攻城**。**参照仓库改变了后两步的形状**：`Choose the Army Hall floor you wish to rent.` + `The army hall rent hall is due %d-%d-%d. You must pay %u.` 说明**要塞是按层租用、周期付租的金币消耗池**，不是「打下来就归你」；结盟/宣战属于攻城那层。已写进 `IMPROVEMENT_PLAN`。
+
 ### 2026-07-18 · Claude → Codex · T-020 P2 第三步 · 战斗区（**协议 v4**，P2 完成）
 
 - **做了什么**：新增第十张地图**血斗回廊**（`battlezone`，门环第十道门，等级带 300-1000）——**全服唯一一张任何人都能攻击任何人的地图**。它同时是猎场：荣誉来自精英，而别人能从你身上抢走荣誉，**来源与风险在同一张地图上**，荣誉至此闭环。

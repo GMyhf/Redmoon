@@ -154,3 +154,41 @@ test("the shared-serialization paths match the canonical snapshot exactly", () =
     assert.deepEqual(cached, fresh);
   }
 });
+
+// Two encodings, one contract. binary1 hand-writes each field, so any addition
+// to PLAYER_BASE that the codec is not taught about silently vanishes for every
+// client that negotiates it — the Godot client among them. That has now
+// happened twice: `refine` on items, and `armyName`/`armyRank` here. This
+// compares the two paths field by field so the next one fails loudly.
+test("every public player field survives binary1, not just the ones we remembered", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
+  const seen = world.addPlayer("seen", { name: "Seen", archetype: "vanguard" });
+  world.addPlayer("viewer", { name: "Viewer", archetype: "strider" });
+  // Give the record something in every optional shape a public player can hold.
+  seen.army = { name: "Ironsworn", rank: "commander", memberName: "Seen" };
+  seen.honor = 250;
+  seen.reputation = -40;
+  seen.equipment.weapon = {
+    id: "blade-1", slot: "weapon", rarity: "rare", tier: 3, level: 10,
+    name: "Pulse Edge", bonuses: { power: 4, agility: 0, spirit: 0, vitality: 0 }, refine: 2,
+  };
+
+  const snapshot = world.getSnapshot("viewer");
+  const canonical = snapshot.players.find((entry) => entry.id === "seen");
+  const decoded = decodeSnapshotBinary(encodeSnapshotBinary(snapshot))
+    .players.find((entry) => entry.id === "seen");
+
+  for (const [field, value] of Object.entries(canonical)) {
+    // binary1 omits these on purpose: soul-barrier detail is dropped, a
+    // player's mapId is implied by the frame's own (a snapshot covers one
+    // map), and equipment is checked separately below. Everything else must
+    // survive.
+    if (field === "barrier" || field === "mapId" || field === "equipment") continue;
+    assert.deepEqual(
+      decoded[field],
+      value,
+      `${field} does not survive binary1 — the codec was not taught about it`,
+    );
+  }
+  assert.equal(decoded.equipment.weapon.refine, 2, "and equipped pieces keep their stage");
+});

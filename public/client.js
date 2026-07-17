@@ -88,6 +88,8 @@ import {
     socialPanel: document.querySelector("#social-panel"),
     partyState: document.querySelector("#party-state"),
     socialList: document.querySelector("#social-list"),
+    armyCreateForm: document.querySelector("#army-create-form"),
+    armyNameInput: document.querySelector("#army-name"),
     alignmentRow: document.querySelector("#alignment-row"),
     alignmentText: document.querySelector("#alignment-text"),
     attuneButton: document.querySelector("#attune-button"),
@@ -125,6 +127,7 @@ import {
     { at: 0, label: "无名" },
   ];
   const REFINE_HONOR_GATE = [0, 0, 200, 400];
+  const ARMY_RANK_LABELS = { commander: "统领", lieutenant: "副官", member: "团员" };
   const DUEL_REASONS = {
     defeat: "对手倒下",
     forfeit: "认输",
@@ -1265,6 +1268,42 @@ import {
       rows.push(row);
     };
 
+    const army = player.army && typeof player.army === "object" ? player.army : null;
+    if (army) {
+      const members = Array.isArray(army.members) ? army.members : [];
+      const isCommander = army.rank === "commander";
+      const actions = [];
+      if (isCommander) {
+        const disband = document.createElement("button");
+        disband.type = "button";
+        disband.textContent = "解";
+        disband.title = "解散军团";
+        disband.setAttribute("aria-label", "解散军团");
+        disband.dataset.social = "army-disband";
+        actions.push(disband);
+      } else {
+        const quit = document.createElement("button");
+        quit.type = "button";
+        quit.textContent = "退";
+        quit.title = "退出军团";
+        quit.setAttribute("aria-label", "退出军团");
+        quit.dataset.social = "army-leave";
+        actions.push(quit);
+      }
+      addSection(`军团·${army.name}`, `${members.length}`, actions[0]);
+      // Commander first, then lieutenants, then the rest; offline members stay
+      // on the roster because they are still in the company.
+      const order = { commander: 0, lieutenant: 1, member: 2 };
+      for (const member of [...members].sort((a, b) => (order[a.rank] ?? 3) - (order[b.rank] ?? 3))) {
+        const rankLabel = ARMY_RANK_LABELS[member.rank] || member.rank;
+        addRow(
+          `${member.name}`,
+          member.online ? rankLabel : `${rankLabel}·离线`,
+          member.online ? "is-online" : "is-offline",
+        );
+      }
+    }
+
     if (party.length > 0) {
       const leave = document.createElement("button");
       leave.type = "button";
@@ -1338,9 +1377,22 @@ import {
       duel.setAttribute("aria-label", `邀请 ${displayName} 决斗`);
       duel.dataset.social = "duel";
       duel.dataset.target = String(other.id);
-      addRow(displayName, "在线", "is-online", [invite, befriend, duel]);
+      const actions = [invite, befriend, duel];
+      // Recruiting is a rank's privilege; the server checks it again anyway.
+      if (army && army.rank !== "member") {
+        const recruit = document.createElement("button");
+        recruit.type = "button";
+        recruit.textContent = "募";
+        recruit.title = `招募进军团·${army.name}`;
+        recruit.setAttribute("aria-label", `招募 ${displayName} 进军团`);
+        recruit.dataset.social = "army-invite";
+        recruit.dataset.target = String(other.id);
+        actions.push(recruit);
+      }
+      addRow(displayName, "在线", "is-online", actions);
     }
     ui.socialList.replaceChildren(...rows);
+    if (ui.armyCreateForm) ui.armyCreateForm.hidden = Boolean(army);
   }
 
   function updateAbilityCooldown(slot, skill) {
@@ -1526,6 +1578,48 @@ import {
       }
       return;
     }
+    if (eventName === "armyinvited" || eventName === "armytransferoffered") {
+      if (String(event.playerId) !== String(state.id)) return;
+      const transfer = eventName === "armytransferoffered";
+      const key = transfer ? "armyTransferFrom" : "armyInviteFrom";
+      const existing = [...ui.eventFeed.querySelectorAll(`[data-${transfer ? "army-transfer-from" : "army-invite-from"}]`)]
+        .find((entry) => entry.dataset[key] === String(event.from));
+      if (existing) return;
+      const item = document.createElement("div");
+      item.className = "event-message";
+      item.dataset[key] = String(event.from);
+      item.textContent = transfer
+        ? `${event.fromName} 想把军团·${event.army} 交给你 `
+        : `${event.fromName} 邀你加入军团·${event.army} `;
+      const accept = document.createElement("button");
+      accept.type = "button";
+      accept.className = "mini-command";
+      accept.textContent = transfer ? "接掌" : "加入";
+      accept.addEventListener("click", () => {
+        send({ type: transfer ? "armyTransferAccept" : "armyAccept", from: event.from });
+        item.remove();
+      });
+      item.append(accept);
+      ui.eventFeed.prepend(item);
+      window.setTimeout(() => item.remove(), 30000);
+      sfx(520, 0.14, "triangle", 0.05);
+      return;
+    }
+    if (eventName === "armycreated") {
+      pushEvent(`军团·${event.name} 已建立`);
+      state.socialSignature = "";
+      return;
+    }
+    if (eventName === "armyjoined" || eventName === "armyleft" || eventName === "armyrankchanged"
+      || eventName === "armydisbanded") {
+      state.socialSignature = "";
+      if (eventName === "armyjoined") pushEvent(`${event.name} 加入了军团`);
+      else if (eventName === "armyleft") pushEvent(`${event.name} ${event.kicked ? "被逐出" : "离开了"}军团`);
+      else if (eventName === "armyrankchanged") {
+        pushEvent(`${event.name} 现在是${ARMY_RANK_LABELS[event.rank] || event.rank}`);
+      } else pushEvent(`军团·${event.army} 已解散`);
+      return;
+    }
     if (eventName === "duelinvited") {
       if (String(event.playerId) !== String(state.id)) return;
       const existing = [...ui.eventFeed.querySelectorAll("[data-duel-invite-from]")]
@@ -1660,6 +1754,14 @@ import {
       DUEL_NOT_READY: "双方都必须存活且不在副本中",
       NO_DUEL: "你不在决斗中",
       NO_DUEL_INVITE: "没有来自该玩家的决斗邀请（或已超时）",
+      ARMY_ACTIVE: "该玩家已在某个军团中",
+      ARMY_FULL: "军团人数已满",
+      ARMY_LEVEL_TOO_LOW: "等级不足，无法建立军团",
+      ARMY_NAME_TAKEN: "该军团名已被占用，请换一个",
+      ARMY_RANK_FORBIDDEN: "军衔不足，无权进行此操作",
+      NO_ARMY: "你还没有军团",
+      NO_ARMY_INVITE: "没有来自该玩家的军团邀请（或已超时）",
+      NOT_ENOUGH_HONOR_FOR_ARMY: "荣誉不足，无法建立军团（击杀精英与 Boss 可积累）",
       REFINE_MAX_STAGE: "该装备已达最高精炼阶数",
       REFINE_TIER_TOO_LOW: "只有稀有及以上的装备可以精炼",
       NOT_ENOUGH_WILL: "意志不足",
@@ -4433,6 +4535,14 @@ import {
     if (!button) return;
     send({ type: "buy", shop: button.dataset.shop, good: button.dataset.good });
   });
+  ui.armyCreateForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const name = ui.armyNameInput?.value.trim();
+    if (!name) return;
+    // The server owns the level, honour and uniqueness rules; this only asks.
+    send({ type: "armyCreate", name });
+    if (ui.armyNameInput) ui.armyNameInput.value = "";
+  });
   ui.socialList?.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-social]");
     if (!button) return;
@@ -4440,6 +4550,9 @@ import {
     if (kind === "party-leave") send({ type: "partyLeave" });
     if (kind === "invite") send({ type: "partyInvite", target: button.dataset.target });
     if (kind === "duel") send({ type: "duelInvite", target: button.dataset.target });
+    if (kind === "army-invite") send({ type: "armyInvite", target: button.dataset.target });
+    if (kind === "army-leave") send({ type: "armyLeave" });
+    if (kind === "army-disband") send({ type: "armyDisband" });
     if (kind === "friend-add") send({ type: "friendAdd", name: button.dataset.name });
     if (kind === "friend-remove") send({ type: "friendRemove", name: button.dataset.name });
     state.socialSignature = "";

@@ -107,8 +107,19 @@ CRIMSON RELAY 已经继承了红月的**骨架**（1000 级上限、转生、四
 
 ### P3 · 军团（Army）+ 阵营
 
-`Name` / `Commander` / `Camp` 三个字段就是红月军团的全部。`Camp` = 阵营，红月有两派，各一座 20 层要塞——
-**阵营是攻城战的地基**。顺序必须是：军团 → 阵营 → 要塞 → 攻城，跳步会做出没人打的空竞技场。
+顺序：**军团 → 阵营 → 要塞 → 攻城**，跳步会做出没人打的空竞技场。
+
+1. **军团** · **已完成**（T-021）：~~`Name`/`Commander`/`Camp` 三个字段就是红月军团的全部~~ ——
+   **实做时发现远不止**：红月的字符串表还有 `Commander or Lieutenant`（军衔）、
+   `wants to entrust his position to you. Do you accept the offer?`（转让需接掌）、
+   `That Army name already exists.`（团名唯一）、`Choose the Army Hall floor you wish to rent.` +
+   `The army hall rent hall is due %d-%d-%d. You must pay %u.`（**要塞是租的，有周期租金**——一个金币消耗池，
+   不是「打下来就归你」）、以及结盟与宣战。已做：建立（等级+荣誉门禁，荣誉的第二个读者）、军衔、招募需同意、
+   逐人、转让需接掌、解散、军团频道、公开的团名与军衔。
+   **实现上零 schema 迁移**：军团不是一张表，而是「所有声明该名字的账号」——账号记录本就是自由 JSON。
+2. **阵营**（`Camp`）：红月两派，是攻城的地基。
+3. **要塞**：红月的 Army Hall 是**按层租用**、周期付租的。
+4. **攻城**：`- Defeat: Hall lost if your Army rents one`。结盟/宣战属于这一层。
 
 ### P4 · 经济与玩家互动
 

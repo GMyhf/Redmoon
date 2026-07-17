@@ -98,6 +98,26 @@ export const HONOR_TIERS = Object.freeze([
 // everyone: a fresh drop should always be improvable.
 export const REFINE_HONOR_GATE = Object.freeze([0, 0, 200, 400]);
 
+// ---- Armies ----------------------------------------------------------
+// A persistent company with a name, a commander and ranks. Honour is its
+// second reader, exactly as in the reference: "To create army you must be at
+// level %u and honor %u." Standing is checked, never spent — founding a
+// company asks that you have hunted, not that you pay for it.
+//
+// An army is derived from the accounts that belong to it rather than kept in
+// its own store: every account record is already a free-form JSON blob, so
+// this adds no table, no migration and no envelope change. The cost is that
+// looking one up scans accounts, which is fine at this scale and would not be
+// at a much larger one.
+export const ARMY_LEVEL = 30;
+export const ARMY_HONOR = 100;
+export const ARMY_LIMIT = 40;
+export const ARMY_NAME_MAX = 20;
+// Commander is singular; lieutenants may recruit and dismiss members below
+// them; members do neither. Order matters — it is the authority ladder.
+export const ARMY_RANKS = Object.freeze(["commander", "lieutenant", "member"]);
+export const ARMY_INVITE_WINDOW = 60;
+
 // ---- Battle zone -----------------------------------------------------
 // The one map where anyone can attack anyone. It is opted into by walking
 // through a gate, and it is a hunting ground as much as an arena: honour comes

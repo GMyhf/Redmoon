@@ -10,6 +10,8 @@ import test, { after } from "node:test";
 
 import { hashSecret } from "../../src/server/session.js";
 
+import { ARMY_HONOR, ARMY_LEVEL } from "../../src/server/definitions.js";
+
 import {
   joinAs,
   launchBrowser,
@@ -400,6 +402,51 @@ test("equipping from the bag fills the paper-doll slot", async (t) => {
 // Two real browsers, one arena: the first time a player's attack reaches
 // another player has to be earned through the real protocol, not asserted on
 // the World object.
+// An army outlives a session, so this drives the parts a party never had: a
+// founding gate, a name, ranks, and a roster that keeps people who log off.
+test("two browsers found an army and one recruits the other", async (t) => {
+  const { server, url } = await startServer(t);
+  const hostPage = await newPage(t, browser);
+  const guestPage = await newPage(t, browser);
+  await joinAs(hostPage, url, "Warlord");
+  await joinAs(guestPage, url, "Footman");
+
+  const host = playerByName(server, "Warlord");
+  const guest = playerByName(server, "Footman");
+  guest.x = host.x + 40;
+  guest.y = host.y;
+
+  // The gate refuses before it qualifies, through the real protocol.
+  await hostPage.waitForSelector("#army-create-form", { state: "visible" });
+  await hostPage.fill("#army-name", "Ironsworn");
+  await hostPage.click("#army-create-button");
+  await hostPage.waitForFunction(() =>
+    document.querySelector("#event-feed")?.textContent.includes("等级不足"));
+  assert.equal(host.army, null, "an unqualified founder gets nothing");
+
+  host.level = ARMY_LEVEL;
+  host.honor = ARMY_HONOR;
+  await hostPage.fill("#army-name", "Ironsworn");
+  await hostPage.click("#army-create-button");
+  await waitForServer(() => host.army?.rank === "commander");
+  assert.equal(host.honor, ARMY_HONOR, "standing is a threshold, not a price");
+
+  // Recruiting is a rank's privilege and the recruit has to accept.
+  await hostPage.waitForSelector('#social-list button[data-social="army-invite"]', { state: "visible" });
+  await hostPage.click('#social-list button[data-social="army-invite"]');
+  await guestPage.waitForSelector("[data-army-invite-from] button", { state: "visible" });
+  assert.equal(guest.army, null, "an invitation alone enlists nobody");
+  await guestPage.click("[data-army-invite-from] button");
+
+  await waitForServer(() => guest.army?.name === "Ironsworn");
+  assert.equal(guest.army.rank, "member");
+  // Both see the company on the roster, ranks and all.
+  await hostPage.waitForFunction(() =>
+    document.querySelector("#social-list")?.textContent.includes("军团·Ironsworn"));
+  await guestPage.waitForFunction(() =>
+    document.querySelector("#social-list")?.textContent.includes("统领"));
+});
+
 test("two browsers consent to a duel and one wins it", async (t) => {
   const { server, url } = await startServer(t);
   const hostPage = await newPage(t, browser);

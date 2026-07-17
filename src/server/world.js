@@ -42,6 +42,12 @@ import {
   SKILL_BEHAVIORS,
   MOB_TYPES,
   PORTAL_DESTINATIONS,
+  ARMY_HONOR,
+  ARMY_INVITE_WINDOW,
+  ARMY_LEVEL,
+  ARMY_LIMIT,
+  ARMY_NAME_MAX,
+  ARMY_RANKS,
   BATTLE_GOLD_SHARE,
   BATTLE_HONOR_TAKE,
   BATTLE_ZONE_MAP,
@@ -92,6 +98,8 @@ const ACCOUNT_FIELDS = Object.freeze([
   "archetype", "level", "xp", "xpToNext", "stats", "statPoints",
   "skillLevels", "skillPoints", "rebirths", "reputation", "will", "honor",
   "attunement", "gold", "dew", "protections", "friends", "inventory", "equipment", "quest",
+  // { name, rank } or null. The army itself lives in its members' records.
+  "army",
   // Automation toggles survive relogin — a dev-server restart must not
   // silently flip them back on.
   "autoFight", "autoLevel", "autoEquip",
@@ -214,6 +222,8 @@ export class World {
     this.parties = new Map();
     this._partyInvites = new Map();
     this._partySequence = 0;
+    this._armyInvites = new Map();
+    this._armyTransfers = new Map();
     this.duels = new Map();
     this._duelInvites = new Map();
     this._duelSequence = 0;
@@ -351,6 +361,7 @@ export class World {
       // toward it. Until then it has no gameplay effect.
       reputation: 0,
       will: 0,
+      army: null,
       // Honour is standing, not a build axis: it is deliberately a separate
       // number from `reputation`, which Eclipse steers on purpose and whose
       // sign flips that class's whole kit.
@@ -709,6 +720,24 @@ export class World {
       case "partyAccept":
       case "partyaccept":
         return this.acceptParty(id, message.from);
+      case "armyCreate":
+        return this.createArmy(id, message.name);
+      case "armyInvite":
+        return this.inviteArmy(id, message.target);
+      case "armyAccept":
+        return this.acceptArmy(id, message.from);
+      case "armyLeave":
+        return this.leaveArmy(id);
+      case "armyKick":
+        return this.kickArmy(id, message.name);
+      case "armyPromote":
+        return this.promoteArmy(id, message.name, message.rank);
+      case "armyTransfer":
+        return this.transferArmy(id, message.target);
+      case "armyTransferAccept":
+        return this.acceptArmyTransfer(id, message.from);
+      case "armyDisband":
+        return this.disbandArmy(id);
       case "duelInvite":
         return this.inviteDuel(id, message.target);
       case "duelAccept":
@@ -1555,6 +1584,310 @@ export class World {
     return player;
   }
 
+  // ---- Armies ---------------------------------------------------------
+  // An army has no record of its own: it is the set of accounts that name it.
+  // Every account record is already free-form JSON, so this costs no table and
+  // no migration — at the price of scanning accounts to look one up, which is
+  // affordable here and would not be at a much larger scale.
+
+  _armyKey(name) {
+    return String(name ?? "").trim().toLowerCase();
+  }
+
+  // Live players first, then the offline accounts, so a roster shows the whole
+  // company rather than only whoever happens to be connected.
+  _armyRoster(name) {
+    const key = this._armyKey(name);
+    if (!key) return [];
+    const roster = new Map();
+    for (const [accountKey, record] of Object.entries(this.accountStore)) {
+      if (this._armyKey(record.army?.name) !== key) continue;
+      roster.set(accountKey, {
+        name: record.army.memberName ?? accountKey,
+        rank: record.army.rank,
+        level: record.level ?? 1,
+        online: false,
+        id: null,
+      });
+    }
+    for (const player of this.players.values()) {
+      if (this._armyKey(player.army?.name) !== key) continue;
+      roster.set(this._accountKey(player.name), {
+        name: player.name,
+        rank: player.army.rank,
+        level: player.level,
+        online: !player.pendingAuth && !player.connectionDetached,
+        id: player.id,
+      });
+    }
+    return [...roster.values()];
+  }
+
+  _onlineArmyMembers(name) {
+    const key = this._armyKey(name);
+    return [...this.players.values()].filter((player) => (
+      this._armyKey(player.army?.name) === key && !player.pendingAuth && !player.connectionDetached
+    ));
+  }
+
+  _armyExists(name) {
+    const key = this._armyKey(name);
+    if (!key) return false;
+    for (const record of Object.values(this.accountStore)) {
+      if (this._armyKey(record.army?.name) === key) return true;
+    }
+    for (const player of this.players.values()) {
+      if (this._armyKey(player.army?.name) === key) return true;
+    }
+    return false;
+  }
+
+  _rankOf(player) {
+    return player.army ? player.army.rank : null;
+  }
+
+  _outranks(actor, subjectRank) {
+    const actorIndex = ARMY_RANKS.indexOf(this._rankOf(actor));
+    const subjectIndex = ARMY_RANKS.indexOf(subjectRank);
+    return actorIndex >= 0 && subjectIndex >= 0 && actorIndex < subjectIndex;
+  }
+
+  // Writes an army membership to both the live player and their stored record,
+  // so an offline member keeps their place in the roster.
+  _setArmy(player, army) {
+    player.army = army;
+    this._saveAccount(player);
+  }
+
+  createArmy(id, name) {
+    const player = this._requirePlayer(id);
+    if (player.army) throw new WorldError("ARMY_ACTIVE", "Leave your army before founding another.");
+    if (player.level < ARMY_LEVEL) {
+      throw new WorldError("ARMY_LEVEL_TOO_LOW", `Founding an army needs level ${ARMY_LEVEL}.`);
+    }
+    // Standing is read, never spent — the same rule refinement follows.
+    if (player.honor < ARMY_HONOR) {
+      throw new WorldError("NOT_ENOUGH_HONOR_FOR_ARMY", `Founding an army needs ${ARMY_HONOR} honour.`);
+    }
+    const clean = sanitizeName(name).slice(0, ARMY_NAME_MAX);
+    if (!clean || clean === "Wayfarer") throw new WorldError("INVALID_MESSAGE", "That army name is not usable.");
+    if (this._armyExists(clean)) throw new WorldError("ARMY_NAME_TAKEN", "That army name already exists.");
+
+    this._setArmy(player, { name: clean, rank: "commander", memberName: player.name });
+    this._emit("armyCreated", { playerId: id, name: clean });
+    return player;
+  }
+
+  inviteArmy(id, targetId) {
+    const player = this._requirePlayer(id);
+    if (!player.army) throw new WorldError("NO_ARMY", "Found or join an army first.");
+    if (this._rankOf(player) === "member") {
+      throw new WorldError("ARMY_RANK_FORBIDDEN", "Only a commander or lieutenant may recruit.");
+    }
+    const target = this.players.get(String(targetId));
+    if (!target || target.pendingAuth || target.connectionDetached || target.id === id) {
+      throw new WorldError("INVALID_TARGET", "No such player to recruit.");
+    }
+    if (target.army) throw new WorldError("ARMY_ACTIVE", "This player is already part of an army.");
+    if (this._armyRoster(player.army.name).length >= ARMY_LIMIT) {
+      throw new WorldError("ARMY_FULL", `An army holds at most ${ARMY_LIMIT} members.`);
+    }
+    this._armyInvites.set(target.id, { from: id, army: player.army.name, at: this.time });
+    this._emit("armyInvited", {
+      playerId: target.id,
+      from: id,
+      fromName: player.name,
+      army: player.army.name,
+    }, { players: [target.id] });
+    return player;
+  }
+
+  getPendingArmyInvite(id) {
+    const playerId = String(id);
+    const invite = this._armyInvites.get(playerId);
+    if (!invite || this.time - invite.at > ARMY_INVITE_WINDOW) {
+      if (invite) this._armyInvites.delete(playerId);
+      return null;
+    }
+    const host = this.players.get(invite.from);
+    if (!host || host.pendingAuth) {
+      this._armyInvites.delete(playerId);
+      return null;
+    }
+    return {
+      event: "armyInvited",
+      tick: this.tick,
+      serverTime: round(this.time),
+      playerId,
+      from: host.id,
+      fromName: host.name,
+      army: invite.army,
+    };
+  }
+
+  acceptArmy(id, fromId) {
+    const player = this._requirePlayer(id);
+    const invite = this._armyInvites.get(id);
+    if (!invite || invite.from !== String(fromId) || this.time - invite.at > ARMY_INVITE_WINDOW) {
+      throw new WorldError("NO_ARMY_INVITE", "No pending invitation from that player.");
+    }
+    this._armyInvites.delete(id);
+    if (player.army) throw new WorldError("ARMY_ACTIVE", "This player is already part of an army.");
+    if (!this._armyExists(invite.army)) throw new WorldError("NO_ARMY", "That army no longer exists.");
+    if (this._armyRoster(invite.army).length >= ARMY_LIMIT) {
+      throw new WorldError("ARMY_FULL", `An army holds at most ${ARMY_LIMIT} members.`);
+    }
+    this._setArmy(player, { name: invite.army, rank: "member", memberName: player.name });
+    this._emit("armyJoined", {
+      playerId: id,
+      name: player.name,
+      army: invite.army,
+    }, { players: this._onlineArmyMembers(invite.army).map((member) => member.id) });
+    return player;
+  }
+
+  leaveArmy(id) {
+    const player = this._requirePlayer(id);
+    if (!player.army) throw new WorldError("NO_ARMY", "You are not in an army.");
+    // A company is never left leaderless: hand it over or disband it.
+    if (this._rankOf(player) === "commander" && this._armyRoster(player.army.name).length > 1) {
+      throw new WorldError(
+        "ARMY_RANK_FORBIDDEN",
+        "A commander must transfer the army or disband it before leaving.",
+      );
+    }
+    const army = player.army.name;
+    const recipients = this._onlineArmyMembers(army).map((member) => member.id);
+    this._setArmy(player, null);
+    this._emit("armyLeft", { playerId: id, name: player.name, army, kicked: false }, { players: recipients });
+    return player;
+  }
+
+  kickArmy(id, memberName) {
+    const player = this._requirePlayer(id);
+    if (!player.army) throw new WorldError("NO_ARMY", "You are not in an army.");
+    const army = player.army.name;
+    const wantedKey = this._accountKey(memberName);
+    const entry = this._armyRoster(army).find((member) => this._accountKey(member.name) === wantedKey);
+    if (!entry) throw new WorldError("INVALID_TARGET", "No such member in this army.");
+    if (!this._outranks(player, entry.rank)) {
+      throw new WorldError("ARMY_RANK_FORBIDDEN", "You cannot dismiss someone of equal or higher rank.");
+    }
+    const recipients = this._onlineArmyMembers(army).map((member) => member.id);
+    const online = this.players.get(entry.id);
+    if (online) {
+      this._setArmy(online, null);
+    } else {
+      // Offline members are dismissed straight from their stored record.
+      const record = this._accountRecord(wantedKey);
+      if (record) {
+        record.army = null;
+        this._audit("army_member_removed", { name: entry.name }, { army });
+      }
+    }
+    this._emit("armyLeft", { playerId: entry.id ?? "", name: entry.name, army, kicked: true }, { players: recipients });
+    return player;
+  }
+
+  promoteArmy(id, memberName, rank) {
+    const player = this._requirePlayer(id);
+    if (!player.army) throw new WorldError("NO_ARMY", "You are not in an army.");
+    if (this._rankOf(player) !== "commander") {
+      throw new WorldError("ARMY_RANK_FORBIDDEN", "Only the commander sets ranks.");
+    }
+    // Commander is singular and only moves by transfer, which the recipient
+    // has to accept.
+    if (!["lieutenant", "member"].includes(rank)) {
+      throw new WorldError("INVALID_MESSAGE", "rank must be lieutenant or member.");
+    }
+    const army = player.army.name;
+    const wantedKey = this._accountKey(memberName);
+    if (wantedKey === this._accountKey(player.name)) {
+      throw new WorldError("ARMY_RANK_FORBIDDEN", "The commander cannot rank themselves.");
+    }
+    const entry = this._armyRoster(army).find((member) => this._accountKey(member.name) === wantedKey);
+    if (!entry) throw new WorldError("INVALID_TARGET", "No such member in this army.");
+
+    const online = this.players.get(entry.id);
+    if (online) {
+      this._setArmy(online, { ...online.army, rank });
+    } else {
+      const record = this._accountRecord(wantedKey);
+      if (record?.army) record.army = { ...record.army, rank };
+    }
+    this._emit("armyRankChanged", {
+      playerId: entry.id ?? "",
+      name: entry.name,
+      army,
+      rank,
+    }, { players: this._onlineArmyMembers(army).map((member) => member.id) });
+    return player;
+  }
+
+  // Handing over a company is an offer, not a command: the reference asks
+  // "wants to entrust his position to you. Do you accept the offer?"
+  transferArmy(id, targetId) {
+    const player = this._requirePlayer(id);
+    if (!player.army) throw new WorldError("NO_ARMY", "You are not in an army.");
+    if (this._rankOf(player) !== "commander") {
+      throw new WorldError("ARMY_RANK_FORBIDDEN", "Only the commander may hand the army over.");
+    }
+    const target = this.players.get(String(targetId));
+    if (!target || target.pendingAuth || target.connectionDetached || target.id === id
+      || this._armyKey(target.army?.name) !== this._armyKey(player.army.name)) {
+      throw new WorldError("INVALID_TARGET", "That player is not an online member of your army.");
+    }
+    this._armyTransfers.set(target.id, { from: id, army: player.army.name, at: this.time });
+    this._emit("armyTransferOffered", {
+      playerId: target.id,
+      from: id,
+      fromName: player.name,
+      army: player.army.name,
+    }, { players: [target.id] });
+    return player;
+  }
+
+  acceptArmyTransfer(id, fromId) {
+    const player = this._requirePlayer(id);
+    const offer = this._armyTransfers.get(id);
+    if (!offer || offer.from !== String(fromId) || this.time - offer.at > ARMY_INVITE_WINDOW) {
+      throw new WorldError("NO_ARMY_INVITE", "No pending handover from that player.");
+    }
+    this._armyTransfers.delete(id);
+    const commander = this.players.get(offer.from);
+    if (!commander || this._rankOf(commander) !== "commander"
+      || this._armyKey(commander.army?.name) !== this._armyKey(player.army?.name)) {
+      throw new WorldError("INVALID_TARGET", "That handover is no longer valid.");
+    }
+    const army = commander.army.name;
+    this._setArmy(commander, { ...commander.army, rank: "lieutenant" });
+    this._setArmy(player, { ...player.army, rank: "commander" });
+    const recipients = this._onlineArmyMembers(army).map((member) => member.id);
+    this._emit("armyRankChanged", { playerId: player.id, name: player.name, army, rank: "commander" }, { players: recipients });
+    this._emit("armyRankChanged", { playerId: commander.id, name: commander.name, army, rank: "lieutenant" }, { players: recipients });
+    return player;
+  }
+
+  disbandArmy(id) {
+    const player = this._requirePlayer(id);
+    if (!player.army) throw new WorldError("NO_ARMY", "You are not in an army.");
+    if (this._rankOf(player) !== "commander") {
+      throw new WorldError("ARMY_RANK_FORBIDDEN", "Only the commander may disband the army.");
+    }
+    const army = player.army.name;
+    const recipients = this._onlineArmyMembers(army).map((member) => member.id);
+    const key = this._armyKey(army);
+    for (const member of this.players.values()) {
+      if (this._armyKey(member.army?.name) === key) this._setArmy(member, null);
+    }
+    // Offline members lose the army too, straight from their records.
+    for (const record of Object.values(this.accountStore)) {
+      if (this._armyKey(record.army?.name) === key) record.army = null;
+    }
+    this._emit("armyDisbanded", { playerId: id, army }, { players: recipients });
+    return player;
+  }
+
   // ---- Duels ----------------------------------------------------------
   // Consent, isolation, nothing at stake. The only thing a duel proves is
   // that an attack can land on another player, and it proves it somewhere the
@@ -1895,8 +2228,8 @@ export class World {
   // the sender's map, party reaches party members only.
   sendChat(id, channel, text) {
     const player = this._requirePlayer(id);
-    if (!["global", "map", "party"].includes(channel)) {
-      throw new WorldError("INVALID_CHANNEL", "channel must be global, map, or party.");
+    if (!["global", "map", "party", "army"].includes(channel)) {
+      throw new WorldError("INVALID_CHANNEL", "channel must be global, map, party, or army.");
     }
     if (typeof text !== "string") {
       throw new WorldError("INVALID_MESSAGE", "text must be a string.");
@@ -1914,6 +2247,11 @@ export class World {
       const party = player.partyId ? this.parties.get(player.partyId) : null;
       if (!party) throw new WorldError("NO_PARTY", "Join a party before using party chat.");
       scope = { players: [...party.members] };
+    } else if (channel === "army") {
+      if (!player.army) throw new WorldError("NO_ARMY", "Join an army before using army chat.");
+      // Only members who are actually online can receive it; the rest of the
+      // roster simply misses it, as with any live channel.
+      scope = { players: this._onlineArmyMembers(player.army.name).map((member) => member.id) };
     }
     if (this.time < (player.nextChatAt ?? 0)) {
       throw new WorldError("CHAT_TOO_FAST", "Slow down between messages.");
@@ -3010,6 +3348,8 @@ export class World {
       reputation: player.reputation,
       will: player.will,
       honor: player.honor,
+      armyName: player.army?.name ?? null,
+      armyRank: player.army?.rank ?? null,
       attunement: player.attunement,
       barrier: player.soulBarrier.active
         ? {
@@ -3066,6 +3406,18 @@ export class World {
       gold: player.gold,
       dew: player.dew,
       protections: player.protections,
+      army: player.army
+        ? {
+          name: player.army.name,
+          rank: player.army.rank,
+          members: this._armyRoster(player.army.name).map((member) => ({
+            name: member.name,
+            rank: member.rank,
+            online: member.online,
+            level: member.level,
+          })),
+        }
+        : null,
       friends: player.friends.map((name) => {
         const onlinePlayer = online.get(this._accountKey(name));
         return {

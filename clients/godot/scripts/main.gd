@@ -13,6 +13,7 @@ var server_url := "ws://127.0.0.1:3000/ws"
 const CLIENT_PROTOCOL := 4
 # Mirrors src/server/definitions.js REFINE_HONOR_GATE — display only.
 const REFINE_HONOR_GATE: Array[int] = [0, 0, 200, 400]
+const ARMY_RANK_LABELS := {"commander": "统领", "lieutenant": "副官", "member": "团员"}
 const SNAPSHOT_CODEC := "binary1"
 const INPUT_INTERVAL := 0.05          # 20 Hz, same as the browser client
 const LERP_RATE := 14.0               # snapshot smoothing, ~browser feel
@@ -586,10 +587,12 @@ func _push_effect(world_pos: Vector2, text: String, color: Color) -> void:
 		effects.pop_front()
 	effects.append({"pos": world_pos, "text": text, "color": color, "age": 0.0, "life": 0.8})
 
-const CHAT_CHANNELS := [["global", "全服"], ["map", "本图"], ["party", "组队"]]
+const CHAT_CHANNELS := [["global", "全服"], ["map", "本图"], ["party", "组队"], ["army", "军团"]]
 var chat_lines: Array = []
 var pending_invite := ""              # inviter id; Y accepts
 var pending_duel := ""                # challenger id; U accepts, I declines
+var pending_army := ""                # recruiter id; O accepts
+var pending_army_transfer := ""       # commander id; P accepts
 var in_duel := false
 
 func _handle_event(event: Dictionary) -> void:
@@ -618,6 +621,28 @@ func _handle_event(event: Dictionary) -> void:
 			if str(event.get("playerId", "")) == self_id:
 				pending_invite = ""
 				_set_status("已加入队伍")
+		"armyInvited":
+			if str(event.get("playerId", "")) == self_id:
+				pending_army = str(event.get("from", ""))
+				_set_status("%s 邀你加入军团·%s — 按 O 加入" % [str(event.get("fromName", "?")), str(event.get("army", ""))])
+		"armyTransferOffered":
+			if str(event.get("playerId", "")) == self_id:
+				pending_army_transfer = str(event.get("from", ""))
+				_set_status("%s 想把军团·%s 交给你 — 按 P 接掌" % [str(event.get("fromName", "?")), str(event.get("army", ""))])
+		"armyCreated":
+			_set_status("军团·%s 已建立" % str(event.get("name", "")))
+		"armyJoined":
+			pending_army = ""
+			_set_status("%s 加入了军团" % str(event.get("name", "")))
+		"armyLeft":
+			_set_status("%s %s军团" % [str(event.get("name", "")), "被逐出" if bool(event.get("kicked", false)) else "离开了"])
+		"armyRankChanged":
+			_set_status("%s 现在是%s" % [
+				str(event.get("name", "")),
+				ARMY_RANK_LABELS.get(str(event.get("rank", "")), str(event.get("rank", ""))),
+			])
+		"armyDisbanded":
+			_set_status("军团·%s 已解散" % str(event.get("army", "")))
 		"duelInvited":
 			if str(event.get("playerId", "")) == self_id:
 				pending_duel = str(event.get("from", ""))
@@ -742,6 +767,14 @@ func _unhandled_input(event: InputEvent) -> void:
 				if pending_invite != "":
 					_send({"type": "partyAccept", "from": pending_invite})
 					pending_invite = ""
+			KEY_O:
+				if pending_army != "":
+					_send({"type": "armyAccept", "from": pending_army})
+					pending_army = ""
+			KEY_P:
+				if pending_army_transfer != "":
+					_send({"type": "armyTransferAccept", "from": pending_army_transfer})
+					pending_army_transfer = ""
 			KEY_U:
 				if pending_duel != "":
 					_send({"type": "duelAccept", "from": pending_duel})
@@ -1785,6 +1818,31 @@ func _build_ui() -> void:
 	duel_forfeit.text = "认输"
 	duel_forfeit.pressed.connect(func() -> void: _send({"type": "duelForfeit"}))
 	duel_row.add_child(duel_forfeit)
+	var army_row := HBoxContainer.new()
+	control_box.add_child(army_row)
+	var army_name_input := LineEdit.new()
+	army_name_input.placeholder_text = "军团名"
+	army_name_input.max_length = 20
+	army_name_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	army_row.add_child(army_name_input)
+	var army_create := Button.new()
+	army_create.text = "建团"
+	army_create.tooltip_text = "建立军团（需等级 30 与荣誉 100；荣誉只被检查，不会扣除）"
+	army_create.pressed.connect(func() -> void:
+		var wanted := army_name_input.text.strip_edges()
+		if wanted != "":
+			_send({"type": "armyCreate", "name": wanted})
+			army_name_input.text = "")
+	army_row.add_child(army_create)
+	var army_invite := Button.new()
+	army_invite.text = "募"
+	army_invite.tooltip_text = "招募选中的同图玩家进军团（收到邀请按 O 加入）"
+	army_invite.pressed.connect(func() -> void: _invite_selected_army_target())
+	army_row.add_child(army_invite)
+	var army_leave := Button.new()
+	army_leave.text = "退团"
+	army_leave.pressed.connect(func() -> void: _send({"type": "armyLeave"}))
+	army_row.add_child(army_leave)
 
 	# Soft vignette for depth, and the bottom-right minimap.
 	var vignette := TextureRect.new()
@@ -1875,6 +1933,14 @@ func _invite_selected_party_target() -> void:
 	if target_id != "":
 		_send({"type": "partyInvite", "target": target_id})
 
+func _invite_selected_army_target() -> void:
+	var target: OptionButton = ui.party_target
+	if target.item_count == 0 or target.selected < 0:
+		return
+	var target_id := str(target.get_item_metadata(target.selected))
+	if target_id != "":
+		_send({"type": "armyInvite", "target": target_id})
+
 func _invite_selected_duel_target() -> void:
 	var target: OptionButton = ui.party_target
 	if target.item_count == 0 or target.selected < 0:
@@ -1912,11 +1978,18 @@ func _render_roster(entries: Array) -> void:
 
 func _update_hud(data: Dictionary) -> void:
 	var inventory: Array = data.get("inventory", [])
-	ui.hud.text = "%s  L%d  HP %d/%d  MP %d/%d  金币 %d  荣誉 %d  背包 %d  %s  在线 %d" % [
+	var army: Variant = data.get("army", null)
+	var army_text := ""
+	if army is Dictionary:
+		army_text = "  [%s·%s]" % [
+			str(army.get("name", "")),
+			ARMY_RANK_LABELS.get(str(army.get("rank", "")), str(army.get("rank", ""))),
+		]
+	ui.hud.text = "%s  L%d  HP %d/%d  MP %d/%d  金币 %d  荣誉 %d%s  背包 %d  %s  在线 %d" % [
 		str(data.get("name", "")), int(data.get("level", 1)),
 		int(data.get("hp", 0)), int(data.get("maxHp", 1)),
 		int(data.get("mp", 0)), int(data.get("maxMp", 1)),
-		int(data.get("gold", 0)), int(data.get("honor", 0)),
+		int(data.get("gold", 0)), int(data.get("honor", 0)), army_text,
 		inventory.size(), map_name, online_count,
 	]
 	in_duel = str(data.get("mapId", "")).begins_with("duel:")

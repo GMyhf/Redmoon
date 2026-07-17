@@ -6,6 +6,47 @@
 
 ---
 
+## T-021 P3 第一步 · 军团（Claude → Codex）· 待复核
+
+**这轮最该看的是一个 200 全绿却坏掉的东西，不是军团本身。**
+
+我往 `PLAYER_BASE` 加了 `armyName`/`armyRank`，`npm test` **200/200 全绿**——
+而 **binary1 的公开玩家段根本没写这两个字段**，也就是说**每个 binary1 客户端（Godot 用的就是它）看不到任何军团**。
+**和 T-011 那次 `refine` 序列化坑是同一形状**：两条编码路径，手写字段，忘一个就静默消失。
+
+我没有只修它。新增 `test/codec.test.js` 的**逐字段对拍**：把 JSON 快照和 binary1 解码结果**逐字段比**，
+漏掉新字段会指名报错（`armyName does not survive binary1 — the codec was not taught about it`）。
+变异验证过：删掉 codec 里的 armyName 写入 → 立刻挂。
+**它当场又抓出 `mapId` 也不过 binary1**——这条是**有意省略**（快照本身按图，per-player mapId 是冗余的），
+但 codec 文档里只写了 barrier、没写它。已补文档并在测试里注明理由。
+
+**设计上最大的一个决定，请你审**：**军团没有自己的存储**，它是「所有声明了该名字的账号」。
+理由：`crimson_accounts` 是 `account_key → jsonb record`，账号记录本就是自由 JSON，
+所以这么做**零 schema 迁移、零信封改动**——而人刚说过 #1 闸门「算过」但备份恢复/连接故障/值班演练都没真做过，
+我不想在这时候给持久化层加一张新表。**代价是查一次军团要扫 `accountStore`**（O(账号数)）。
+当前规模没问题，**更大规模就不行**。如果你认为该现在就上真表，说服我。
+
+**参照仓库又一次比我的想象准**（这已经是第四次了）：我原以为 `Name`/`Commander`/`Camp` 就是军团的全部
+（计划里就是这么写的），实际字符串表里还有 `Commander or Lieutenant`（军衔）、
+`wants to entrust his position to you. Do you accept the offer?`（**转让是要约不是命令**，我照做了）、
+`That Army name already exists.`、以及 **`Choose the Army Hall floor you wish to rent.` +
+`The army hall rent hall is due %d-%d-%d. You must pay %u.`——**要塞是按层租的、要付周期租金**，
+是个金币消耗池，不是「打下来就归你」。这条改变了 P3 后续两步的形状，已写进计划。
+
+**我拍的数值（人只定了「继续 P3，军团」）**：`ARMY_LEVEL=30`、`ARMY_HONOR=100`、`ARMY_LIMIT=40`。
+
+**想被质疑的**：
+1. **扫账号派生军团** —— 见上。
+2. **转让后旧统领降为副官而非团员**。我认为交出指挥权的人不该被贬到底，但这是我定的。
+3. **离线成员可被逐出**，回来才知道。红月有 `Mercs cannot secede or be dismissed from army.`
+   说明它对「谁能被逐」有更细的规则（雇佣兵不能），我没做雇佣兵这一层。
+4. **军团没有等级/经验/仓库**，就是名字+人+军衔。要塞（含租金）在 P3 第三步。
+
+**验证**：`npm test` **213/213**（新增 12 条，`test/server-army.test.js`）｜ `check` / `check:godot` / `test:godot`
+｜ **变异测试 ×5**（荣誉门禁、团名大小写唯一、统领不可弃军、花名册含离线、codec 漏字段）
+｜ **真协议端到端 7/7**（门禁拒绝、达标建团且**荣誉未扣**、邀请需同意、**别人快照里看得到团名**、花名册 2 人、军团频道）
+｜ **两浏览器端到端**：建团 → 招募 → 接受 → 双方看到军衔 ｜ **Godot 真连活服务器冒烟**（这次没有只验证「能解析」）。
+
 ## T-020 P2 第三步 · 战斗区（Claude → Codex）· 待复核 · **协议 v4**
 
 **P2 三步至此走完。** 这一步是唯一有真实损失的一步，两个关键取舍**由人拍板**，不是我定的：

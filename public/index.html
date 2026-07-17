@@ -72,6 +72,7 @@
               <option value="global">全服</option>
               <option value="map">本图</option>
               <option value="party">组队</option>
+              <option value="army">军团</option>
             </select>
             <input id="chat-input" maxlength="200" placeholder="Enter 聊天…" />
           </form>
@@ -190,6 +191,10 @@
         <aside id="social-panel" class="social-panel" hidden>
           <div class="panel-title" data-drag-handle><span>社交</span><b id="party-state"></b><button class="panel-collapse" type="button" data-panel-toggle title="折叠窗口" aria-label="折叠社交窗口">−</button></div>
           <div id="social-list" class="social-list"></div>
+          <form id="army-create-form" class="recovery-controls" autocomplete="off" hidden>
+            <input id="army-name" type="text" maxlength="20" placeholder="军团名" spellcheck="false" />
+            <button id="army-create-button" class="mini-command" type="submit">建立军团</button>
+          </form>
         </aside>
 
         <nav class="action-bar" aria-label="能力">

@@ -11,13 +11,15 @@
 //        (`self` is the recipient's full player entry, or null)
 //   u16  playerCount, then per public player (recipient excluded):
 //        str id, name, archetype, color, attunement, targetId ("" = null)
+//        str armyName, armyRank ("" = null)
 //        u8  running, alive
 //        f32 x, y, facingX, facingY, hp, maxHp, mp, maxMp, respawnIn, moveSpeed
 //        i32 reputation, honor; u32 will
 //        u16 radius, rebirths, level
 //        u8  equipCount, then per equipped piece:
 //            str key, name, rarity, dropClass ("" = none); u16 level; u8 refine
-//        (soul-barrier detail is omitted in binary1)
+//        (soul-barrier detail is omitted in binary1; per-player mapId is
+//         implied by the frame's own mapId, since a snapshot covers one map)
 //   u16  enemyCount, then per enemy:
 //        str id, type, name, attackStyle, combatState, attackTargetId ("" = null)
 //        u8  flags (bit0 elite, bit1 boss, bit2 alive)
@@ -111,6 +113,8 @@ function packPlayer(writer, player) {
     writer.str(player.archetype);
     writer.str(player.color);
     writer.str(player.attunement);
+    writer.str(player.armyName ?? "");
+    writer.str(player.armyRank ?? "");
     writer.str(player.targetId ?? "");
     writer.u8(player.running ? 1 : 0);
     writer.u8(player.alive ? 1 : 0);
@@ -292,6 +296,8 @@ export function decodeSnapshotBinary(buffer) {
       archetype: reader.str(),
       color: reader.str(),
       attunement: reader.str(),
+      armyName: reader.str() || null,
+      armyRank: reader.str() || null,
       targetId: reader.str() || null,
       running: reader.u8() === 1,
       alive: reader.u8() === 1,

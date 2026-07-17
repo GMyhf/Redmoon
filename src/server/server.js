@@ -25,6 +25,8 @@ import {
   MAX_ITEM_SEQUENCE,
   PROTOCOL_VERSION,
   QUEST_CHAIN,
+  ARMY_NAME_MAX,
+  ARMY_RANKS,
   HONOR_LIMIT,
   REBIRTH_LEVEL,
   REFINE_MAX_STAGE,
@@ -1069,6 +1071,7 @@ export class GameServer {
           this._sendSnapshot(socket);
           this._sendPendingPartyInvite(socket, commandPlayer.id);
           this._sendPendingDuelInvite(socket, commandPlayer.id);
+          this._sendPendingArmyInvite(socket, commandPlayer.id);
         }
         return null;
       }
@@ -1136,6 +1139,7 @@ export class GameServer {
         this._sendSnapshot(socket);
         this._sendPendingPartyInvite(socket, result.id);
         this._sendPendingDuelInvite(socket, result.id);
+        this._sendPendingArmyInvite(socket, result.id);
       } else if (message.type === "sessionRotate") {
         this._sendMessage(socket, {
           type: "session",
@@ -1325,6 +1329,12 @@ export class GameServer {
 
   _sendPendingDuelInvite(socket, playerId) {
     const invite = this.world.getPendingDuelInvite(playerId);
+    if (!invite) return "missing";
+    return this._sendMessage(socket, { type: "event", ...invite });
+  }
+
+  _sendPendingArmyInvite(socket, playerId) {
+    const invite = this.world.getPendingArmyInvite(playerId);
     if (!invite) return "missing";
     return this._sendMessage(socket, { type: "event", ...invite });
   }
@@ -1852,6 +1862,21 @@ function validateAccountRecord(accountKey, record) {
   optionalInteger(record, "rebirths", 0, 0xffff);
   optionalInteger(record, "reputation", -REPUTATION_LIMIT, REPUTATION_LIMIT);
   optionalInteger(record, "honor", -HONOR_LIMIT, HONOR_LIMIT);
+  // An army lives in its members' records, so a tampered one could forge a
+  // rank or a name. Reject rather than normalise: a bad record is quarantined.
+  if (record.army !== undefined && record.army !== null) {
+    const army = record.army;
+    if (!isPlainObject(army)) throw new TypeError("army must be an object or null");
+    if (typeof army.name !== "string" || army.name.length < 1 || army.name.length > ARMY_NAME_MAX) {
+      throw new TypeError(`army.name must be 1..${ARMY_NAME_MAX} characters`);
+    }
+    if (!ARMY_RANKS.includes(army.rank)) {
+      throw new TypeError(`army.rank must be one of ${ARMY_RANKS.join(", ")}`);
+    }
+    if (army.memberName !== undefined && typeof army.memberName !== "string") {
+      throw new TypeError("army.memberName must be a string when present");
+    }
+  }
   optionalInteger(record, "will", 0, MAX_PERSISTED_COUNTER);
   optionalInteger(record, "gold", 0, MAX_PERSISTED_CURRENCY);
   optionalInteger(record, "dew", 0, MAX_PERSISTED_CURRENCY);
