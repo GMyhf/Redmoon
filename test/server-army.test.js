@@ -202,3 +202,33 @@ test("an army is visible on its members to everyone", () => {
   assert.equal(own.army.members.length, 2);
   assert.deepEqual(ARMY_RANKS.includes(own.army.members[0].rank), true);
 });
+
+// An invitation is a delegation of authority, and authority can be taken away
+// inside the window it stays open in. Duels re-check both sides on accept;
+// this did not, so a dismissed recruiter's invitation still worked.
+test("an invitation dies with the recruiter's authority", () => {
+  const { world } = founded();
+  const outsider = qualified(world, "out", "Outsider");
+  world.handleCommand("cmd", { type: "armyPromote", name: "Recruit", rank: "lieutenant" });
+  world.handleCommand("rec", { type: "armyInvite", target: "out" });
+
+  // The commander dismisses the lieutenant while their invitation is pending.
+  world.handleCommand("cmd", { type: "armyKick", name: "Recruit" });
+
+  throwsCode(() => world.acceptArmy("out", "rec"), "NO_ARMY_INVITE");
+  assert.equal(outsider.army, null, "a dismissed recruiter enlists nobody");
+});
+
+test("an invitation dies with the recruiter's rank", () => {
+  const { world } = founded();
+  const outsider = qualified(world, "out", "Outsider");
+  world.handleCommand("cmd", { type: "armyPromote", name: "Recruit", rank: "lieutenant" });
+  world.handleCommand("rec", { type: "armyInvite", target: "out" });
+
+  // Demoted mid-window: a plain member may not recruit, so neither may their
+  // outstanding invitation.
+  world.handleCommand("cmd", { type: "armyPromote", name: "Recruit", rank: "member" });
+
+  throwsCode(() => world.acceptArmy("out", "rec"), "NO_ARMY_INVITE");
+  assert.equal(outsider.army, null);
+});

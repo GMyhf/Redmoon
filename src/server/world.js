@@ -1732,6 +1732,16 @@ export class World {
       throw new WorldError("NO_ARMY_INVITE", "No pending invitation from that player.");
     }
     this._armyInvites.delete(id);
+    // An invitation delegates authority the recruiter can lose while it sits
+    // in its window: dismissed, demoted, or gone. Re-check them now rather
+    // than trust who they were a minute ago — the same reason a duel re-checks
+    // both sides on accept.
+    const recruiter = this.players.get(invite.from);
+    if (!recruiter || recruiter.pendingAuth
+      || this._armyKey(recruiter.army?.name) !== this._armyKey(invite.army)
+      || this._rankOf(recruiter) === "member") {
+      throw new WorldError("NO_ARMY_INVITE", "That invitation is no longer valid.");
+    }
     if (player.army) throw new WorldError("ARMY_ACTIVE", "This player is already part of an army.");
     if (!this._armyExists(invite.army)) throw new WorldError("NO_ARMY", "That army no longer exists.");
     if (this._armyRoster(invite.army).length >= ARMY_LIMIT) {
