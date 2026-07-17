@@ -170,10 +170,10 @@ export const ARMY_SIEGE_COOLDOWN = 60;
 // from the elites in it, and honour is what other players can take from you
 // there. Source and risk in the same place.
 //
-// Only gold and honour are at stake. Gear is not: the battle zone never drops
-// equipment or experience. Mail and the used-goods market are separate town
-// delivery/economy flows and do not change that battle-zone rule. The town bank
-// protects gold only; it does not recover equipment.
+// Gold, honour and unrefined carried items are at stake. Equipped or refined
+// gear is immune, and experience is never lost. Mail and the used-goods market
+// are separate town delivery/economy flows and do not change this rule. The
+// town bank protects gold only; it does not recover dropped equipment.
 export const BATTLE_ZONE_MAP = "battlezone";
 export const BATTLE_GOLD_SHARE = 0.1;
 

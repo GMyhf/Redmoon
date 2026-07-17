@@ -66,3 +66,12 @@ test("both clients declare the protocol version the server speaks", () => {
     );
   }
 });
+
+test("Godot exposes the P4 bank, mail, and market intents", () => {
+  const godot = readFileSync("clients/godot/scripts/main.gd", "utf8");
+  for (const command of ["bankDeposit", "bankWithdraw", "mailSend", "mailClaim", "marketList", "marketBuy"]) {
+    assert.match(godot, new RegExp(`\\"type\\": \\"${command}\\"`), `${command} is wired in Godot`);
+  }
+  assert.match(godot, /marketListings/);
+  assert.match(godot, /lootDropped/);
+});

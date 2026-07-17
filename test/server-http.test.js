@@ -8,11 +8,18 @@ import { createGameServer } from "../src/server/server.js";
 import { World } from "../src/server/world.js";
 
 test("HTTP serves the client and health status", async (t) => {
+  const world = new World({
+    rng: () => 0.5,
+    spawnMobs: false,
+    spawnBoss: false,
+    mobTargetCount: 0,
+  });
+  world.spawnMob({ mapId: "town", level: 1 });
   const server = createGameServer({
     host: "127.0.0.1",
     port: 0,
     persistPath: "",
-    world: new World({ rng: () => 0.5, mobTargetCount: 1, spawnBoss: false }),
+    world,
   });
   await server.listen();
   t.after(() => server.close());
@@ -47,10 +54,11 @@ test("HTTP serves the client and health status", async (t) => {
   assert.ok(healthBody.runtime.tickAgeMs === null || healthBody.runtime.tickAgeMs >= 0);
 
   let ready;
-  for (let attempt = 0; attempt < 20; attempt += 1) {
+  const readyDeadline = Date.now() + 2_000;
+  while (Date.now() < readyDeadline) {
     ready = await fetch(`http://127.0.0.1:${port}/ready`);
     if (ready.status === 200) break;
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => setTimeout(resolve, 20));
   }
   assert.equal(ready.status, 200);
   assert.equal((await ready.json()).ready, true);

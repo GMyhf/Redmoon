@@ -2729,8 +2729,9 @@ export class World {
     }
   }
 
-  // A kill in the battle zone moves carried gold and standing, and nothing
-  // else. Banked gold, gear and experience stay out of the transfer.
+  // A kill in the battle zone moves carried gold and standing, and can drop
+  // one unrefined carried item. Banked gold, equipped/refined gear and
+  // experience stay out of the transfer.
   _settleBattleKill(victim, sourceId) {
     const killer = this.players.get(String(sourceId));
     // Falling to a mob in the battle zone costs nothing extra.
@@ -2750,6 +2751,7 @@ export class World {
       this._grantHonor(victim, -honor);
       this._grantHonor(killer, honor);
     }
+    const droppedItem = this._dropBattleInventoryItem(victim);
     this._emit("battleKill", {
       killerId: killer.id,
       killerName: killer.name,
@@ -2758,6 +2760,22 @@ export class World {
       gold,
       honor,
     }, { players: [killer.id, victim.id] });
+    return droppedItem;
+  }
+
+  _dropBattleInventoryItem(victim) {
+    const candidates = victim.inventory.filter((item) => !item.refine);
+    if (candidates.length === 0) return null;
+    const item = candidates[Math.floor(clamp(this.rng(), 0, 0.999999) * candidates.length)];
+    const index = victim.inventory.indexOf(item);
+    if (index < 0) return null;
+    victim.inventory.splice(index, 1);
+    try {
+      return this._placeDrop(victim.x, victim.y, item, BATTLE_ZONE_MAP);
+    } catch (error) {
+      victim.inventory.splice(index, 0, item);
+      throw error;
+    }
   }
 
   _duelOf(playerId) {

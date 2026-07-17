@@ -1,7 +1,7 @@
 // The battle zone is the first place a player can be attacked without saying
 // yes to that particular fight. So these care about two things above all: that
 // it cannot happen anywhere else, and that losing there costs only what was
-// agreed — gold and standing, never gear.
+// agreed — gold, standing and the explicitly limited carried-item drop.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -52,12 +52,16 @@ test("a battle-zone shot cannot reach the same spot on another map", () => {
   assert.equal(before, victim.hp, "a bystander on another map is untouchable");
 });
 
-test("a kill moves gold and standing, and nothing else", () => {
+test("a kill moves gold and standing and drops one unrefined carried item", () => {
   const { world, killer, victim } = arena();
   victim.gold = 1000;
   victim.bankGold = 777;
   victim.honor = 500;
   victim.xp = 4242;
+  victim.inventory.push({
+    id: "unrefined-keepsake", slot: "armor", rarity: "common", tier: 1, level: 1,
+    name: "test-armor", bonuses: { power: 0, agility: 0, spirit: 0, vitality: 1 },
+  });
   victim.inventory.push({
     id: "keepsake", slot: "weapon", rarity: "rare", tier: 3, level: 10,
     name: "test-blade", bonuses: { power: 10, agility: 0, spirit: 0, vitality: 0 }, refine: 4,
@@ -72,11 +76,47 @@ test("a kill moves gold and standing, and nothing else", () => {
   assert.equal(victim.bankGold, 777, "banked gold is protected from battle-zone kills");
   assert.equal(killer.honor, BATTLE_HONOR_TAKE, "and standing");
   assert.equal(victim.honor, 500 - BATTLE_HONOR_TAKE);
-  // The line that has to hold: gear survives. Mail and trade do not exist yet,
-  // so anything dropped here would be gone for good.
-  assert.equal(victim.inventory.length, 1, "gear is not dropped");
-  assert.equal(victim.inventory[0].refine, 4, "least of all a refined piece");
+  assert.equal(victim.inventory.length, 1, "one unrefined carried item leaves the bag");
+  assert.equal(victim.inventory[0].refine, 4, "a refined piece remains carried");
+  const drops = [...world.drops.values()];
+  assert.equal(drops.length, 1, "the dropped item is visible on the battle-zone ground");
+  assert.equal(drops[0].item.id, "unrefined-keepsake");
+  assert.equal(victim.inventory.some((item) => item.id === drops[0].item.id), false, "the item is not duplicated");
   assert.equal(victim.xp, 4242, "and no experience is lost");
+});
+
+test("a battle kill with only equipped or refined gear drops nothing", () => {
+  const { world, killer, victim } = arena();
+  victim.inventory.push({
+    id: "refined-keepsake", slot: "weapon", rarity: "rare", tier: 3, level: 10,
+    name: "test-blade", bonuses: { power: 10, agility: 0, spirit: 0, vitality: 0 }, refine: 1,
+  });
+  victim.equipment.weapon = {
+    id: "equipped-keepsake", slot: "weapon", rarity: "rare", tier: 3, level: 10,
+    name: "equipped-blade", bonuses: { power: 10, agility: 0, spirit: 0, vitality: 0 }, refine: 0,
+  };
+
+  world._damagePlayer(victim, 1_000_000, killer.id);
+
+  assert.equal(world.drops.size, 0);
+  assert.equal(victim.inventory.length, 1);
+  assert.equal(victim.equipment.weapon.id, "equipped-keepsake");
+});
+
+test("battle drop placement rolls back the inventory move if placement fails", () => {
+  const { world, killer, victim } = arena();
+  const item = {
+    id: "atomic-keepsake", slot: "armor", rarity: "common", tier: 1, level: 1,
+    name: "atomic-armor", bonuses: { power: 0, agility: 0, spirit: 0, vitality: 1 },
+  };
+  victim.inventory.push(item);
+  const originalPlaceDrop = world._placeDrop.bind(world);
+  world._placeDrop = () => { throw new Error("drop store unavailable"); };
+
+  assert.throws(() => world._damagePlayer(victim, 1_000_000, killer.id), /drop store unavailable/);
+  world._placeDrop = originalPlaceDrop;
+  assert.equal(victim.inventory.filter((entry) => entry.id === item.id).length, 1);
+  assert.equal([...world.drops.values()].some((drop) => drop.item.id === item.id), false);
 });
 
 test("standing cannot be farmed from someone who has none", () => {

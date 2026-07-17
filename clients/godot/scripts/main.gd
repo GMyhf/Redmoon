@@ -120,6 +120,7 @@ var texture_retry_at := {}            # url path -> next retry time after a fail
 var camera := Camera2D.new()
 var ui := {}
 var shops: Array = []
+var market_listings: Array = []
 var shade_cache := {}
 var motes: Array = []
 var effects: Array = []               # floating combat text {pos, text, color, age, life}
@@ -129,6 +130,8 @@ var sounds := {}                      # name -> AudioStreamPlayer (procedurally 
 var light_texture: GradientTexture2D
 var bag_signature := ""
 var shop_signature := ""
+var economy_signature := ""
+var market_signature := ""
 var party_signature := ""
 var account_secret := ""
 var rejoin_name := ""
@@ -508,6 +511,9 @@ func _apply_world(world: Dictionary) -> void:
 	var shop_list = world.get("shops")
 	if shop_list is Array:
 		shops = shop_list
+	var listing_list = world.get("marketListings")
+	if listing_list is Array:
+		market_listings = listing_list
 	var zone = world.get("safeZone")
 	safe_zone = zone if zone is Dictionary else {}
 
@@ -686,6 +692,8 @@ func _handle_event(event: Dictionary) -> void:
 				_sfx("pickup")
 				if bool(event.get("autoEquipped", false)):
 					_set_status("拾取并装备 %s" % str(event.get("name", "")))
+		"lootDropped":
+			_set_status("地面掉落：%s（未精炼随身物品）" % str(event.get("name", "物品")))
 		"enemyDefeated":
 			if str(event.get("playerId", "")) == self_id:
 				_sfx("kill")
@@ -1797,6 +1805,108 @@ func _build_ui() -> void:
 	var shop_list := VBoxContainer.new()
 	control_box.add_child(shop_list)
 
+	var economy_title := Label.new()
+	economy_title.text = "银行 / 邮件 / 寄卖"
+	economy_title.add_theme_font_size_override("font_size", 16)
+	control_box.add_child(economy_title)
+	var bank_balance := Label.new()
+	control_box.add_child(bank_balance)
+	var bank_row := HBoxContainer.new()
+	control_box.add_child(bank_row)
+	var bank_amount := SpinBox.new()
+	bank_amount.min_value = 1
+	bank_amount.max_value = 999999
+	bank_amount.step = 1
+	bank_amount.value = 100
+	bank_amount.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bank_row.add_child(bank_amount)
+	var bank_deposit := Button.new()
+	bank_deposit.text = "存入"
+	bank_deposit.tooltip_text = "在灰港金库旁存入身上金币"
+	bank_deposit.pressed.connect(func() -> void:
+		_send({"type": "bankDeposit", "gold": int(bank_amount.value)}))
+	bank_row.add_child(bank_deposit)
+	var bank_withdraw := Button.new()
+	bank_withdraw.text = "取出"
+	bank_withdraw.tooltip_text = "在灰港金库旁取出银行余额"
+	bank_withdraw.pressed.connect(func() -> void:
+		_send({"type": "bankWithdraw", "gold": int(bank_amount.value)}))
+	bank_row.add_child(bank_withdraw)
+
+	var mail_target := OptionButton.new()
+	mail_target.tooltip_text = "选择同图在线玩家作为收件人"
+	control_box.add_child(mail_target)
+	var mail_target_name := LineEdit.new()
+	mail_target_name.placeholder_text = "收件人呼号（可离线）"
+	mail_target_name.max_length = 20
+	control_box.add_child(mail_target_name)
+	var mail_item := OptionButton.new()
+	mail_item.tooltip_text = "可选：从背包选择一件物品作为附件"
+	control_box.add_child(mail_item)
+	var mail_gold := SpinBox.new()
+	mail_gold.min_value = 0
+	mail_gold.max_value = 999999
+	mail_gold.step = 1
+	mail_gold.value = 0
+	mail_gold.prefix = "金币 "
+	control_box.add_child(mail_gold)
+	var mail_row := HBoxContainer.new()
+	control_box.add_child(mail_row)
+	var mail_send := Button.new()
+	mail_send.text = "发送邮件"
+	mail_send.tooltip_text = "原子寄出选中的金币和物品；收件人可离线领取"
+	mail_send.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mail_send.pressed.connect(func() -> void:
+		var target_name := mail_target_name.text.strip_edges()
+		if target_name == "" and mail_target.selected >= 0 and mail_target.item_count > 0:
+			target_name = str(mail_target.get_item_metadata(mail_target.selected))
+		if target_name == "":
+			_set_status("请选择邮件收件人")
+			return
+		var item_ids: Array = []
+		if mail_item.selected > 0:
+			item_ids.append(str(mail_item.get_item_metadata(mail_item.selected)))
+		_send({
+			"type": "mailSend",
+			"target": target_name,
+			"itemIds": item_ids,
+			"gold": int(mail_gold.value),
+		})
+	)
+	mail_row.add_child(mail_send)
+	var mail_list := VBoxContainer.new()
+	control_box.add_child(mail_list)
+
+	var market_item := OptionButton.new()
+	market_item.tooltip_text = "从背包选择未装备物品上架"
+	control_box.add_child(market_item)
+	var market_price := SpinBox.new()
+	market_price.min_value = 1
+	market_price.max_value = 999999
+	market_price.step = 1
+	market_price.value = 500
+	market_price.prefix = "售价 "
+	control_box.add_child(market_price)
+	var market_list_row := HBoxContainer.new()
+	control_box.add_child(market_list_row)
+	var market_list_button := Button.new()
+	market_list_button.text = "上架寄卖"
+	market_list_button.tooltip_text = "在灰港中古商店旁上架，收取挂单费"
+	market_list_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	market_list_button.pressed.connect(func() -> void:
+		if market_item.selected <= 0:
+			_set_status("请选择要寄卖的背包物品")
+			return
+		_send({
+			"type": "marketList",
+			"item": str(market_item.get_item_metadata(market_item.selected)),
+			"price": int(market_price.value),
+		})
+	)
+	market_list_row.add_child(market_list_button)
+	var market_list_view := VBoxContainer.new()
+	control_box.add_child(market_list_view)
+
 	var party_title := Label.new()
 	party_title.text = "队伍"
 	party_title.add_theme_font_size_override("font_size", 16)
@@ -1952,6 +2062,16 @@ func _build_ui() -> void:
 		"respawn_button": respawn_button,
 		"revive_button": revive_button,
 		"shop_list": shop_list,
+		"bank_balance": bank_balance,
+		"bank_amount": bank_amount,
+		"mail_target": mail_target,
+		"mail_target_name": mail_target_name,
+		"mail_item": mail_item,
+		"mail_gold": mail_gold,
+		"mail_list": mail_list,
+		"market_item": market_item,
+		"market_price": market_price,
+		"market_list_view": market_list_view,
 		"party_state": party_state,
 		"party_target": party_target,
 		"party_invite": party_invite,
@@ -2081,7 +2201,86 @@ func _update_progress_panel(data: Dictionary) -> void:
 	ui.respawn_button.disabled = float(data.get("respawnIn", 0)) > 0.0
 	ui.revive_button.disabled = int(data.get("dew", 0)) <= 0
 	_update_shop_controls(data)
+	_update_economy_controls(data)
 	_update_party_controls(data)
+
+func _update_economy_controls(data: Dictionary) -> void:
+	var inventory: Array = data.get("inventory", [])
+	var mailbox: Array = data.get("mailbox", [])
+	var signature := str(data.get("bankGold", 0)) + ":" + str(inventory.size()) + ":" + str(mailbox.size())
+	for player_id in players:
+		signature += ":p" + str(player_id)
+	for item in inventory:
+		signature += ":" + str(item.get("id", "")) + ":" + str(item.get("refine", 0))
+	for mail in mailbox:
+		signature += ":m" + str(mail.get("id", "")) + ":" + str(mail.get("gold", 0))
+	if signature != economy_signature:
+		economy_signature = signature
+		ui.bank_balance.text = "银行余额：%d 金（需站在灰港金库旁）" % int(data.get("bankGold", 0))
+		ui.mail_target.clear()
+		for player_id in players:
+			if player_id == self_id:
+				continue
+			var candidate: Dictionary = players[player_id].data
+			ui.mail_target.add_item(str(candidate.get("name", "玩家")))
+			ui.mail_target.set_item_metadata(ui.mail_target.item_count - 1, player_id)
+		ui.mail_item.clear()
+		ui.mail_item.add_item("不附物品")
+		for item in inventory:
+			ui.mail_item.add_item("附件：%s" % str(item.get("name", "物品")))
+			ui.mail_item.set_item_metadata(ui.mail_item.item_count - 1, str(item.get("id", "")))
+		ui.market_item.clear()
+		ui.market_item.add_item("选择背包物品")
+		for item in inventory:
+			ui.market_item.add_item("寄卖：%s" % str(item.get("name", "物品")))
+			ui.market_item.set_item_metadata(ui.market_item.item_count - 1, str(item.get("id", "")))
+		for child in ui.mail_list.get_children():
+			child.queue_free()
+		if mailbox.is_empty():
+			var empty_mail := Label.new()
+			empty_mail.text = "邮箱为空"
+			ui.mail_list.add_child(empty_mail)
+		else:
+			for mail in mailbox:
+				var row := HBoxContainer.new()
+				var item_count := (mail.get("items", []) as Array).size()
+				var label := Label.new()
+				label.text = "来自 %s · %d 金 · %d 件" % [str(mail.get("from", "?")), int(mail.get("gold", 0)), item_count]
+				label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+				row.add_child(label)
+				var claim := Button.new()
+				claim.text = "领取"
+				var mail_id := str(mail.get("id", ""))
+				claim.pressed.connect(func() -> void: _send({"type": "mailClaim", "mailId": mail_id}))
+				row.add_child(claim)
+				ui.mail_list.add_child(row)
+
+	var market_key := str(map_name) + ":" + str(market_listings.size())
+	for listing in market_listings:
+		market_key += ":" + str(listing.get("id", "")) + ":" + str(listing.get("price", 0))
+	if market_key == market_signature:
+		return
+	market_signature = market_key
+	for child in ui.market_list_view.get_children():
+		child.queue_free()
+	if market_listings.is_empty():
+		var empty_market := Label.new()
+		empty_market.text = "当前没有公开寄卖"
+		ui.market_list_view.add_child(empty_market)
+		return
+	for listing in market_listings:
+		var row := HBoxContainer.new()
+		var item: Dictionary = listing.get("item", {})
+		var label := Label.new()
+		label.text = "%s · %d 金 · 卖家 %s" % [str(item.get("name", "物品")), int(listing.get("price", 0)), str(listing.get("seller", "?"))]
+		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(label)
+		var buy := Button.new()
+		buy.text = "买入"
+		var listing_id := str(listing.get("id", ""))
+		buy.pressed.connect(func() -> void: _send({"type": "marketBuy", "listingId": listing_id}))
+		row.add_child(buy)
+		ui.market_list_view.add_child(row)
 
 func _update_shop_controls(data: Dictionary) -> void:
 	var signature := "%s:%d" % [map_name, int(data.get("level", 1))]
@@ -2240,6 +2439,8 @@ func _show_lobby(message: String) -> void:
 	ui.chat_row.visible = false
 	chat_lines.clear()
 	shop_signature = ""
+	economy_signature = ""
+	market_signature = ""
 	party_signature = ""
 	if message != "":
 		_set_status(message)
