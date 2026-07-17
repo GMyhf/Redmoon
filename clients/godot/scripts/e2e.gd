@@ -10,6 +10,10 @@ func _init() -> void:
 			url = args[index + 1]
 	var left := WebSocketPeer.new()
 	var right := WebSocketPeer.new()
+	# The server sends 10 Hz snapshots while the test waits for reliable JSON
+	# events. Keep those droppable frames from filling the native peer buffer.
+	left.inbound_buffer_size = 1024 * 1024
+	right.inbound_buffer_size = 1024 * 1024
 	left.connect_to_url(url)
 	right.connect_to_url(url)
 	if not await await_open(left, "left") or not await await_open(right, "right"):
@@ -51,8 +55,12 @@ func _init() -> void:
 		right.send_text(JSON.stringify({"type": "armyAccept", "from": id_a}))
 		if (await await_event(right, "armyJoined")).is_empty():
 			fail("right client did not receive armyJoined")
-	print("godot e2e: duel and army passed")
-	quit(1 if failures > 0 else 0)
+	if failures > 0:
+		printerr("godot e2e: failed (%d)" % failures)
+		quit(1)
+	else:
+		print("godot e2e: duel and army passed")
+		quit(0)
 
 func await_open(peer: WebSocketPeer, label: String) -> bool:
 	var deadline := Time.get_ticks_msec() + 3000

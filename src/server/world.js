@@ -1854,7 +1854,7 @@ export class World {
         delete record.army.hall;
         this._emit("armyHallLost", {
           playerId: "", army: targetArmy, floor: wantedFloor, reason: "siege",
-        });
+        }, { players: this._onlineArmyMembers(targetArmy).map((member) => member.id) });
       }
     }
     this._emit("armyHallEvicted", {

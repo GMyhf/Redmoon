@@ -1892,6 +1892,10 @@ function validateAccountRecord(accountKey, record) {
         throw new TypeError("army.hall.rentDueAt must be a non-negative number");
       }
     }
+    if (army.siegeAt !== undefined
+      && (typeof army.siegeAt !== "number" || !Number.isFinite(army.siegeAt) || army.siegeAt < 0)) {
+      throw new TypeError("army.siegeAt must be a non-negative number");
+    }
   }
   optionalInteger(record, "will", 0, MAX_PERSISTED_COUNTER);
   optionalInteger(record, "gold", 0, MAX_PERSISTED_CURRENCY);

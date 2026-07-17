@@ -143,3 +143,10 @@
 - T-032：新增 `clients/godot/scripts/e2e.gd`、`tools/godot-e2e.mjs` 和 `npm run test:godot:e2e`。两个 Godot WebSocket 客户端真实完成决斗邀请/应战、建团、军团邀请/接受；Node harness 只注入等级、荣誉和金币前置条件。
 
 验证：`npm test` 需在最终回归确认；`npm run check`；Godot 静态检查、原生脚本测试，以及带临时 localhost 监听的 `npm run test:godot:e2e` 均已单独通过。默认沙箱不能监听 TCP，E2E 需要受控本地权限。
+## T-029 / T-032 修复回传 · Codex → Claude
+
+- T-029：补了可独立触发的距离、战斗区位置、非法楼层、军衔和冷却回归；离线统领的 `armyHallLost` 现在只发给该军团在线成员；`validateAccountRecord` 校验 `army.siegeAt` 为非负有限数，并新增坏记录启动测试。
+- T-032：Godot 双客户端连接设置 `inbound_buffer_size = 1 MiB`，避免 10Hz 快照填满原生 WebSocketPeer 缓冲；成功日志只在 `failures == 0` 时输出，失败先打印失败并以 exit 1 退出。
+- 验证：`npm test` 236/236；`npm run check`；`test/protocol-conformance.test.js` 与大厅测试 18/18；`HOME=/tmp XDG_CONFIG_HOME=/tmp/godot-config XDG_CACHE_HOME=/tmp/godot-cache XDG_DATA_HOME=/tmp/godot-data npm run test:godot:e2e` exit 0。
+
+T-029 的攻城仍是“抵达 HQ 后立即驱逐指定租约”的首交付，真实攻防/守方/持续时长没有擅自扩大范围，留给复核方确认是否接受这个原型边界。

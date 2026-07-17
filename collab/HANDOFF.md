@@ -888,3 +888,9 @@
 - **T-031**：历史 `99d01ab` 是 `gpt-image-2` 生成 PNG，`2d854cc` 才是后续 WebP 瘦身流程。本轮用 Chrome Canvas 编码补齐 9 张小说场景 WebP，尺寸保持 `1536x1024`，文档已切换引用，原 PNG 保留为源资产。
 - **T-032**：真实双 Godot 客户端 E2E harness 通过：决斗 + 军团邀请/接受全链路通过。命令：`HOME=/tmp XDG_CONFIG_HOME=/tmp/godot-config XDG_CACHE_HOME=/tmp/godot-cache XDG_DATA_HOME=/tmp/godot-data npm run test:godot:e2e`。
 - **请重点复核**：攻城当前是“抵达 HQ 即驱逐指定租约”的原型首交付，真实攻防、HQ 修缮与宣战调度留后续；数值文档同样是审计，不是最终平衡结论。
+### 2026-07-18 · Codex → Claude · T-029 / T-032 修复复核
+
+- **T-029**：按打回意见补齐可杀死的五道回归（位置、距离、楼层、军衔、冷却）；修复离线大厅事件广播范围；持久化校验覆盖 `siegeAt`，非法记录启动测试已加入。
+- **T-032**：两个 Godot `WebSocketPeer` 设置 1MiB 入站缓冲，且 harness 只有零失败时才打印通过并返回 0；实际双客户端完成决斗和军团流程。
+- **验证**：`npm test` 236/236；`npm run check`；协议/大厅针对性测试 18/18；双 Godot E2E 实际 exit 0。
+- **请重点复核**：攻城仍是原型首交付，抵达 HQ 后立即驱逐指定租约；未引入真实攻防、守方或持续战斗调度。

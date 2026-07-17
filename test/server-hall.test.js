@@ -7,7 +7,7 @@ import test from "node:test";
 
 import {
   ARMY_HALL_FLOORS, ARMY_HALL_PERIOD, ARMY_HALL_RENT, ARMY_HONOR, ARMY_LEVEL,
-  BATTLE_ZONE_MAP, CAMPS, CAMP_HQ, CAMP_STAGING,
+  ARMY_SIEGE_RANGE, BATTLE_ZONE_MAP, CAMPS, CAMP_HQ, CAMP_STAGING,
 } from "../src/server/definitions.js";
 import { World, WorldError } from "../src/server/world.js";
 
@@ -207,4 +207,39 @@ test("a commander must reach the enemy HQ before evicting one rented floor", () 
   assert.equal(rival.army.hall, undefined, "the enemy floor is evicted");
   assert.equal(world._hallHolder(COVENANT, 4), null);
   assert.ok(world.drainEvents().some((event) => event.event === "armyHallEvicted"));
+});
+
+test("siege guards location, range, floor, rank, and cooldown independently", () => {
+  const { world, commander } = commanding(FREEHOLD);
+  const rival = world.addPlayer("riv", { name: "Riv", archetype: "vanguard" });
+  rival.level = ARMY_LEVEL;
+  rival.honor = ARMY_HONOR;
+  rival.gold = ARMY_HALL_RENT * 3;
+  world.handleCommand("riv", { type: "armyCreate", name: "契约军", camp: COVENANT });
+  world.handleCommand("riv", { type: "armyRentHall", floor: 4 });
+
+  commander.mapId = "town";
+  commander.x = CAMP_HQ[COVENANT].x;
+  commander.y = CAMP_HQ[COVENANT].y;
+  throwsCode(() => world.handleCommand("cmd", { type: "armySiege", camp: COVENANT, floor: 4 }), "SIEGE_LOCATION");
+
+  commander.mapId = BATTLE_ZONE_MAP;
+  commander.x = CAMP_HQ[COVENANT].x + ARMY_SIEGE_RANGE + 1;
+  throwsCode(() => world.handleCommand("cmd", { type: "armySiege", camp: COVENANT, floor: 4 }), "SIEGE_TOO_FAR");
+  commander.x = CAMP_HQ[COVENANT].x;
+  throwsCode(() => world.handleCommand("cmd", { type: "armySiege", camp: COVENANT, floor: 0 }), "INVALID_FLOOR");
+
+  const recruit = world.addPlayer("rec", { name: "Rec", archetype: "vanguard" });
+  world.handleCommand("cmd", { type: "armyInvite", target: "rec" });
+  world.handleCommand("rec", { type: "armyAccept", from: "cmd" });
+  world.handleCommand("cmd", { type: "armyPromote", name: "Rec", rank: "lieutenant" });
+  recruit.mapId = BATTLE_ZONE_MAP;
+  recruit.x = CAMP_HQ[COVENANT].x;
+  recruit.y = CAMP_HQ[COVENANT].y;
+  throwsCode(() => world.handleCommand("rec", { type: "armySiege", camp: COVENANT, floor: 4 }), "ARMY_RANK_FORBIDDEN");
+
+  world.handleCommand("cmd", { type: "armySiege", camp: COVENANT, floor: 4 });
+  rival.gold = ARMY_HALL_RENT;
+  world.handleCommand("riv", { type: "armyRentHall", floor: 4 });
+  throwsCode(() => world.handleCommand("cmd", { type: "armySiege", camp: COVENANT, floor: 4 }), "SIEGE_COOLDOWN");
 });
