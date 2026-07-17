@@ -1218,6 +1218,10 @@ import {
     if (ui.socialPanel) ui.socialPanel.hidden = true;
     ui.socialList?.replaceChildren();
     if (ui.partyState) ui.partyState.textContent = "未组队";
+    // The founding field is static markup outside the regenerated list, so
+    // clearing the list leaves whatever the last character was typing.
+    if (ui.armyCreateForm) ui.armyCreateForm.hidden = true;
+    if (ui.armyNameInput) ui.armyNameInput.value = "";
   }
 
   function updateSocial(player) {

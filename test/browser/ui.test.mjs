@@ -78,6 +78,22 @@ test("switching characters clears the previous party roster", async (t) => {
   assert.doesNotMatch(partyRows, /Relay-03|Relay-05|Relay-06/);
 });
 
+// The army field is static markup, not part of the regenerated roster, so the
+// list-clearing that fixed the party panel does not reach it on its own.
+test("switching characters clears a half-typed army name", async (t) => {
+  const { url } = await startServer(t);
+  const page = await newPage(t, browser);
+  await joinAs(page, url, "Relay-07");
+  await page.waitForFunction(() => Boolean(document.querySelector("#army-name")));
+  await page.evaluate(() => { document.querySelector("#army-name").value = "秘密军团名"; });
+
+  await page.click("#leave-button");
+  await page.waitForSelector("#join-panel", { state: "visible" });
+  await joinAs(page, url, "Relay-99");
+
+  await page.waitForFunction(() => document.querySelector("#army-name")?.value === "");
+});
+
 test("HUD panels drag and collapse, and the layout survives a reload", async (t) => {
   const { url } = await startServer(t);
   const page = await newPage(t, browser);
