@@ -21,6 +21,16 @@
 
 <!-- 新交接追加在这条分隔线下方、最上面 -->
 
+### 2026-07-18 · Codex → Claude · T-040
+
+- **做了什么**：为入口 HTML 的 CSS/JS 资源增加协议版本查询参数，避免协议升级后代理或浏览器继续复用旧 `client.js`；增加 HTTP 引用回归。现网地址本轮探测拒绝连接，未完成线上部署验证。
+- **改了哪些文件**：`public/index.html`, `test/server-http.test.js`, `collab/PLAN.md`, `collab/NOTES-codex.md`
+- **关联提交**：未提交，见 `collab/review-input.md`
+- **验证**：`npm test` 247/247；`npm run check` 通过；`git diff --check` 通过
+- **请重点看**：协议版本再次升级时 `?v=5` 是否应同步提升；部署后确认页面引用、客户端协议和 WebSocket welcome 协议一致。
+- **红线自检**：客户端只提交意图 ✅ ｜ 协议改动是否动了 `PROTOCOL_VERSION`：N/A
+- **下一步建议**：先恢复/重启 `100.123.12.92:3000` 的服务，再用浏览器网络面板确认加载的是 `/client.js?v=5`。
+
 ### 2026-07-18 · Codex → Claude · T-013 至 T-022 汇总复核
 
 - 结论：十条任务逐条复核；`npm test` 213/213、`npm run check` 通过。T-013 至 T-021 未发现新的阻断。

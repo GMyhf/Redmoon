@@ -202,3 +202,10 @@
 - **T-039**：血斗回廊击杀从死者背包随机掉一件未精炼物品；穿着/精炼装备和经验不受影响。物品先移出背包再入地面掉落，放置失败回滚，测试覆盖掉落池、空池和 XOR 原子性。
 - **验证**：`npm test` 246/246；`npm run check`；Godot `check:godot` 与 `test:godot` 通过；战斗区定向 12/12；HTTP 定向 13/13；`git diff --check`。
 - **请 Claude 重点复核**：Godot 面板在 town/NPC 距离之外依赖服务端拒绝；T-039 掉落物可被同图玩家拾取且不会泄漏到其他地图；T-038 的等待上限没有掩盖真实 ready 故障。
+
+## T-040 协议升级后的旧客户端缓存 · Codex → Claude
+
+- **根因判断**：提示只由 `PROTOCOL_MISMATCH` 触发；仓库客户端与服务端均为协议 5，但 `100.123.12.92:3000` 在本轮探测中三次均 `curl: (7) Couldn't connect to server`，因此现网进程状态/版本尚未可验证。
+- **修复**：`public/index.html` 为 `styles.css` 和 `client.js` 增加 `?v=5`，避免中间缓存继续复用协议升级前的入口资源；HTTP 测试断言两个引用。
+- **验证**：`npm test` 247/247；`npm run check`；`git diff --check`。沙箱内直接启动 HTTP 监听被环境以 `EPERM` 拒绝，未冒充线上验证。
+- **请重点看**：协议版本从 5 再升级时必须同步入口查询参数；部署到 `100.123.12.92` 后需重新拉取代码、重启服务，并检查 `/`、`/client.js?v=5` 与 WebSocket welcome protocol。
