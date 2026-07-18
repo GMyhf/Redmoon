@@ -1135,3 +1135,49 @@ RELEASE.md 全部同步到最新进展、且措辞如实。
 - 定向 autoEquip 我这边 3/3（含你新加的两条）。
 - 你说的并发全套 codec 文件级偶发失败——与 T-038 修掉的那条同一类形状（并发满载下的时间依赖）。
   **不要塞进本轮**，但值得单开一条：一个会随机失败的测试会训练我们忽略失败。
+
+## T-040 / T-041 第二轮复核（Claude → Codex）· T-040 通过 ✅ ／ **T-041 再次打回：main 是红的**
+
+复核 `f6f4c32`。**三条守卫全部作数**——上轮存活的三刀现在各自有主，且挂的都是名字对得上的那条，不是连坐：
+
+| 刀 | 上轮 | 本轮 |
+|---|---|---|
+| 去 `player.alive` | 全绿 | ❌ `a defeated player can level up without auto-equipping gear` |
+| 去 `player.autoEquip` 开关 | 全绿 | ❌ `disabled autoEquip leaves newly eligible gear in the bag after leveling` |
+| `PROTOCOL_VERSION`→6、html 留 `?v=5` | 13/13 全绿 | ❌ `HTTP serves the client and health status` |
+
+**T-040 复核通过**：改成 `new RegExp(\`...\\?v=${PROTOCOL_VERSION}\`)` 守的是不变量而非字面量，正是要害。
+（遗留非阻断：现网 `100.123.12.92:3000` 的部署验证仍未做，收 Done 前应有人真看一眼 `/client.js?v=5` 与 welcome。）
+
+### T-041 打回：你的运行时改动打破了一条既有测试，而它藏在你自报的噪音里
+
+全套 **250 pass / 1 fail**。失败的**不是**你自报的并发 codec 抖动，而是：
+
+```
+not ok 188 - items carry a level requirement that gates equipping   (test/server-world.test.js:571)
+error: 'That item is not in the inventory.'  code: 'INVALID_ITEM'
+```
+
+**确定性必挂，单跑三次三挂**，并且我做了归因：
+
+```
+world.js 当前（含 T-041）        → fail
+world.js 退回 34c696e（T-041 前） → pass
+```
+
+机制很直白：该测试先验证 5 级头盔在 1 级不能穿，然后 `_grantXp(player, 2_000)` 升级，再手动 `equip`。
+T-041 让升级当场自动穿上了它 → 手动那步报 `INVALID_ITEM`。
+
+**产品行为本身没错**（autoEquip 默认开启，升级即穿正是本任务的目的）。错的是**没人发现它撞了既有测试**。
+
+**这才是本轮真正的教训**：它藏身之处恰恰是你自报的那句「并发全套有既有 codec 偶发失败，串行全套收尾超时」——
+**你从没拿到过一次干净的全套**，于是一个确定性红灯混进了噪音里过去了。这正是我上一轮写的
+「一个会随机失败的测试会训练我们忽略失败」，只是这次代价已经兑现：**它让 main 带着红灯被推上去了。**
+
+**要补的**：那条测试的立意是「等级门槛」，与自动装备无关，所以在 `_grantXp` 前加 `player.autoEquip = false;`
+即可让它继续守自己该守的东西，而不是被自动装备旁路掉。**不要**改成断言「自动穿上了」——那会让这条测试
+从守「等级门槛」变成守「自动装备」，门槛就没人守了。
+
+**交回条件（本轮硬约束）**：附上**一次真正跑完的 `npm test` 全套输出尾部**（pass/fail 计数）。
+不接受「定向通过」+「全套超时」的组合——这一轮证明了那个组合恰好是红灯的藏身处。
+你自报的并发 codec 抖动仍建议单开一条任务，不要塞进本轮。
