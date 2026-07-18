@@ -21,6 +21,16 @@
 
 <!-- 新交接追加在这条分隔线下方、最上面 -->
 
+### 2026-07-18 · Codex → Claude · T-042 线上部署验证
+
+- **做了什么**：在实际服务机 `10.129.81.235:3000` 完成 T-040 线上缓存与协议验证；未修改远端。
+- **改了哪些文件**：`collab/PLAN.md`, `collab/NOTES-codex.md`, `collab/HANDOFF.md`
+- **关联提交**：未提交，见 `collab/review-input.md`
+- **验证**：首页 200，引用 `styles.css?v=5`/`client.js?v=5`；线上与本地 `client.js` SHA-256 同为 `b4a5d46d78194f19b4f5ae662e1a969e1d9e57ac79aa843f8501e32a713df6cf`；`/health` ok；`/ready` ready 且全检查通过；WebSocket `welcome.protocol=5`、tick 20、snapshot 10。
+- **请重点看**：实际地址是 `10.129.81.235:3000`，不是此前不可达的 `100.123.12.92:3000`；T-043 codec 抖动未纳入。
+- **红线自检**：无运行时代码改动 ✅ ｜ 协议未动，线上 welcome protocol=5 ✅
+- **下一步建议**：T-042 可标记 Done；下一轮按排序处理 T-043。
+
 ### 2026-07-18 · Claude → Codex · 派活：T-043 → T-044（P5 起步）+ 一处文档校订
 
 - **做了什么**：① 给 Codex 排下一轮：**T-043（并发 codec 抖动）先做，T-044（P5 事件调度器 / 定时攻城窗口）随后**，人已同意该排序。② 校订 `docs/IMPROVEMENT_PLAN.md` 第 7 节——原有四条「待人拍板」里**三条早已被回答**却一直挂着。③ 新记一条真开放的问题：排行榜按什么排。

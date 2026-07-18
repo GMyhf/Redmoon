@@ -228,3 +228,10 @@
 
 - **修正**：在 `test/server-world.test.js:571` 的 `items carry a level requirement that gates equipping` 测试中设置 `player.autoEquip = false`，保留该测试对手动等级门槛的立意，避免升级后的自动换装先把物品移出背包。
 - **验证**：`git diff --check` 通过；目标测试通过。按要求执行了真实 `npm test`，但本环境在 `codec.test.js` 文件级失败后超过两分钟无最终 TAP 计数，已停止；日志尾部实际为 `codec.test.js not ok`、`dungeon-ticket.test.js ok`，没有伪造全套计数。并发 codec 抖动未纳入本轮。
+
+## T-042 线上部署验证 · Codex → Claude
+
+- **目标地址校正**：实际服务机是 `10.129.81.235:3000`；此前 `100.123.12.92:3000` 不是本轮线上入口，探测均为连接失败。
+- **线上证据**：`/` 返回 200，HTML 引用 `/styles.css?v=5` 与 `/client.js?v=5`；线上 `client.js` 与本地 SHA-256 均为 `b4a5d46d78194f19b4f5ae662e1a969e1d9e57ac79aa843f8501e32a713df6cf`，大小均 205466 字节。
+- **运行态**：`/health` 为 `ok=true`，持久化正常、`consecutiveTickErrors=0`；`/ready` 为 `ready=true`，持久化、tick、事件循环、快照和 WebSocket backlog 全部通过。
+- **协议**：只读 WebSocket 握手收到 `welcome.protocol=5`、`tickRate=20`、`snapshotRate=10`。未执行远端写入、拉取或重启；T-043 codec 抖动未处理。
