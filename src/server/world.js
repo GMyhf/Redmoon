@@ -435,6 +435,7 @@ export class World {
     player.hp = player.maxHp;
     player.mp = player.maxMp;
     this.players.set(playerId, player);
+    if (player.autoEquip && player.alive) this.autoEquip(player.id);
     this._audit("session_joined", player, { restored: Boolean(record) });
     this._emit("playerJoined", {
       playerId,
@@ -3988,6 +3989,7 @@ export class World {
         levelsGained: gainedLevels,
       });
       this._autoAllocate(player);
+      if (player.autoEquip && player.alive) this.autoEquip(player.id);
     }
   }
 

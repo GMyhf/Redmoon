@@ -737,6 +737,46 @@ test("autoEquip dresses the strongest eligible item in every slot", () => {
   assert.equal(player.equipment.weapon.id, strong.id);
 });
 
+test("autoEquip retries newly eligible gear after a level up", () => {
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
+  const player = world.addPlayer("player-1", { archetype: "vanguard" });
+  const relic = world.giveItem("player-1", {
+    slot: "weapon",
+    level: 5,
+    bonuses: { power: 12, agility: 0, spirit: 0, vitality: 0 },
+    damageBonus: 0.2,
+  });
+  assert.equal(player.equipment.weapon, null);
+
+  player.level = 999;
+  player.xp = 0;
+  player.xpToNext = 1;
+  world._grantXp(player, 1);
+
+  assert.equal(player.level, 1000);
+  assert.equal(player.equipment.weapon.id, relic.id);
+  assert.ok(world.drainEvents().some((event) => event.event === "autoEquipped"));
+});
+
+test("autoEquip retries restored gear when an account reconnects", () => {
+  const store = {};
+  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, accountStore: store });
+  const player = world.addPlayer("player-1", { name: "Restored", archetype: "vanguard" });
+  player.level = 1000;
+  player.inventory.push({
+    id: "restored-relic", slot: "weapon", rarity: "rare", tier: 5, level: 1000,
+    name: "restored-relic", bonuses: { power: 12, agility: 0, spirit: 0, vitality: 0 },
+  });
+  world.removePlayer(player.id);
+
+  const restored = world.addPlayer("player-2", {
+    name: "Restored", archetype: "vanguard", token: player.token,
+  });
+
+  assert.equal(restored.equipment.weapon.id, "restored-relic");
+  assert.equal(restored.inventory.some((item) => item.id === "restored-relic"), false);
+});
+
 test("the soul barrier spends MP instead of HP at a configurable ratio", () => {
   const world = new World({
     rng: () => 0.5,

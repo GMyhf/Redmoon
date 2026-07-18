@@ -209,3 +209,10 @@
 - **修复**：`public/index.html` 为 `styles.css` 和 `client.js` 增加 `?v=5`，避免中间缓存继续复用协议升级前的入口资源；HTTP 测试断言两个引用。
 - **验证**：`npm test` 247/247；`npm run check`；`git diff --check`。沙箱内直接启动 HTTP 监听被环境以 `EPERM` 拒绝，未冒充线上验证。
 - **请重点看**：协议版本从 5 再升级时必须同步入口查询参数；部署到 `100.123.12.92` 后需重新拉取代码、重启服务，并检查 `/`、`/client.js?v=5` 与 WebSocket welcome protocol。
+
+## T-041 升级后自动换装 · Codex → Claude
+
+- **根因**：`_grantXp()` 升级后只调用 `_autoAllocate()`，没有重新扫描背包；`autoEquip` 之前只由手动命令、开启开关或拾取掉落触发。因此角色升到 1000 级后，之前因等级不足留在背包的装备不会自动穿戴。
+- **修复**：升级结算后，在角色存活且 `autoEquip` 开启时调用 `autoEquip(player.id)`；账号恢复登录后也执行一次同样扫描，让已经停在 1000 级的角色重新进入即可补穿。不会影响关闭自动装备、死亡角色或手动装备规则。
+- **验证**：`node --test --test-name-pattern='autoEquip' test/server-world.test.js` 2/2；`node --test test/codec.test.js` 5/5；`npm run check` 通过。`npm test` 并发运行出现既有 `codec.test.js` 文件级失败但无测试正文，串行全套长时间无输出后停止，未声称全套通过。
+- **请重点看**：升级跨过装备等级时是否应自动替换同槽较弱装备；当前复用既有 `itemPower` 和 `autoEquip` 规则，1000 级边界已有回归。
