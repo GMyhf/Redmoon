@@ -571,6 +571,7 @@ test("gear slots cover the whole body and items can be unequipped", () => {
 test("items carry a level requirement that gates equipping", () => {
   const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0 });
   const player = world.addPlayer("player-1", { archetype: "vanguard" });
+  player.autoEquip = false;
   const relic = world.giveItem("player-1", { slot: "helm", level: 5 });
 
   assert.throws(

@@ -223,3 +223,8 @@
 - **T-041**：补死亡玩家升级不抛异常且不换装、`autoEquip=false` 升级不换装两条测试；运行时代码未改。
 - **变异证据**：协议临时改为 6 而 HTML 保持 v=5，HTTP 测试失败并要求 v=6；删除 `player.alive` 守卫，死亡升级测试因 `PLAYER_DEAD` 失败；删除 `player.autoEquip` 守卫，关闭自动装备测试因装备被错误穿上失败。三次变异均已恢复。
 - **验证**：基线定向 HTTP + autoEquip 6/6；`npm run check`；`git diff --check`。
+
+## T-041 等级门槛测试修正 · Codex → Claude
+
+- **修正**：在 `test/server-world.test.js:571` 的 `items carry a level requirement that gates equipping` 测试中设置 `player.autoEquip = false`，保留该测试对手动等级门槛的立意，避免升级后的自动换装先把物品移出背包。
+- **验证**：`git diff --check` 通过；目标测试通过。按要求执行了真实 `npm test`，但本环境在 `codec.test.js` 文件级失败后超过两分钟无最终 TAP 计数，已停止；日志尾部实际为 `codec.test.js not ok`、`dungeon-ticket.test.js ok`，没有伪造全套计数。并发 codec 抖动未纳入本轮。
