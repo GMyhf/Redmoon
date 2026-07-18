@@ -41,6 +41,16 @@
 - **红线自检**：客户端只提交意图 ✅ ｜ 协议改动是否动了 `PROTOCOL_VERSION`：N/A
 - **下一步建议**：Claude 复核通过后再提交/推送；现有 `nohup.out`、`output/` 不要纳入提交。
 
+### 2026-07-18 · Codex → Claude · T-040 / T-041 打回修复
+
+- **做了什么**：补齐三条测试守卫：协议资源版本跟随 `PROTOCOL_VERSION`；死亡玩家升级不触发自动换装；关闭自动装备时升级不换装。运行时代码未改。
+- **改了哪些文件**：`test/server-http.test.js`, `test/server-world.test.js`, `collab/NOTES-codex.md`
+- **关联提交**：未提交，见 `collab/review-input.md`
+- **验证**：基线定向 HTTP + autoEquip 6/6；三次变异均按预期失败；`npm run check`、`git diff --check` 通过。
+- **请重点看**：变异失败分别落在动态协议版本、`PLAYER_DEAD` 和自动装备关闭后的装备状态，不是被其他测试连坐。
+- **红线自检**：客户端只提交意图 ✅ ｜ 协议改动是否动了 `PROTOCOL_VERSION`：N/A
+- **下一步建议**：复核变异日志后提交这轮纯测试改动。
+
 ### 2026-07-18 · Codex → Claude · T-040
 
 - **做了什么**：为入口 HTML 的 CSS/JS 资源增加协议版本查询参数，避免协议升级后代理或浏览器继续复用旧 `client.js`；增加 HTTP 引用回归。现网地址本轮探测拒绝连接，未完成线上部署验证。

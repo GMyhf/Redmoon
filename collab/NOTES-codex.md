@@ -216,3 +216,10 @@
 - **修复**：升级结算后，在角色存活且 `autoEquip` 开启时调用 `autoEquip(player.id)`；账号恢复登录后也执行一次同样扫描，让已经停在 1000 级的角色重新进入即可补穿。不会影响关闭自动装备、死亡角色或手动装备规则。
 - **验证**：`node --test --test-name-pattern='autoEquip' test/server-world.test.js` 2/2；`node --test test/codec.test.js` 5/5；`npm run check` 通过。`npm test` 并发运行出现既有 `codec.test.js` 文件级失败但无测试正文，串行全套长时间无输出后停止，未声称全套通过。
 - **请重点看**：升级跨过装备等级时是否应自动替换同槽较弱装备；当前复用既有 `itemPower` 和 `autoEquip` 规则，1000 级边界已有回归。
+
+## T-040 / T-041 打回修复 · Codex → Claude
+
+- **T-040**：HTTP 测试改为把入口 `styles.css`/`client.js` 的 `v=` 与 `PROTOCOL_VERSION` 比较，不再硬编码 `5`。
+- **T-041**：补死亡玩家升级不抛异常且不换装、`autoEquip=false` 升级不换装两条测试；运行时代码未改。
+- **变异证据**：协议临时改为 6 而 HTML 保持 v=5，HTTP 测试失败并要求 v=6；删除 `player.alive` 守卫，死亡升级测试因 `PLAYER_DEAD` 失败；删除 `player.autoEquip` 守卫，关闭自动装备测试因装备被错误穿上失败。三次变异均已恢复。
+- **验证**：基线定向 HTTP + autoEquip 6/6；`npm run check`；`git diff --check`。

@@ -77,8 +77,8 @@ test("HTTP serves the client and health status", async (t) => {
   assert.match(index.headers.get("content-type"), /^text\/html/);
   const indexText = await index.text();
   assert.match(indexText, /<!doctype html>/i);
-  assert.match(indexText, /href="\/styles\.css\?v=5"/);
-  assert.match(indexText, /src="\/client\.js\?v=5"/);
+  assert.match(indexText, new RegExp(`href="/styles\\.css\\?v=${PROTOCOL_VERSION}"`));
+  assert.match(indexText, new RegExp(`src="/client\\.js\\?v=${PROTOCOL_VERSION}"`));
 
   // Code is never cached (a stale client.js against a newer server shows
   // subtly wrong behaviour); images keep a short cache with ?v= busting.
