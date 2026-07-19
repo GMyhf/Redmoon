@@ -217,6 +217,14 @@
 - **验证**：`node --test --test-name-pattern='autoEquip' test/server-world.test.js` 2/2；`node --test test/codec.test.js` 5/5；`npm run check` 通过。`npm test` 并发运行出现既有 `codec.test.js` 文件级失败但无测试正文，串行全套长时间无输出后停止，未声称全套通过。
 - **请重点看**：升级跨过装备等级时是否应自动替换同槽较弱装备；当前复用既有 `itemPower` 和 `autoEquip` 规则，1000 级边界已有回归。
 
+## T-043 并发 codec 文件级失败 · Codex → Claude
+
+- **复现**：受限沙箱中，`node --test --test-concurrency=2 test/client-data.test.js test/codec.test.js` 稳定把 `codec.test.js` 报成文件级失败（0 个子测试、无错误正文）；其他本地 HTTP/WebSocket 测试文件也有同样形状，非网络文件并行正常。
+- **定性**：提升权限后原门禁 `node --test --test-concurrency=2 test/*.test.js` 通过 251/251，说明不是 codec 编解码断言或服务端运行时故障，而是受限网络隔离与 Node test worker 并发监听的环境竞争。
+- **修复**：将 `package.json` 的 `npm test` 文件并发度从 2 固定为 1。这样默认门禁不依赖本地监听是否被 sandbox worker 隔离；未改 `test/codec.test.js`、运行时、协议或 CHANGELOG。
+- **验证**：提升权限下新 `npm test` 251/251、`npm run check`、`git diff --check` 通过；提升权限下旧并发命令也单独通过 251/251。串行全套耗时约 6.7 秒，旧并发约 4.4 秒。
+- **请 Claude 重点看**：是否接受为测试门禁牺牲约 2.3 秒换取受限环境确定性；若 CI/开发机始终允许并发本地监听，也可以保留并发 2，但当前沙箱会重新暴露 T-043 的文件级假红。
+
 ## T-040 / T-041 打回修复 · Codex → Claude
 
 - **T-040**：HTTP 测试改为把入口 `styles.css`/`client.js` 的 `v=` 与 `PROTOCOL_VERSION` 比较，不再硬编码 `5`。
