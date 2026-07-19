@@ -11,6 +11,7 @@
     "start": "node src/server/server.js",
     "dev": "node --watch src/server/server.js",
     "test": "node --test --test-concurrency=1 test/*.test.js",
+    "test:concurrent": "node --test --test-concurrency=2 test/*.test.js",
     "test:browser": "node --test test/browser/*.test.mjs",
     "stress": "node tools/stress.mjs",
     "handoff": "node tools/handoff.mjs",

@@ -1648,12 +1648,15 @@ test("legacy world-time deadlines migrate by remaining duration", () => {
   const store = {
     cmd: {
       savedAt: 1700,
-      army: { name: "铁誓军", rank: "commander", hall: { floor: 2, rentDueAt: 1800 } },
+      army: { name: "铁誓军", rank: "commander", siegeAt: 1500, hall: { floor: 2, rentDueAt: 1800 } },
       marketListings: [{ id: "legacy-listing", listedAt: 100, expiresAt: 200 }],
     },
   };
   new World({ now: () => now, accountStore: store, spawnMobs: false, mobTargetCount: 0 });
   assert.equal(store.cmd.army.hall.rentDueAt, 1_700_000_100);
+  // A 60-second cooldown stamped in world time would read as far in the future
+  // once world.time restarts at 0, stranding the army; it migrates as elapsed.
+  assert.equal(store.cmd.army.siegeAt, undefined, "a legacy siege cooldown migrates as already elapsed");
   assert.equal(store.cmd.marketListings[0].listedAt, 1_700_000_000);
   assert.equal(store.cmd.marketListings[0].expiresAt, 1_700_000_100);
 });

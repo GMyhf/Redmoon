@@ -83,6 +83,77 @@ test("siege schedule phase survives a world restart", () => {
   assert.equal(restarted.getSnapshot().world.schedules.armySiege.nextStartsAt, 10);
 });
 
+test("a siege cooldown is measured on the wall clock, not the world clock", () => {
+  // `army.siegeAt` rides the persisted account record. Stamped in world time it
+  // reads as far in the future once world.time restarts at 0, stranding the army
+  // on a cooldown for roughly the previous run's length. The two assertions below
+  // pin the time base from both sides: world time racing ahead must not expire
+  // the cooldown, and wall-clock time passing must.
+  const { world, commander, advanceWallClock } = commanding(FREEHOLD);
+  const rivals = [["riv", "契约军", 4], ["riv2", "契约后军", 5]].map(([id, name, floor]) => {
+    const rival = world.addPlayer(id, { name: id, archetype: "vanguard" });
+    rival.level = ARMY_LEVEL;
+    rival.honor = ARMY_HONOR;
+    rival.gold = ARMY_HALL_RENT * 2;
+    world.handleCommand(id, { type: "armyCreate", name, camp: COVENANT });
+    world.handleCommand(id, { type: "armyRentHall", floor });
+    return rival;
+  });
+
+  // A long-running server: world time is far ahead of the wall clock reading.
+  world.time += 1500;
+  commander.mapId = BATTLE_ZONE_MAP;
+  commander.x = CAMP_HQ[COVENANT].x;
+  commander.y = CAMP_HQ[COVENANT].y;
+  world.handleCommand("cmd", { type: "armySiege", camp: COVENANT, floor: 4 });
+
+  // Resolve the first assault so only the cooldown can gate the next one.
+  world.time += ARMY_SIEGE_DURATION;
+  world.update(0.05);
+  assert.equal(world._armySieges.size, 0, "the first assault resolved");
+  assert.equal(rivals[0].army.hall, undefined, "floor 4 was evicted");
+
+  // World time has run far past the cooldown; the wall clock has not. Sieging
+  // again must still be refused — a cooldown on world time would allow it.
+  throwsCode(() => world.handleCommand("cmd", { type: "armySiege", camp: COVENANT, floor: 5 }), "SIEGE_COOLDOWN");
+
+  // Wall-clock time past the cooldown releases it.
+  advanceWallClock(100);
+  world.handleCommand("cmd", { type: "armySiege", camp: COVENANT, floor: 5 });
+  assert.equal(world._armySieges.size, 1, "the wall clock, not the world clock, expires the cooldown");
+});
+
+test("a restart does not strand an army on a stale siege cooldown", () => {
+  const { world, commander, advanceWallClock } = commanding(FREEHOLD);
+  const rival = world.addPlayer("riv", { name: "Riv", archetype: "vanguard" });
+  rival.level = ARMY_LEVEL;
+  rival.honor = ARMY_HONOR;
+  rival.gold = ARMY_HALL_RENT * 2;
+  world.handleCommand("riv", { type: "armyCreate", name: "契约军", camp: COVENANT });
+  world.handleCommand("riv", { type: "armyRentHall", floor: 4 });
+
+  world.time += 1500;
+  commander.mapId = BATTLE_ZONE_MAP;
+  commander.x = CAMP_HQ[COVENANT].x;
+  commander.y = CAMP_HQ[COVENANT].y;
+  world.handleCommand("cmd", { type: "armySiege", camp: COVENANT, floor: 4 });
+  advanceWallClock(100);
+  const store = JSON.parse(JSON.stringify(world.syncAccounts()));
+
+  const restarted = new World({
+    rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, safeZoneRadius: 0, autoLevel: false,
+    now: world.now, accountStore: store,
+  });
+  const back = restarted.addPlayer("cmd", { name: "Cmd", archetype: "vanguard", token: commander.token });
+  restarted.addPlayer("riv", { name: "Riv", archetype: "vanguard", token: rival.token });
+  back.mapId = BATTLE_ZONE_MAP;
+  back.x = CAMP_HQ[COVENANT].x;
+  back.y = CAMP_HQ[COVENANT].y;
+
+  restarted.handleCommand("cmd", { type: "armySiege", camp: COVENANT, floor: 4 });
+  assert.equal(restarted._armySieges.size, 1, "a restart must not resurrect an expired cooldown");
+});
+
 test("only a commander with a camp and the gold may sign", () => {
   const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, autoLevel: false });
   for (const [id, name] of [["cmd", "Cmd"], ["rec", "Rec"]]) {

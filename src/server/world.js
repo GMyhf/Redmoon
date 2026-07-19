@@ -478,6 +478,14 @@ export class World {
         hall.rentDueAt = now + remaining;
         changed = true;
       }
+      // A cooldown stamped in world time reads as far in the future once
+      // world.time restarts at 0. It only guards 60 seconds, so the safe
+      // migration is to treat it as already elapsed rather than to rebase it.
+      if (record.army && Number.isFinite(Number(record.army.siegeAt))
+        && Number(record.army.siegeAt) < WALL_CLOCK_EPOCH_SECONDS) {
+        delete record.army.siegeAt;
+        changed = true;
+      }
       for (const listing of record.marketListings ?? []) {
         if (!Number.isFinite(listing.expiresAt) || listing.expiresAt >= WALL_CLOCK_EPOCH_SECONDS) continue;
         const reference = Number.isFinite(listing.listedAt) ? listing.listedAt : legacySavedAt;
@@ -2207,7 +2215,7 @@ export class World {
       throw new WorldError("INVALID_FLOOR", `Floors run 1..${ARMY_HALL_FLOORS}.`);
     }
     const lastSiegeAt = Number(player.army.siegeAt ?? -Infinity);
-    if (this.time - lastSiegeAt < ARMY_SIEGE_COOLDOWN) {
+    if (this._wallClockSeconds() - lastSiegeAt < ARMY_SIEGE_COOLDOWN) {
       throw new WorldError("SIEGE_COOLDOWN", "Your army must regroup before another siege.");
     }
     const targetArmy = this._hallHolder(wantedCamp, wantedFloor);
@@ -2233,7 +2241,7 @@ export class World {
       endsAt: round(this.time + ARMY_SIEGE_DURATION),
     };
     this._armySieges.set(siegeId, siege);
-    this._setArmy(player, { ...player.army, siegeAt: round(this.time) });
+    this._setArmy(player, { ...player.army, siegeAt: this._wallClockSeconds() });
     this._emit("armySiegeStarted", {
       playerId: id,
       army,
