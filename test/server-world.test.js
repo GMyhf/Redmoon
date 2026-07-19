@@ -1580,7 +1580,8 @@ test("mail moves gold and items atomically to an offline recipient", () => {
 });
 
 test("the used-goods shop sells through mail, taxes proceeds, and returns expired listings", () => {
-  const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, autoLevel: false });
+  let now = Date.now();
+  const world = new World({ rng: () => 0.5, now: () => now, spawnMobs: false, mobTargetCount: 0, autoLevel: false });
   const seller = world.addPlayer("seller", { name: "Seller", archetype: "vanguard" });
   const buyer = world.addPlayer("buyer", { name: "Buyer", archetype: "strider" });
   const market = world.shops.find((shop) => shop.id === "market");
@@ -1602,11 +1603,59 @@ test("the used-goods shop sells through mail, taxes proceeds, and returns expire
 
   seller.inventory.push(junkItem("expired-blade"));
   world.handleCommand(seller.id, { type: "marketList", item: "expired-blade", price: 200 });
-  world.time += MARKET_LISTING_DURATION;
+  now += MARKET_LISTING_DURATION * 1000;
   world.update(0.05);
   assert.ok(seller.mailbox.some((mail) => mail.items.some((item) => item.id === "expired-blade")));
   assert.equal(seller.marketListings.length, 0, "expired listings leave the market");
   assert.equal(MARKET_TAX, 0.05);
+});
+
+test("wall-clock rent and market deadlines survive a world restart", () => {
+  let now = Date.now();
+  const store = {};
+  const first = new World({ rng: () => 0.5, now: () => now, spawnMobs: false, mobTargetCount: 0, autoLevel: false, accountStore: store });
+  const commander = first.addPlayer("cmd", { name: "Cmd", archetype: "vanguard" });
+  commander.level = 30;
+  commander.honor = 100;
+  commander.gold = 5_000;
+  first.handleCommand("cmd", { type: "armyCreate", name: "铁誓军", camp: "freehold" });
+  first.handleCommand("cmd", { type: "armyRentHall", floor: 2 });
+  const rentDueAt = commander.army.hall.rentDueAt;
+  first.syncAccounts();
+
+  const seller = first.addPlayer("seller", { name: "Seller", archetype: "vanguard" });
+  const market = first.shops.find((shop) => shop.id === "market");
+  seller.x = market.x;
+  seller.y = market.y;
+  seller.gold = MARKET_LISTING_FEE + 100;
+  seller.inventory.push(junkItem("restart-market-blade"));
+  first.handleCommand(seller.id, { type: "marketList", item: "restart-market-blade", price: 200 });
+  const expiry = seller.marketListings[0].expiresAt;
+  first.syncAccounts();
+
+  now += 100 * 1000;
+  const restarted = new World({ rng: () => 0.5, now: () => now, spawnMobs: false, mobTargetCount: 0, autoLevel: false, accountStore: store });
+  assert.equal(restarted.getSnapshot().world.wallTime, Math.floor(now / 1000));
+  assert.equal(store.cmd.army.hall.rentDueAt, rentDueAt, "restart keeps the absolute rent deadline");
+  assert.equal(store.seller.marketListings[0].expiresAt, expiry, "restart keeps the absolute listing deadline");
+  assert.ok(rentDueAt > Math.floor(now / 1000), "the remaining rent period was not reset");
+  assert.ok(expiry > Math.floor(now / 1000), "the remaining listing period was not reset");
+  restarted.update(0.05);
+});
+
+test("legacy world-time deadlines migrate by remaining duration", () => {
+  const now = 1_700_000_000_000;
+  const store = {
+    cmd: {
+      savedAt: 1700,
+      army: { name: "铁誓军", rank: "commander", hall: { floor: 2, rentDueAt: 1800 } },
+      marketListings: [{ id: "legacy-listing", listedAt: 100, expiresAt: 200 }],
+    },
+  };
+  new World({ now: () => now, accountStore: store, spawnMobs: false, mobTargetCount: 0 });
+  assert.equal(store.cmd.army.hall.rentDueAt, 1_700_000_100);
+  assert.equal(store.cmd.marketListings[0].listedAt, 1_700_000_000);
+  assert.equal(store.cmd.marketListings[0].expiresAt, 1_700_000_100);
 });
 
 test("party membership enforces invite, capacity, and cleanup rules", () => {

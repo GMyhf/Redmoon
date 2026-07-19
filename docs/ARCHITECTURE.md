@@ -70,7 +70,7 @@ HTTP 表面保持很小：
 | `mailSend` / `mailClaim` | `target` + `itemIds` + `gold` + `subject?` / `mailId` | **邮件投递**：收件人可离线；附件是背包物品和金币，寄出时原子移出发送方，领取时原子移出邮箱。邮箱满或背包不足时整笔操作拒绝，不会复制附件。副本离线金币奖励也走邮件 |
 | `marketList` / `marketBuy` | `item` + `price` / `listingId` | **中古商店寄卖行**（仅 town）：上架从背包移出物品并收 100 金挂单费；成交按 5% 抽税，物品给买家、净款给卖家，双方均经邮件投递；7 天到期自动把物品邮件退回 |
 | `duelInvite`/`duelAccept`/`duelDecline`/`duelForfeit` | `target` / `from` / `from` / 无 | 决斗：双方同意后进入独立竞技场地图 `duel:<id>`。**这是全服唯一能让玩家伤害到玩家的地方**——投射物只在决斗地图上、且只对该决斗成员列表里的对手做碰撞，因此不可能打到场外或另一张图上同坐标的玩家。竞技场有自己的 1200×900 边界（不是 4800×2700 的世界平面）。无经验、无金币、无掉落、无荣誉：倒下即结算，双方满血回到原处。60 秒邀请窗口、180 秒时限判平局、全服上限 16 场；断线/进副本均不可与决斗并存 |
-| `armyRentHall` / `armyReleaseHall` | `floor` / 无 | **军团大厅**（统领限定，需已宣誓阵营）：本阵营要塞 20 层，**一层只归一个军团**。**租而非占**——签约先付一期租金，其后每 `ARMY_HALL_PERIOD` 自动从统领扣一次，**付不起即失去大厅**、楼层放回市场。回报：持厅军团的成员在**血斗回廊**阵亡后于本阵营集结点重生；无厅则送回灰港。租约存在统领的账号记录上（只有他被计费），随指挥权转移 |
+| `armyRentHall` / `armyReleaseHall` | `floor` / 无 | **军团大厅**（统领限定，需已宣誓阵营）：本阵营要塞 20 层，**一层只归一个军团**。**租而非占**——签约先付一期租金，其后每 `ARMY_HALL_PERIOD` 墙钟秒自动从统领账号扣一次（统领离线也计费），**付不起即失去大厅**、楼层放回市场。回报：持厅军团的成员在**血斗回廊**阵亡后于本阵营集结点重生；无厅则送回灰港。租约存在统领的账号记录上，随指挥权转移并跨重启守时 |
 | `bankDeposit` / `bankWithdraw` | `gold` / `gold` | **灰港金库**：仅在 town 的金库 NPC 坐标范围内可存取。`bankGold` 持久化并只进入本人的 self snapshot；血斗回廊没有金库入口，存入的金币不参与死亡转移，随身 `gold` 仍按战斗区规则被夺 10% |
 | `armySiege` | `camp` + `floor` | **攻城**（统领限定）：HQ 是大厅楼层之外的独立目标。攻城还必须处于服务端周期公告时段（每 3600 秒开放 300 秒）；窗口外返回 `SIEGE_CLOSED`。统领必须在血斗回廊抵达敌方 HQ 的服务端坐标范围内，且通过敌我阵营、楼层和 60 秒军团冷却校验；开始后进入 30 秒攻城窗口。攻方统领必须持续驻守 HQ，守方成员进入 HQ 范围即形成防守占位，并可使用战斗区 PvP 击杀攻方；统领死亡/离位或窗口结束时仍有守方则攻城失败，只有无人防守的完整窗口才驱逐指定楼层租约。 |
 | `armySetCamp` | `camp` | **宣誓阵营**（统领限定）：`freehold` 自由邦 / `covenant` 契约同盟。阵营属于**军团**（对齐红月 `tblArmyList1.Camp`），团员入伙即继承。**一经宣誓不可更改**——可切换的阵营等于逃生按钮（被追杀时切到对方阵营即免疫）。在**血斗回廊**中同阵营互相打不到、跨阵营可交火；**无阵营者仍人人可打** |
@@ -95,7 +95,7 @@ HTTP 表面保持很小：
 | `roster` | `players`（`name`/`archetype`/`level`/`mapId`） | 大厅名册：`welcome` 附带一份初始名册，未加入的连接每秒收到更新，供主画面展示在线角色 |
 | `session` | `token`, `name`, `archetype` | `join`、`recover` 或 `sessionRotate` 成功后仅发给本连接；浏览器存入 `localStorage`，Godot 存入 owner-only 的 `user://session.cfg`。`archetype` 是账号的权威职业，找回时客户端必须用它纠正本地选择 |
 | `recovery` | `name`, `code`, `expiresAt` | `recoveryIssue` 的单次明文结果；服务端只保存摘要，客户端必须立即展示/保管 |
-| `snapshot` | `tick`, `serverTime`, `selfId`, `mapId`, `world`, `safeZone`, `players`, `enemies`, `projectiles`, `drops` | 当前地图状态，实体只包含当前地图内容。`players` 中只有本人条目携带完整数据（背包、好友、任务、技能、金币等）；好友条目为 `{name, online, id}`，在线 id 供跨地图邀请，离线时为 `null`。其他玩家为渲染所需的轻量条目（位置、血蓝、等级、装备的名称/稀有度/特殊掉落标识），不含属性数值。所有条目携带 `moveSpeed`（含地形修正、不含奔跑倍率的权威移速），客户端据此对本地角色做输入预测，服务器位置仍是最终事实。服务器对同一地图的所有接收者共享一次构建 |
+| `snapshot` | `tick`, `serverTime`, `selfId`, `mapId`, `world`, `safeZone`, `players`, `enemies`, `projectiles`, `drops` | 当前地图状态，实体只包含当前地图内容。`world.wallTime` 是墙钟 epoch 秒，专供租约/挂单倒计时；`serverTime` 仍是逻辑世界时间，攻城调度和模拟使用后者。`players` 中只有本人条目携带完整数据（背包、好友、任务、技能、金币等）；好友条目为 `{name, online, id}`，在线 id 供跨地图邀请，离线时为 `null`。其他玩家为渲染所需的轻量条目（位置、血蓝、等级、装备的名称/稀有度/特殊掉落标识），不含属性数值。所有条目携带 `moveSpeed`（含地形修正、不含奔跑倍率的权威移速），客户端据此对本地角色做输入预测，服务器位置仍是最终事实。服务器对同一地图的所有接收者共享一次构建 |
 | `event` | `event`, `tick`, `serverTime`, 事件载荷 | 短时表现或离散结果 |
 | `error` | `code`, `message`, `requestType?` | 可处理的协议错误 |
 | 事件作用域 | （内部） | 世界事件可携带网关内部的投递作用域（按图或按成员），`chatMessage` 的本图/组队频道与高频战斗事件（`enemyAttack`/`skillUsed`/`enemyDefeated`/`lootDropped`）只发给相关连接，不再全服广播；作用域字段不会出现在线上 |

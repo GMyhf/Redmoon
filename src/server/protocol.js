@@ -65,6 +65,7 @@ const WORLD_META = {
   width: "number",
   height: "number",
   time: "number?",
+  wallTime: "number?",
   tick: "number?",
   mapId: "string|null",
   theme: "string|null",

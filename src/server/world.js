@@ -130,6 +130,7 @@ const PORTAL_LOCK = 2.5;
 const PORTAL_DWELL = 0.6;
 const DEFAULT_DUNGEON_DURATION = 15 * 60;
 const DEFAULT_MAX_DUNGEONS = 32;
+const WALL_CLOCK_EPOCH_SECONDS = 1_000_000_000;
 const DEFAULT_MAP_MOB_TARGETS = Object.freeze({
   town: 24,
   residential: 16,
@@ -234,6 +235,10 @@ export class World {
     // Account store: plain object keyed by lowercase name; the host loads
     // it from disk and writes it back, the world reads/updates entries.
     this.accountStore = options.accountStore ?? {};
+    this._externalAccountMutations = new Set();
+    this._nextHallRentCheckAt = 0;
+    this._nextMarketExpiryCheckAt = 0;
+    this._migrateLegacyDeadlines();
     // Persisted items keep their ids across restarts; the sequence must
     // resume past them or fresh drops would mint duplicate ids.
     this._itemSequence = highestItemSequence(this.accountStore);
@@ -250,7 +255,6 @@ export class World {
         duration: positiveNumber(options.eventSchedules?.armySiege?.duration, ARMY_SIEGE_WINDOW_DURATION),
       },
     };
-    this._externalAccountMutations = new Set();
     this.duels = new Map();
     this._duelInvites = new Map();
     this._duelSequence = 0;
@@ -455,6 +459,37 @@ export class World {
 
   // ---- Account persistence -------------------------------------------
 
+  _wallClockSeconds() {
+    return Math.floor(this.now() / 1000);
+  }
+
+  _migrateLegacyDeadlines() {
+    const now = this._wallClockSeconds();
+    for (const [accountKey, record] of Object.entries(this.accountStore)) {
+      if (!record || typeof record !== "object") continue;
+      const savedAt = Number(record.savedAt);
+      const legacySavedAt = Number.isFinite(savedAt) && savedAt < WALL_CLOCK_EPOCH_SECONDS
+        ? savedAt
+        : 0;
+      let changed = false;
+      const hall = record.army?.hall;
+      if (hall && Number.isFinite(hall.rentDueAt) && hall.rentDueAt < WALL_CLOCK_EPOCH_SECONDS) {
+        const remaining = Math.max(0, hall.rentDueAt - legacySavedAt);
+        hall.rentDueAt = now + remaining;
+        changed = true;
+      }
+      for (const listing of record.marketListings ?? []) {
+        if (!Number.isFinite(listing.expiresAt) || listing.expiresAt >= WALL_CLOCK_EPOCH_SECONDS) continue;
+        const reference = Number.isFinite(listing.listedAt) ? listing.listedAt : legacySavedAt;
+        const remaining = Math.max(0, listing.expiresAt - reference);
+        listing.listedAt = now;
+        listing.expiresAt = now + remaining;
+        changed = true;
+      }
+      if (changed) this._externalAccountMutations.add(accountKey);
+    }
+  }
+
   _accountKey(name) {
     return String(name).trim().toLowerCase();
   }
@@ -485,7 +520,7 @@ export class World {
 
   _saveAccount(player) {
     const record = {
-      savedAt: round(this.time),
+      savedAt: this._wallClockSeconds(),
       tokenHash: hashSecret(player.token),
       ...(player.recovery ? { recovery: structuredClone(player.recovery) } : {}),
     };
@@ -1764,8 +1799,8 @@ export class World {
       id: `listing-${randomUUID()}`,
       item: structuredClone(item),
       price: value,
-      listedAt: round(this.time),
-      expiresAt: round(this.time + MARKET_LISTING_DURATION),
+      listedAt: this._wallClockSeconds(),
+      expiresAt: this._wallClockSeconds() + MARKET_LISTING_DURATION,
     };
     seller.marketListings = [...(seller.marketListings ?? []), listing];
     this._saveAccount(seller);
@@ -1782,7 +1817,7 @@ export class World {
     if (!entry) throw new WorldError("MARKET_LISTING_UNKNOWN", "That listing is no longer available.");
     if (entry.key === this._accountKey(buyer.name)) throw new WorldError("MARKET_SELF", "You cannot buy your own listing.");
     const listing = entry.listing;
-    if (this.time >= listing.expiresAt) {
+    if (this._wallClockSeconds() >= listing.expiresAt) {
       throw new WorldError("MARKET_LISTING_UNKNOWN", "That listing has expired.");
     }
     if (buyer.gold < listing.price) throw new WorldError("NO_GOLD", "Not enough gold for that listing.");
@@ -1838,8 +1873,11 @@ export class World {
   }
 
   _updateMarketListings() {
+    const now = this._wallClockSeconds();
+    if (now < this._nextMarketExpiryCheckAt) return;
+    this._nextMarketExpiryCheckAt = now + 1;
     for (const entry of this._marketEntries()) {
-      if (this.time >= entry.listing.expiresAt) this._expireMarketListing(entry);
+      if (now >= entry.listing.expiresAt) this._expireMarketListing(entry);
     }
   }
 
@@ -2120,7 +2158,7 @@ export class World {
     player.gold -= ARMY_HALL_RENT;
     this._setArmy(player, {
       ...player.army,
-      hall: { floor: wanted, rentDueAt: round(this.time + ARMY_HALL_PERIOD) },
+      hall: { floor: wanted, rentDueAt: this._wallClockSeconds() + ARMY_HALL_PERIOD },
     });
     this._emit("armyHallRented", {
       playerId: id,
@@ -2312,26 +2350,60 @@ export class World {
   // Rent falls due whether or not anyone is watching. It is charged to the
   // commander, and a lease that cannot be paid ends — which is the churn that
   // keeps floors changing hands.
-  _updateArmyHalls() {
-    for (const player of this.players.values()) {
-      const hall = player.army?.hall;
-      if (!hall || player.army.rank !== "commander") continue;
-      if (this.time < hall.rentDueAt) continue;
-      if (player.gold < ARMY_HALL_RENT) {
-        this._dropHall(player, "unpaid");
-        continue;
+  _updateArmyHall(target, accountKey = null) {
+    const hall = target.army?.hall;
+    if (!hall || target.army.rank !== "commander") return;
+    const now = this._wallClockSeconds();
+    let dueAt = hall.rentDueAt;
+    let changed = false;
+    while (now >= dueAt) {
+      if (target.gold < ARMY_HALL_RENT) {
+        const army = target.army.name;
+        const floor = hall.floor;
+        const rest = { ...target.army };
+        delete rest.hall;
+        if (target.id) this._setArmy(target, rest);
+        else {
+          target.army = rest;
+          this._markExternalAccountMutation(accountKey);
+        }
+        this._emit("armyHallLost", {
+          playerId: target.id ?? "", army, floor, reason: "unpaid",
+        }, { players: this._onlineArmyMembers(army).map((member) => member.id) });
+        return;
       }
-      player.gold -= ARMY_HALL_RENT;
-      this._setArmy(player, {
-        ...player.army,
-        hall: { ...hall, rentDueAt: round(this.time + ARMY_HALL_PERIOD) },
-      });
-      this._emit("armyHallRentPaid", {
-        playerId: player.id,
-        army: player.army.name,
-        rent: ARMY_HALL_RENT,
-        dueAt: round(this.time + ARMY_HALL_PERIOD),
-      }, { players: [player.id] });
+      target.gold -= ARMY_HALL_RENT;
+      dueAt += ARMY_HALL_PERIOD;
+      changed = true;
+      if (target.id) {
+        this._emit("armyHallRentPaid", {
+          playerId: target.id,
+          army: target.army.name,
+          rent: ARMY_HALL_RENT,
+          dueAt,
+        }, { players: [target.id] });
+      }
+    }
+    if (!changed) return;
+    const army = { ...target.army, hall: { ...hall, rentDueAt: dueAt } };
+    if (target.id) this._setArmy(target, army);
+    else {
+      target.army = army;
+      this._markExternalAccountMutation(accountKey);
+    }
+  }
+
+  _updateArmyHalls() {
+    const now = this._wallClockSeconds();
+    if (now < this._nextHallRentCheckAt) return;
+    this._nextHallRentCheckAt = now + 1;
+    const onlineKeys = new Set();
+    for (const player of this.players.values()) {
+      onlineKeys.add(this._accountKey(player.name));
+      this._updateArmyHall(player, this._accountKey(player.name));
+    }
+    for (const [accountKey, record] of Object.entries(this.accountStore)) {
+      if (!onlineKeys.has(accountKey)) this._updateArmyHall(record, accountKey);
     }
   }
 
@@ -3245,6 +3317,7 @@ export class World {
         width: this.width,
         height: this.height,
         time: round(this.time),
+        wallTime: this._wallClockSeconds(),
         tick: this.tick,
         mapId,
         theme: mapTheme,

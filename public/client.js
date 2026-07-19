@@ -374,6 +374,7 @@ import {
     shopId: null,
     socialSignature: "",
     serverTime: 0,
+    wallTime: Math.floor(Date.now() / 1000),
     inputSeq: 0,
     lastInput: 0,
     lastFrame: performance.now(),
@@ -727,6 +728,7 @@ import {
     state.map.name = String(first(map.name, map.label, state.map.name));
     state.map.mapId = String(first(map.mapId, state.map.mapId, "town"));
     state.map.theme = String(first(map.theme, state.map.theme, state.map.mapId));
+    state.wallTime = finite(map.wallTime, state.wallTime);
     if (map.safeZone !== undefined) {
       const zone = map.safeZone;
       state.map.safeZone = zone && Number.isFinite(zone.x) && Number.isFinite(zone.y) && Number.isFinite(zone.radius)
@@ -1423,7 +1425,7 @@ import {
       const camp = CAMP_INFO[army.camp];
       addSection(`军团·${army.name}`, camp ? camp.label : `${members.length}`, actions[0]);
       if (army.hall) {
-        const due = Math.max(0, Math.round(finite(army.hall.rentDueAt, 0) - finite(state.serverTime, 0)));
+        const due = Math.max(0, Math.round(finite(army.hall.rentDueAt, 0) - finite(state.wallTime, 0)));
         const give = document.createElement("button");
         give.type = "button";
         give.textContent = "撤";

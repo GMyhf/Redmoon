@@ -18,13 +18,15 @@ function throwsCode(fn, code) {
 }
 
 function commanding(camp = FREEHOLD) {
+  const clock = { now: Date.now() };
   const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, safeZoneRadius: 0, autoLevel: false });
   const commander = world.addPlayer("cmd", { name: "Cmd", archetype: "vanguard" });
   commander.level = ARMY_LEVEL;
   commander.honor = ARMY_HONOR;
   commander.gold = ARMY_HALL_RENT * 4;
   world.handleCommand("cmd", { type: "armyCreate", name: "铁誓军", camp });
-  return { world, commander };
+  world.now = () => clock.now;
+  return { world, commander, advanceWallClock: (seconds) => { clock.now += seconds * 1000; } };
 }
 
 test("a hall is leased with a camp, a rank, a free floor and the rent", () => {
@@ -37,7 +39,10 @@ test("a hall is leased with a camp, a rank, a free floor and the rent", () => {
   world.handleCommand("cmd", { type: "armyRentHall", floor: 7 });
   assert.equal(commander.army.hall.floor, 7);
   assert.equal(before - commander.gold, ARMY_HALL_RENT, "the first rent is due on signing");
-  assert.equal(commander.army.hall.rentDueAt, ARMY_HALL_PERIOD, "and the clock starts");
+  assert.ok(
+    commander.army.hall.rentDueAt - Math.floor(Date.now() / 1000) >= ARMY_HALL_PERIOD - 1,
+    "and the wall clock starts",
+  );
 
   throwsCode(() => world.rentArmyHall("cmd", 8), "HALL_HELD");
 });
@@ -108,12 +113,12 @@ test("a floor holds one army, and only within its own camp's hideout", () => {
 });
 
 test("rent falls due on the clock, and an unpaid lease ends", () => {
-  const { world, commander } = commanding();
+  const { world, commander, advanceWallClock } = commanding();
   world.handleCommand("cmd", { type: "armyRentHall", floor: 2 });
   world.drainEvents();
 
   // Affordable: charged and rescheduled.
-  world.time += ARMY_HALL_PERIOD;
+  advanceWallClock(ARMY_HALL_PERIOD);
   const before = commander.gold;
   world.update(0.05);
   assert.equal(before - commander.gold, ARMY_HALL_RENT, "rent is taken when it falls due");
@@ -122,7 +127,7 @@ test("rent falls due on the clock, and an unpaid lease ends", () => {
 
   // Unaffordable: the lease ends rather than running up a debt.
   commander.gold = ARMY_HALL_RENT - 1;
-  world.time += ARMY_HALL_PERIOD;
+  advanceWallClock(ARMY_HALL_PERIOD);
   world.update(0.05);
   assert.equal(commander.army.hall, undefined, "an unpaid hall is lost");
   assert.equal(commander.gold, ARMY_HALL_RENT - 1, "and nothing is taken on the way out");
@@ -130,6 +135,27 @@ test("rent falls due on the clock, and an unpaid lease ends", () => {
   assert.equal(lost.reason, "unpaid");
   // ...and the floor is free again.
   assert.equal(world._hallHolder(FREEHOLD, 2), null);
+});
+
+test("an offline commander still pays rent from the account record", () => {
+  const clock = { now: Date.now() };
+  const store = {};
+  const world = new World({
+    rng: () => 0.5, now: () => clock.now, spawnMobs: false, mobTargetCount: 0,
+    safeZoneRadius: 0, autoLevel: false, accountStore: store,
+  });
+  const commander = world.addPlayer("cmd", { name: "Cmd", archetype: "vanguard" });
+  commander.level = ARMY_LEVEL;
+  commander.honor = ARMY_HONOR;
+  commander.gold = ARMY_HALL_RENT * 2;
+  world.handleCommand("cmd", { type: "armyCreate", name: "铁誓军", camp: FREEHOLD });
+  world.handleCommand("cmd", { type: "armyRentHall", floor: 2 });
+  const dueAt = commander.army.hall.rentDueAt;
+  world.removePlayer("cmd");
+  clock.now = (dueAt + ARMY_HALL_PERIOD + 1) * 1000;
+  world.update(0.05);
+  assert.equal(store.cmd.gold, 0, "offline rent is charged from the persisted commander");
+  assert.equal(store.cmd.army.hall, undefined, "the unpaid offline lease is released");
 });
 
 test("a hall brings the fallen back to the front; without one they walk", () => {

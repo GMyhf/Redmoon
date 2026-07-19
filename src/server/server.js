@@ -904,6 +904,7 @@ export class GameServer {
         width: this.world.width,
         height: this.world.height,
         mapId: "town",
+        wallTime: this.world._wallClockSeconds(),
         theme: "town",
         safeZone: this.world.safeZone ? { ...this.world.safeZone } : null,
         portals: this.world.portals.filter((portal) => portal.mapId === "town").map((portal) => ({ ...portal })),
