@@ -42,6 +42,32 @@ test("a hall is leased with a camp, a rank, a free floor and the rent", () => {
   throwsCode(() => world.rentArmyHall("cmd", 8), "HALL_HELD");
 });
 
+test("sieges expose a periodic window and reject attempts outside it", () => {
+  const { world, commander } = commanding(FREEHOLD);
+  world.eventSchedules.armySiege = { period: 10, duration: 2 };
+  const rival = world.addPlayer("riv", { name: "Riv", archetype: "vanguard" });
+  rival.level = ARMY_LEVEL;
+  rival.honor = ARMY_HONOR;
+  rival.gold = ARMY_HALL_RENT * 2;
+  world.handleCommand("riv", { type: "armyCreate", name: "契约军", camp: COVENANT });
+  world.handleCommand("riv", { type: "armyRentHall", floor: 4 });
+
+  let schedule = world.getSnapshot("cmd").world.schedules.armySiege;
+  assert.equal(schedule.active, true);
+  assert.equal(schedule.startsAt, 0);
+  assert.equal(schedule.endsAt, 2);
+  assert.equal(schedule.nextStartsAt, 0);
+
+  commander.mapId = BATTLE_ZONE_MAP;
+  commander.x = CAMP_HQ[COVENANT].x;
+  commander.y = CAMP_HQ[COVENANT].y;
+  world.time = 2;
+  schedule = world.getSnapshot("cmd").world.schedules.armySiege;
+  assert.equal(schedule.active, false);
+  assert.equal(schedule.nextStartsAt, 10);
+  throwsCode(() => world.handleCommand("cmd", { type: "armySiege", camp: COVENANT, floor: 4 }), "SIEGE_CLOSED");
+});
+
 test("only a commander with a camp and the gold may sign", () => {
   const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, autoLevel: false });
   for (const [id, name] of [["cmd", "Cmd"], ["rec", "Rec"]]) {

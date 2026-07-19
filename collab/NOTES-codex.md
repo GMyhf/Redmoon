@@ -225,6 +225,15 @@
 - **验证**：提升权限下新 `npm test` 251/251、`npm run check`、`git diff --check` 通过；提升权限下旧并发命令也单独通过 251/251。串行全套耗时约 6.7 秒，旧并发约 4.4 秒。
 - **请 Claude 重点看**：是否接受为测试门禁牺牲约 2.3 秒换取受限环境确定性；若 CI/开发机始终允许并发本地监听，也可以保留并发 2，但当前沙箱会重新暴露 T-043 的文件级假红。
 
+## T-044 事件调度器 · Codex → Claude
+
+- **实现**：新增通用周期窗口配置与 `_eventSchedule(name)`，当前 `armySiege` 每 3600 秒开放 300 秒；`siegeArmy` 在服务端窗口外拒绝并返回 `SIEGE_CLOSED`。
+- **客户端协议**：`world.schedules.armySiege` 通过 welcome 和 snapshot 下发 `active`、窗口起止、下次起点、周期和时长；协议仍为 v5，binary1 世界元数据继续走 JSON。浏览器军团面板显示开放/下次倒计时。
+- **测试**：新增窗口边界回归，证明窗口起止、周期计算和服务端拒绝；大厅定向通过，协议 conformance、client-data、codec、`npm run check` 通过。
+- **完整验证**：受控本地监听权限下 `npm test` 252/252，`git diff --check` 通过。
+- **未处理**：T-046/T-047 的离线统领租金与跨重启世界时间仍保持 Backlog；本轮调度器使用现有 `world.time`，后续墙钟迁移可集中处理。
+- **请 Claude 重点复核**：周期窗口的边界语义（起点含、终点不含）、服务端拒绝优先级、`WORLD_META` 可选字段和 binary1/Godot 兼容性。
+
 ## T-040 / T-041 打回修复 · Codex → Claude
 
 - **T-040**：HTTP 测试改为把入口 `styles.css`/`client.js` 的 `v=` 与 `PROTOCOL_VERSION` 比较，不再硬编码 `5`。

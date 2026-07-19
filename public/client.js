@@ -750,6 +750,7 @@ import {
       );
     }
     if (Array.isArray(map.marketListings)) state.map.marketListings = map.marketListings;
+    if (map.schedules && typeof map.schedules === "object") state.map.schedules = map.schedules;
     ui.sector.textContent = `节点 // ${state.map.name}`;
   }
 
@@ -1460,6 +1461,23 @@ import {
         row.append(hint, group);
         rows.push(row);
       }
+      const siegeSchedule = state.map.schedules?.armySiege;
+      if (siegeSchedule) {
+        const scheduleRow = document.createElement("div");
+        scheduleRow.className = "social-row";
+        const scheduleLabel = document.createElement("b");
+        scheduleLabel.className = "social-name";
+        scheduleLabel.textContent = "攻城时段";
+        scheduleLabel.title = "攻城只在公告时段开放，窗口外由服务端拒绝";
+        const scheduleStatus = document.createElement("span");
+        scheduleStatus.className = `social-status ${siegeSchedule.active ? "is-online" : "is-offline"}`;
+        const nextAt = finite(siegeSchedule.active ? siegeSchedule.endsAt : siegeSchedule.nextStartsAt, state.serverTime);
+        scheduleStatus.textContent = siegeSchedule.active
+          ? `开放·剩${Math.max(0, Math.ceil((nextAt - state.serverTime) / 60))}分`
+          : `下次·${Math.max(0, Math.ceil((nextAt - state.serverTime) / 60))}分`;
+        scheduleRow.append(scheduleLabel, scheduleStatus);
+        rows.push(scheduleRow);
+      }
       if (!army.camp && isCommander) {
         // Declared once and never again, so it is worth a deliberate click.
         const row = document.createElement("div");
@@ -1972,6 +1990,7 @@ import {
       INVALID_FLOOR: "没有这一层",
       NO_CAMP: "先宣誓阵营，才能在本阵营要塞租厅",
       NO_HALL: "军团没有大厅",
+      SIEGE_CLOSED: "当前不在攻城公告时段",
       CAMP_SETTLED: "阵营一经宣誓不可更改",
       INVALID_CAMP: "没有这个阵营",
       ARMY_ACTIVE: "该玩家已在某个军团中",

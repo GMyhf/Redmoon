@@ -82,6 +82,16 @@ const WORLD_META = {
     price: "number",
     expiresAt: "number",
   } } },
+  schedules: { $optional: {
+    armySiege: {
+      active: "boolean",
+      startsAt: "number",
+      endsAt: "number",
+      nextStartsAt: "number",
+      period: "number",
+      duration: "number",
+    },
+  } },
 };
 
 // Slim item record everyone sees (other players' gear, ground drops carry
@@ -517,7 +527,7 @@ export const PROTOCOL = Object.freeze({
     "DUNGEON_NOT_COMPLETE", "DUNGEON_REWARD_INVALID", "DUNGEON_SETTLEMENT_INVALID",
     "ARMY_ACTIVE", "ARMY_FULL", "CAMP_SETTLED", "HALL_HELD", "HALL_TAKEN",
     "INVALID_CAMP", "INVALID_FLOOR", "NO_CAMP", "NO_HALL", "ARMY_LEVEL_TOO_LOW", "ARMY_NAME_TAKEN",
-    "HALL_EMPTY", "SIEGE_ACTIVE", "SIEGE_COOLDOWN", "SIEGE_FRIENDLY_HQ", "SIEGE_LOCATION", "SIEGE_TOO_FAR",
+    "HALL_EMPTY", "SIEGE_ACTIVE", "SIEGE_CLOSED", "SIEGE_COOLDOWN", "SIEGE_FRIENDLY_HQ", "SIEGE_LOCATION", "SIEGE_TOO_FAR",
     "BANK_FUNDS_LOW", "BANK_TOO_FAR", "INVALID_AMOUNT",
     "MAILBOX_FULL", "MAIL_EMPTY", "MAIL_TARGET_UNKNOWN", "MAIL_SELF", "INVALID_MAIL",
     "MARKET_FULL", "MARKET_LISTING_UNKNOWN", "MARKET_SELF", "MARKET_TOO_FAR",

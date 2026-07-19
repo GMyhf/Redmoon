@@ -55,6 +55,8 @@ import {
   ARMY_SIEGE_COOLDOWN,
   ARMY_SIEGE_DURATION,
   ARMY_SIEGE_RANGE,
+  ARMY_SIEGE_WINDOW_DURATION,
+  ARMY_SIEGE_WINDOW_PERIOD,
   CAMPS,
   CAMP_HQ,
   CAMP_STAGING,
@@ -242,6 +244,12 @@ export class World {
     this._armyTransfers = new Map();
     this._armySieges = new Map();
     this._armySiegeSequence = 0;
+    this.eventSchedules = {
+      armySiege: {
+        period: positiveNumber(options.eventSchedules?.armySiege?.period, ARMY_SIEGE_WINDOW_PERIOD),
+        duration: positiveNumber(options.eventSchedules?.armySiege?.duration, ARMY_SIEGE_WINDOW_DURATION),
+      },
+    };
     this._externalAccountMutations = new Set();
     this.duels = new Map();
     this._duelInvites = new Map();
@@ -2142,6 +2150,9 @@ export class World {
     if (!player.alive || player.mapId !== BATTLE_ZONE_MAP) {
       throw new WorldError("SIEGE_LOCATION", "A siege must be led from the battle zone.");
     }
+    if (!this._eventSchedule("armySiege").active) {
+      throw new WorldError("SIEGE_CLOSED", "The siege window is currently closed.");
+    }
     if (!CAMPS.some((camp) => camp.id === String(targetCamp))) {
       throw new WorldError("INVALID_CAMP", "That is not a camp.");
     }
@@ -2204,6 +2215,23 @@ export class World {
       && Math.hypot(member.x - CAMP_HQ[siege.targetCamp].x, member.y - CAMP_HQ[siege.targetCamp].y)
         <= ARMY_SIEGE_RANGE
     ));
+  }
+
+  _eventSchedule(name) {
+    const schedule = this.eventSchedules[name];
+    if (!schedule) return null;
+    const cycle = Math.floor(Math.max(0, this.time) / schedule.period);
+    const startsAt = round(cycle * schedule.period);
+    const endsAt = round(startsAt + schedule.duration);
+    const active = this.time >= startsAt && this.time < endsAt;
+    return {
+      active,
+      startsAt,
+      endsAt,
+      nextStartsAt: active ? startsAt : round((cycle + 1) * schedule.period),
+      period: schedule.period,
+      duration: schedule.duration,
+    };
   }
 
   _endArmySiege(siege, result, reason) {
@@ -3234,6 +3262,7 @@ export class World {
             expiresAt: listing.expiresAt,
           }))
           : [],
+        schedules: { armySiege: this._eventSchedule("armySiege") },
       },
       safeZone: mapId === "town" && this.safeZone ? { ...this.safeZone } : null,
       players: [...this.players.values()].filter(visiblePlayer).map((player) => this._serializePlayerPublic(player)),

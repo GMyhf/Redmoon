@@ -909,6 +909,7 @@ export class GameServer {
         portals: this.world.portals.filter((portal) => portal.mapId === "town").map((portal) => ({ ...portal })),
         zones: [],
         shops: this.world.shops.map((shop) => ({ id: shop.id, name: shop.name, x: shop.x, y: shop.y, goods: shop.goods.map((good) => ({ ...good })) })),
+        schedules: { armySiege: this.world._eventSchedule("armySiege") },
       },
       rebirthLevel: REBIRTH_LEVEL,
       inventoryLimit: INVENTORY_LIMIT,

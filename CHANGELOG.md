@@ -2,6 +2,12 @@
 
 本文件记录 CRIMSON RELAY 每轮迭代的玩法与架构改进。协议层面的字段变化见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
+## 2026-07-19 · 攻城公告时段
+
+- 攻城现在只在服务端发布的周期窗口内接受：每 3600 秒开放 300 秒，窗口外的 `armySiege` 意图返回 `SIEGE_CLOSED`。
+- snapshot 与 welcome 的 `world.schedules.armySiege` 下发当前窗口、下次窗口和周期信息；协议保持 v5，binary1 继续通过 JSON 世界元数据传递该字段。
+- 浏览器军团面板显示攻城窗口倒计时，客户端只展示状态，窗口与资格判断仍由服务端负责。
+
 ## 2026-07-18 · 要塞：租来的立足点
 
 - 新增**军团大厅**：每个阵营的要塞有 **20 层**，一层只归一个军团（对齐参照的 `FreedomHall2/13`、`LiberationHall7/18` 两栋编号楼）。**大厅是租的，不是打下来的**——`The army hall rent hall is due %d-%d-%d. You must pay %u.`

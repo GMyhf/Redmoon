@@ -163,6 +163,10 @@ export const CAMP_HQ = Object.freeze({
 export const ARMY_SIEGE_RANGE = 220;
 export const ARMY_SIEGE_DURATION = 30;
 export const ARMY_SIEGE_COOLDOWN = 60;
+// Siege windows repeat on the world clock so the schedule is deterministic
+// in tests and can later move to wall-clock scheduling at one boundary.
+export const ARMY_SIEGE_WINDOW_PERIOD = 3600;
+export const ARMY_SIEGE_WINDOW_DURATION = 300;
 
 // ---- Battle zone -----------------------------------------------------
 // The one map where anyone can attack anyone. It is opted into by walking

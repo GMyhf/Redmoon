@@ -72,7 +72,7 @@ HTTP 表面保持很小：
 | `duelInvite`/`duelAccept`/`duelDecline`/`duelForfeit` | `target` / `from` / `from` / 无 | 决斗：双方同意后进入独立竞技场地图 `duel:<id>`。**这是全服唯一能让玩家伤害到玩家的地方**——投射物只在决斗地图上、且只对该决斗成员列表里的对手做碰撞，因此不可能打到场外或另一张图上同坐标的玩家。竞技场有自己的 1200×900 边界（不是 4800×2700 的世界平面）。无经验、无金币、无掉落、无荣誉：倒下即结算，双方满血回到原处。60 秒邀请窗口、180 秒时限判平局、全服上限 16 场；断线/进副本均不可与决斗并存 |
 | `armyRentHall` / `armyReleaseHall` | `floor` / 无 | **军团大厅**（统领限定，需已宣誓阵营）：本阵营要塞 20 层，**一层只归一个军团**。**租而非占**——签约先付一期租金，其后每 `ARMY_HALL_PERIOD` 自动从统领扣一次，**付不起即失去大厅**、楼层放回市场。回报：持厅军团的成员在**血斗回廊**阵亡后于本阵营集结点重生；无厅则送回灰港。租约存在统领的账号记录上（只有他被计费），随指挥权转移 |
 | `bankDeposit` / `bankWithdraw` | `gold` / `gold` | **灰港金库**：仅在 town 的金库 NPC 坐标范围内可存取。`bankGold` 持久化并只进入本人的 self snapshot；血斗回廊没有金库入口，存入的金币不参与死亡转移，随身 `gold` 仍按战斗区规则被夺 10% |
-| `armySiege` | `camp` + `floor` | **攻城**（统领限定）：HQ 是大厅楼层之外的独立目标。统领必须在血斗回廊抵达敌方 HQ 的服务端坐标范围内，且通过敌我阵营、楼层和 60 秒军团冷却校验；开始后进入 30 秒攻城窗口。攻方统领必须持续驻守 HQ，守方成员进入 HQ 范围即形成防守占位，并可使用战斗区 PvP 击杀攻方；统领死亡/离位或窗口结束时仍有守方则攻城失败，只有无人防守的完整窗口才驱逐指定楼层租约。 |
+| `armySiege` | `camp` + `floor` | **攻城**（统领限定）：HQ 是大厅楼层之外的独立目标。攻城还必须处于服务端周期公告时段（每 3600 秒开放 300 秒）；窗口外返回 `SIEGE_CLOSED`。统领必须在血斗回廊抵达敌方 HQ 的服务端坐标范围内，且通过敌我阵营、楼层和 60 秒军团冷却校验；开始后进入 30 秒攻城窗口。攻方统领必须持续驻守 HQ，守方成员进入 HQ 范围即形成防守占位，并可使用战斗区 PvP 击杀攻方；统领死亡/离位或窗口结束时仍有守方则攻城失败，只有无人防守的完整窗口才驱逐指定楼层租约。 |
 | `armySetCamp` | `camp` | **宣誓阵营**（统领限定）：`freehold` 自由邦 / `covenant` 契约同盟。阵营属于**军团**（对齐红月 `tblArmyList1.Camp`），团员入伙即继承。**一经宣誓不可更改**——可切换的阵营等于逃生按钮（被追杀时切到对方阵营即免疫）。在**血斗回廊**中同阵营互相打不到、跨阵营可交火；**无阵营者仍人人可打** |
 | `armyCreate`/`armyInvite`/`armyAccept`/`armyLeave`/`armyKick`/`armyPromote`/`armyTransfer`/`armyTransferAccept`/`armyDisband` | `name`+`camp?` / `target` / `from` / 无 / `name` / `name`+`rank` / `target` / `from` / 无 | **军团**：建立需**等级 30 + 荣誉 100**（荣誉只被检查、不扣除）。军衔 统领/副官/团员 决定招募与逐人权限，且不可对同级或更高者动手；**统领必须先转让或解散才能离开**，转让需对方接掌。团名全服唯一（忽略大小写）。**军团没有自己的存储**：它是「所有声明了该名字的账号」，因此花名册保留离线成员、离线也能被逐出、解散清空所有人——代价是查询要扫账号 |
 | `friendAdd`/`friendRemove` | `name` | 好友增删（随账号持久化） |
@@ -91,7 +91,7 @@ HTTP 表面保持很小：
 
 | `type` | 主要字段 | 语义 |
 | --- | --- | --- |
-| `welcome` | `protocol`, `id`, `tickRate`, `snapshotRate`, `world`（含 `safeZone`、`portals`）, `rebirthLevel`, `archetypes` | 建立身份并下发初始配置。传送门成对出现：站上任一门约 0.6 秒后传送到配对门旁（步行穿过不触发），落点带 2.5 秒锁避免弹回 |
+| `welcome` | `protocol`, `id`, `tickRate`, `snapshotRate`, `world`（含 `safeZone`、`portals`、`schedules`）, `rebirthLevel`, `archetypes` | 建立身份并下发初始配置。`world.schedules.armySiege` 给出 `active`、`startsAt`、`endsAt`、`nextStartsAt`、`period`、`duration`；传送门成对出现：站上任一门约 0.6 秒后传送到配对门旁（步行穿过不触发），落点带 2.5 秒锁避免弹回 |
 | `roster` | `players`（`name`/`archetype`/`level`/`mapId`） | 大厅名册：`welcome` 附带一份初始名册，未加入的连接每秒收到更新，供主画面展示在线角色 |
 | `session` | `token`, `name`, `archetype` | `join`、`recover` 或 `sessionRotate` 成功后仅发给本连接；浏览器存入 `localStorage`，Godot 存入 owner-only 的 `user://session.cfg`。`archetype` 是账号的权威职业，找回时客户端必须用它纠正本地选择 |
 | `recovery` | `name`, `code`, `expiresAt` | `recoveryIssue` 的单次明文结果；服务端只保存摘要，客户端必须立即展示/保管 |
