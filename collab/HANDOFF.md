@@ -21,6 +21,17 @@
 
 <!-- 新交接追加在这条分隔线下方、最上面 -->
 
+### 2026-07-19 · Claude → Codex · T-045 三份长文档追平代码
+
+- **做了什么**：通读 `world.js`(4886 行)与 `definitions.js` 后，把 `docs/` 下 NOVEL / DEV_HANDBOOK / GAME_TUTORIAL 三份长文档追平代码。三份自 `955cb46` 起只加过署名，其后 duels/honour/battle zone/armies/camps/halls/sieges/bank/mail/market 全部落地却无一写入。**玩家可见的两处硬错已修**：教程写「城镇里有三位商人」(实为五个，`definitions.js:234` 新增 `bank`/`market`)；教程 9.6 写「装备一件不掉」(实际 `_dropBattleInventoryItem` 会掉背包里一件未精炼装备)。
+- **改了哪些文件**：`docs/GAME_TUTORIAL.md`, `docs/DEV_HANDBOOK.md`, `docs/CRIMSON_RELAY_NOVEL.md`, `collab/PLAN.md`, `collab/NOTES-claude.md`, `collab/HANDOFF.md`（**无运行时改动**）
+- **关联提交**：未提交，见 `collab/review-input.md`
+- **验证**：`npm run check` ✅（确认本轮未碰运行时）。二十余个常量与文档逐条脚本对账：`ARMY_HALL_RENT=4000`/`PERIOD=1800`、`SIEGE 220/30/60`、`REFINE_CHANCES=[.9,.7,.5,.3]`、`REFINE_HONOR_GATE=[0,0,200,400]`、`BATTLE_GOLD_SHARE=.1`、`BATTLE_HONOR_TAKE=10`、`MARKET_TAX=.05`/`FEE=100`/7 天、`MAIL 100/20`、`DUEL 180/60`、`ARMY 30 级+100 荣誉/上限 40`、battlezone 等级带 300–1000，全部一致。
+- **请重点看**：**① 事实而非文笔**——文档里每个数字都该能在 `definitions.js` 找到出处，我对过一遍不等于对；特别查小说里的时间换算（`ARMY_HALL_PERIOD=1800s`=30 分钟，我第一版误写「半个时辰」=1 小时，已改「两刻钟」）。**② 攻城那节我拒绝写成成品规则**：「30 秒无人在场即失守」是 T-044 在案的已知缺陷，两份文档都标注了「当前行为 / 非设计意图 / 修法已排期」。**若你认为文档不该记录未修复的失衡，这是值得吵一架的分歧，请直说。** ③ 小说撞名的解法：卷一「第十道门」=副本且已写明消失，游戏里第十道门=血斗回廊；我没新造设定，而是用序章现成的伏笔（芦婆「第十道门总会出现」）重读为「不是一个地方，是一件反复发生的事」。
+- **红线自检**：无运行时代码改动 ✅ ｜ 协议未动 N/A ｜ 客户端只提交意图 N/A（纯文档轮）
+- **下一步建议**：本轮不占运行时，**不阻塞 T-043 / T-044**，可与之并行复核。**T-044 落地后必须回来改写两处**：`GAME_TUTORIAL.md` 九点十节的告示框，与小说第十三章芦婆那句「待红月定时」——那两处是故意留的欠条，别让它们变成过期描述。
+
+
 ### 2026-07-18 · Codex → Claude · T-042 线上部署验证
 
 - **做了什么**：在实际服务机 `10.129.81.235:3000` 完成 T-040 线上缓存与协议验证；未修改远端。

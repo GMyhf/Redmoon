@@ -109,15 +109,21 @@ CRIMSON RELAY 是一个**从零实现、服务器权威**的网页在线动作 R
 | | 实时同步：客户端预测与和解、插值 | `predictLocalPlayer`、`interpolateEntities`（`client.js`） |
 | | 快照 vs 增量、二进制压缩 | `codec.js` `binary1`（约为 JSON 的 1/3） |
 | | 反向代理、TLS、Origin/CSWSH 防护 | `deploy/`、`_originAllowed`（`server.js`） |
+| | 会话三态、连接宽限期 | `_isActor`、`connectionDetached`（`world.js`） |
 | **数据库** | 事务、ACID、连接池、回滚 | `postgres-store.js` `BEGIN/COMMIT/ROLLBACK` |
 | | schema 迁移、版本表 | `crimson_schema_migrations`（`postgres-store.js`） |
 | | UPSERT、参数化查询、幂等键 | `ON CONFLICT DO UPDATE/NOTHING`、`event_id` 唯一键 |
 | | 审计日志、投递语义 | `crimson_audit_log`、at-least-once → exactly-once |
+| | 反范式、派生实体、读放大 | 军团无表，`_armyRoster`/`_hallHolder` 扫账号（`world.js`） |
+| | 双写一致性、脏标记、写回缓存 | `setArmyCamp` 双循环、`_markExternalAccountMutation`（`world.js`） |
+| | 原子性思维（非数据库场景） | `_dropBattleInventoryItem` 失败回滚（`world.js`） |
 | **计算机安全 / 密码学** | 单向哈希、恒定时间比较 | `hashSecret`（SHA-256）、`timingSafeEqual`（`session.js`） |
 | | 令牌、一次性恢复码、凭据轮换 | `createSessionToken`、`createRecoveryCode`（`session.js`） |
 | | 先写后提交、幂等重试 | nextToken 提交协议（`server.js`） |
 | | 输入不可信、路径穿越、原型污染 | `isInside`、`validateAccountRecord`（`server.js`） |
 | | 能力令牌、fencing token、时序攻击防护 | 副本 HMAC 票据（`dungeon-ticket.js`） |
+| | 授权 vs 认证、权限阶梯、TOCTOU | `_outranks`、`acceptArmy` 使用时复查（`world.js`） |
+| | 默认拒绝、最小权限 | 决斗按成员名单取靶、`_sharesCamp`（`world.js`） |
 | **计算机图形学 / 人机交互** | 渲染循环、等距投影、相机 | `frame`、`worldToScreen`、相机平滑（`client.js`） |
 | | 离屏缓存、脏矩形、剔除、深度排序 | 主题/地面缓存、`forEachVisibleTile`（`client.js`） |
 | | 粒子系统、对象池、游戏手感 | 飘字、命中闪白、效果池上限（`client.js`） |
@@ -394,6 +400,30 @@ await syncDirectory(dir);                               // fsync 父目录，保
 
 `deploy/` 提供 nginx/Caddy 反代样例（TLS 终止、WSS）。`_originAllowed`（`server.js:1364`）在 WS 升级时校验 `Origin`，防**跨站 WebSocket 劫持（CSWSH）**；反代与应用做同样检查形成纵深防御。
 
+### 6.7 在线不是布尔值：`connectionDetached` 与三态会话
+
+6.5 的「重连宽限 5 分钟」有一个直接推论，值得单独讲：**玩家的在线状态不是二值的，而是三态**——
+
+| 状态 | 含义 | 判定 |
+| --- | --- | --- |
+| 在线 | 连着，可交互 | `_isActor(p) === true` |
+| **游离** | **连接断了但席位还留着** | `p.connectionDetached === true` |
+| 离线 | 席位已回收，只剩账号记录 | 不在 `players` 里 |
+
+中间那一态是 bug 的温床：**游离玩家仍在 `this.players` 里**，所以任何「遍历在线玩家」的循环都会捞到他，但他既不能响应也不该被当作行为主体。`world.js:1948` 把这个判断收敛成一个谓词：
+
+```js
+_isActor(player) {
+  return Boolean(player) && !player.pendingAuth && !player.connectionDetached;
+}
+```
+
+上方注释记录了它的由来：*「三条独立的代码路径各自记住了这件事的不同子集，所以现在它只住在一个地方。」*——这是**重复的判断逻辑发散**的真实案例。典型受害场景：军团邀请在 60 秒窗口里挂着，招募者中途掉线；若接受时只检查「招募者还在不在 `players` 里」，一个游离的人就能替军团招人（`world.js:2407` 现在同时检查身份、军团归属与军衔）。
+
+> 📎 **课堂讨论**：为什么不干脆在断线时立刻删除玩家？——因为那会让一次地铁隧道级的网络抖动等同于永久掉线，玩家的战斗状态、副本席位、队伍关系全部作废。**宽限期是拿状态复杂度换用户体验**，而这个复杂度必须由一个集中的谓词来承担，不能散落在调用点。这是**「简单的模型 vs 真实的网络」**的经典权衡。
+
+> 🧪 **实验建议**：让学生把 `_isActor` 改回朴素的 `Boolean(player)`，然后写一个测试：A 邀请 B 入团 → A 断线（`detachPlayer`）→ B 接受。观察在修改前后分别发生什么，再统计仓库里有多少调用点依赖这个谓词。
+
 ---
 
 ## 7. 数据库
@@ -419,6 +449,65 @@ await syncDirectory(dir);                               // fsync 父目录，保
 即使没有东西要写，空刷也会发 `SELECT 1`（`postgres-store.js:99`）做**预检/活性探测**，避免「服务其实连不上库却一直报健康」。JSON 后端的审计是 **at-least-once**（append 成功但 fsync 结果不明时同 UUID 可能物理重复，消费者需按 `id` 去重）；PostgreSQL 由唯一键在存储层去重。这是分布式课「投递语义」在存储层的具体呈现。
 
 > 🧪 **实验建议**：让学生用 `tools/migrate-postgres.mjs` 把 JSON 存档导入 PostgreSQL，再故意重放同一批审计，观察唯一键如何去重；对比 JSON 后端可能出现的重复行。
+
+### 7.5 派生实体：军团为什么没有自己的表
+
+这是全项目**最适合讲数据建模权衡**的一处，因为它是一个被明确记录下来的、可以两说的决定。
+
+军团（army）有名字、统领、军衔、阵营、大厅租约——教科书式的实体，理应有自己的表。但它**没有**。`world.js:1930` 的注释写得很直白：
+
+> *「一支军团没有自己的记录：它就是那些声明属于它的账号的集合。」*
+
+每个账号记录里存一个 `army: { name, rank, camp, hall? }`，军团本身**从这些字段派生出来**：
+
+| 操作 | 实现 | 代价 |
+| --- | --- | --- |
+| 列出花名册 | `_armyRoster`（`world.js:1958`）扫全部账号 + 全部在线玩家 | O(账号数) |
+| 判断团名是否存在 | `_armyExists`（`:1992`）同上 | O(账号数) |
+| 查某层大厅归谁 | `_hallHolder`（`:2072`）同上 | O(账号数) |
+
+**换来的是**：不加表、不写迁移、不改存储信封——JSON 与 PostgreSQL 两套后端**一行都不用动**，因为账号记录本来就是自由格式的 JSON blob。注释同时诚实地写下了代价：*「查一次要扫账号，这在当前规模下没问题，在大得多的规模下就不行了。」*
+
+> 📎 **课堂讨论**：这是**反范式（denormalization）**与**读放大**的活教材。让学生回答：① 在什么账号量级上这个决定开始崩？② 如果要迁到真正的 `armies` 表，`_armyRoster` 这类函数的存在是帮了忙还是添了乱？（答案：帮了忙——**所有派生逻辑都收敛在少数几个函数里**，这正是「先派生、后建表」能安全演进的前提。）③ 对比 7.2 的迁移版本表：为什么「不建表」这个决定本身也需要被记录下来？
+
+#### 双写：一个实体，两处副本
+
+派生模型带来一个必然后果：**同一份军团信息同时存在于在线玩家对象和离线账号记录里**，任何修改都必须**两边都写**。`setArmyCamp`（`world.js:2329`）是最清楚的例子——先遍历在线成员，再遍历 `accountStore` 里的离线记录，两个循环做同一件事。`disbandArmy`（`:2566`）同样如此。
+
+这就是分布式课里**双写一致性**问题的单机版：漏掉任何一个循环，就会出现「队长解散了军团，但某个离线成员再上线时仍在团里」的幽灵状态。
+
+#### 脏标记：改了别人的账号，谁来存？
+
+持久化层的默认假设是「保存**在线玩家**」（`syncAccounts` 遍历 `this.players`）。可是邮件、寄卖成交、离线踢人这些操作会**直接修改一个不在线的人的账号记录**——没人会替它调 `_saveAccount`。
+
+解法是一个显式的**脏标记集合**（`world.js:1644`）：
+
+```js
+_markExternalAccountMutation(accountKey) {
+  if (accountKey) this._externalAccountMutations.add(accountKey);
+}
+drainExternalAccountMutations() { /* 宿主取走并清空，随后落盘 */ }
+```
+
+`_appendMail`（`:1636`）里那个三元分支是全项目最凝练的一行：`if (target.id) this._saveAccount(target); else this._markExternalAccountMutation(accountKey);`——**收件人在线就直接存，不在线就记账等宿主来收**。这是**写回缓存（write-back cache）**与**脏页追踪**在应用层的最小实现。
+
+#### 内存里的事务：失败要回滚
+
+7.1 讲的是数据库事务，但**原子性是一种思维方式，不限于数据库**。血斗回廊里击杀掉落一件背包物品（`world.js:2767`）必须做两步：从背包移除、放到地上。第二步可能抛异常（放置失败），于是：
+
+```js
+victim.inventory.splice(index, 1);
+try {
+  return this._placeDrop(victim.x, victim.y, item, BATTLE_ZONE_MAP);
+} catch (error) {
+  victim.inventory.splice(index, 0, item);   // 放回原位，包括原索引
+  throw error;
+}
+```
+
+没有这个 `catch`，一次放置失败就会让物品**凭空蒸发**；若顺序写反（先放地上再从背包删），失败则会让物品**被复制成两件**。**蒸发与复制，正是转账少了事务时的两种典型错误**——只不过这里的「账户」是背包和地面。
+
+> 🧪 **实验建议（数据建模）**：让学生为军团设计一张真正的 `armies` 表（含外键与迁移脚本），然后回答：`_armyRoster` 的调用点需要改几处？`ARMY_LIMIT` 的并发约束在两种模型下分别怎么保证？再删掉 `_dropBattleInventoryItem` 的 `catch` 分支，构造一次 `_placeDrop` 失败，观察物品消失。
 
 ---
 
@@ -465,6 +554,43 @@ await syncDirectory(dir);                               // fsync 父目录，保
 副本票据 `dungeon-ticket.js` 是 **HMAC-SHA256 签名的能力令牌**：`signTicket` 用 `createHmac("sha256", secret)`，校验用 `timingSafeEqual` + 过期窗口，单调 `sequence` 作为 **fencing token** 在准入时挡住陈旧票据（防止被替换/重放的旧 worker 抢占）。见 [10 章](#10-分布式系统副本-worker-案例研究)。
 
 > 🧪 **实验建议（安全）**：让学生扮演攻击者，直接用脚本连 `/ws` 发伪造的 `input`（超大坐标、负伤害、乱序 seq），观察服务器如何逐一拒绝；再尝试请求 `/../src/server/session.js` 观察路径穿越防护。理解「客户端是敌对的」。
+
+### 8.6 授权：认证之后的另一半
+
+8.1–8.3 讲的全是**认证（authentication）**——你是谁。军团与 PvP 系统引入了**授权（authorization）**——你能做什么、能对谁做。这是两个独立的问题，学生极常混为一谈。
+
+#### 权限阶梯
+
+`ARMY_RANKS`（`definitions.js:134`）是一个**有序**数组，注释特意点明「顺序即权限阶梯」：
+
+```js
+_outranks(actor, subjectRank) {
+  const actorIndex = ARMY_RANKS.indexOf(this._rankOf(actor));
+  const subjectIndex = ARMY_RANKS.indexOf(subjectRank);
+  return actorIndex >= 0 && subjectIndex >= 0 && actorIndex < subjectIndex;
+}
+```
+
+用**数组下标比较**表达偏序关系（`world.js:2008`）。注意 `< ` 而非 `<=`：**不能对同级动手**，所以副官踢不掉副官。两个 `>= 0` 守卫处理「不在阶梯上」的情形，避免 `indexOf` 返回 `-1` 时产生虚假的权限。
+
+#### TOCTOU：授权必须在**使用时**复查
+
+军团邀请有 60 秒窗口。招募者在这 60 秒里可能被踢出军团、被降级、或掉线——**签发时有权，兑现时未必还有**。`acceptArmy`（`world.js:2399`）的注释直指要害：
+
+> *「一次邀请把权限委托了出去，而这个权限会在窗口期内失效：被开除、被降级、或人没了。现在就重新检查，而不是相信他一分钟前是谁。」*
+
+于是接受时同时复查三件事：招募者仍是行为主体（`_isActor`，见 [6.7](#67-在线不是布尔值connectiondetached-与三态会话)）、仍在同一军团、军衔仍非 `member`。这是标准的 **TOCTOU（check-time-to-use-time）**缺陷及其修法，也是「**能力（capability）应当短命，或在使用点重新验证**」的实例。
+
+#### 谁可以打谁：显式白名单 vs 隐式扫描
+
+玩家之间能造成伤害的地方**只有两处**，`world.js:3589` 的注释把这条红线写得很清楚：
+
+- **决斗**：目标从**这场决斗自己的成员列表**里读取（`duel.members`），**绝不扫描附近玩家**。因此一发子弹不可能碰到竞技场外的任何人——**哪怕对方站在另一张地图的同一坐标上**（本作所有地图共用一个坐标平面，这不是假设性风险）。
+- **血斗回廊**：该地图上任何人都是目标，但 `_sharesCamp`（`world.js:1943`）先放过同阵营者，`projectile.mapId === BATTLE_ZONE_MAP` 这个比较则是**把「人人可打」限制在这一张地图内**的唯一屏障。
+
+> 📎 **课堂讨论**：对比两种写法——「扫描半径内所有玩家再判断能不能打」vs「先拿到一份允许打的名单再判断有没有打中」。功能上等价，安全性上不等价：前者的默认答案是「可以」，只靠一串条件把不该打的排除掉，**漏掉任何一个条件就变成开放 PvP**；后者的默认答案是「不可以」。这就是**默认拒绝（default-deny）**与**最小权限**原则。让学生找出：如果把决斗的目标获取改成半径扫描，需要补几个条件才能等价？（提示：地图、存活、认证状态、是否本场对手——而这四个只要漏一个就是可利用的漏洞。）
+
+> 🧪 **实验建议（授权）**：① 把 `_outranks` 的 `<` 改成 `<=`，写测试验证副官可以互踢；② 删掉 `acceptArmy` 里对招募者的复查，构造「招募者发出邀请后被踢出军团 → 受邀者接受」的时序，观察一个外人如何把成员塞进别人的军团；③ 删掉 `_sharesCamp` 判断，观察同阵营友军误伤。三者都应先写**会失败的测试**再改代码。
 
 ---
 
@@ -615,6 +741,12 @@ worker 以**单调递增的 `workerEpoch`** 启动（`server.js:699`）。每条
 | Atomic rename | 写临时文件+rename 保证崩溃一致 | `server.js` `_writeAccounts` |
 | At-least-once → exactly-once | 至少一次投递 + 幂等接收 = 恰好一次效果 | 副本结算、审计去重 |
 | CSWSH | 跨站 WebSocket 劫持 | `_originAllowed` |
+| Denormalization（反范式） | 不建独立表，让实体从其他记录派生 | 军团：`_armyRoster`、`_hallHolder` |
+| Dual write（双写） | 同一份数据存在多处副本，改动须逐一覆盖 | `setArmyCamp`、`disbandArmy` 的双循环 |
+| Dirty flag（脏标记） | 记下被改过、待落盘的对象 | `_markExternalAccountMutation` |
+| TOCTOU | 检查时与使用时之间状态已变 | `acceptArmy` 对招募者的复查 |
+| Default-deny（默认拒绝） | 默认不允许，显式列出允许项 | 决斗按 `duel.members` 取靶，不扫描附近 |
+| Authorization（授权） | 认证之后：谁能对谁做什么 | `_outranks`、`_sharesCamp` |
 
 ### 12.2 仓库内延伸阅读
 
