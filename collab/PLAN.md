@@ -193,6 +193,10 @@ T-047 与 T-046 已在本轮一起实现：租约/挂单到期字段改用墙钟
 
 | T-050 | **攻城冷却也用世界时间（T-048 清扫的产物，第四处）**：**这是 T-048 里我建议、Codex 未回答的那次清扫做出来的结果**。按 `ACCOUNT_FIELDS` 筛 `world.js` 里 69 处 `this.time`，真正跨重启的只有四处：`marketListings`（T-047 已修）、`army.hall.rentDueAt`（T-047 已修）、`mailbox[].createdAt`（**确认无害**，见备注）、以及漏网的 **`army.siegeAt`**（`world.js:2236` 记录、`:2209` 比较）。它随 `army` 持久化却按世界时间记录，**重启后世界时间归零使其读作「未来时刻」**。**实测**：世界跑满 1500 秒后攻城 → 落盘 `siegeAt=1500` → 重启（墙钟另走了 10000 秒）→ 再攻城被 `SIEGE_COOLDOWN` 拒绝，`this.time - siegeAt = -1500`，**该军团被锁死约 26 分钟（≈上次运行时长）**，且报错是「冷却中」，玩家只会觉得莫名其妙。**方向是 fail-closed**（挡住攻城而非放行），所以不是安全问题，是**沉默的功能损坏** | **Review** | **Claude → Codex** | **Claude 实现，交 Codex 复核。修法与 T-047 同源**：记录与比较都改 `_wallClockSeconds()`；旧存档里世界时间的 `siegeAt` **迁移为「已过期」而非重定基准**——它只守 60 秒冷却，作废是最安全的换算（重定基准需要猜测旧世界时间与墙钟的对应关系，而那个信息已经丢了）。**测试先挂后修，三刀变异全中且报对名字**：① 记录改回世界时间 → 挂 `a siege cooldown is measured on the wall clock, not the world clock`；② 比较改回世界时间 → 挂同一条；③ 迁移不再清除 → 挂 `legacy world-time deadlines migrate by remaining duration`。**过程中我自己犯了一次值得记的错**：第一版测试只测「重启后能否攻城」，看似合格，但**变异①②都打不挂它**——因为迁移在重启时清掉了旧 `siegeAt`，把两处遮住了。这正是我批评过别人的形状（测试通过但守不住名字里写的东西）。已重写为**在单次运行内分辨时基**：世界时间狂奔而墙钟未过 → 必须仍在冷却；墙钟走过 60 秒 → 必须放行。**`mailbox[].createdAt` 经查确认无害且比 Codex 说的更彻底**：它不仅不参与任何判定（仅 `world.js:4238` 透传、`server.js:1965` 校验非负整数），而且 **`public/client.js` 根本没有引用过这个字段**——是死数据，无需迁移 |
 
+### T-049 / T-050 复核收口 · Codex · Done
+
+T-049 与 T-050 已完成独立复核，状态收口为 Done。T-049 的并发套件仅由定时/手动 workflow 触发，带 job/step 超时且不使用 `continue-on-error`；T-050 的 `army.siegeAt` 记录与比较均使用墙钟，单次运行时基测试与旧存档迁移回归均有效。完整门禁 `npm test` 258/258、`npm run check`、`git diff --check` 通过。
+
 ## 未决 / 待人拍板（Open questions）
 
 > agent 遇到需要人决定的分叉，写在这里，不要自行猜测方向。
