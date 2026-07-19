@@ -1473,10 +1473,10 @@ import {
         scheduleLabel.title = "攻城只在公告时段开放，窗口外由服务端拒绝";
         const scheduleStatus = document.createElement("span");
         scheduleStatus.className = `social-status ${siegeSchedule.active ? "is-online" : "is-offline"}`;
-        const nextAt = finite(siegeSchedule.active ? siegeSchedule.endsAt : siegeSchedule.nextStartsAt, state.serverTime);
+        const nextAt = finite(siegeSchedule.active ? siegeSchedule.endsAt : siegeSchedule.nextStartsAt, state.wallTime);
         scheduleStatus.textContent = siegeSchedule.active
-          ? `开放·剩${Math.max(0, Math.ceil((nextAt - state.serverTime) / 60))}分`
-          : `下次·${Math.max(0, Math.ceil((nextAt - state.serverTime) / 60))}分`;
+          ? `开放·剩${Math.max(0, Math.ceil((nextAt - state.wallTime) / 60))}分`
+          : `下次·${Math.max(0, Math.ceil((nextAt - state.wallTime) / 60))}分`;
         scheduleRow.append(scheduleLabel, scheduleStatus);
         rows.push(scheduleRow);
       }

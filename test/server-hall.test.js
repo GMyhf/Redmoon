@@ -18,7 +18,7 @@ function throwsCode(fn, code) {
 }
 
 function commanding(camp = FREEHOLD) {
-  const clock = { now: Date.now() };
+  const clock = { now: 0 };
   const world = new World({ rng: () => 0.5, spawnMobs: false, mobTargetCount: 0, safeZoneRadius: 0, autoLevel: false });
   const commander = world.addPlayer("cmd", { name: "Cmd", archetype: "vanguard" });
   commander.level = ARMY_LEVEL;
@@ -39,16 +39,13 @@ test("a hall is leased with a camp, a rank, a free floor and the rent", () => {
   world.handleCommand("cmd", { type: "armyRentHall", floor: 7 });
   assert.equal(commander.army.hall.floor, 7);
   assert.equal(before - commander.gold, ARMY_HALL_RENT, "the first rent is due on signing");
-  assert.ok(
-    commander.army.hall.rentDueAt - Math.floor(Date.now() / 1000) >= ARMY_HALL_PERIOD - 1,
-    "and the wall clock starts",
-  );
+  assert.equal(commander.army.hall.rentDueAt, ARMY_HALL_PERIOD, "and the wall clock starts");
 
   throwsCode(() => world.rentArmyHall("cmd", 8), "HALL_HELD");
 });
 
 test("sieges expose a periodic window and reject attempts outside it", () => {
-  const { world, commander } = commanding(FREEHOLD);
+  const { world, commander, advanceWallClock } = commanding(FREEHOLD);
   world.eventSchedules.armySiege = { period: 10, duration: 2 };
   const rival = world.addPlayer("riv", { name: "Riv", archetype: "vanguard" });
   rival.level = ARMY_LEVEL;
@@ -66,11 +63,24 @@ test("sieges expose a periodic window and reject attempts outside it", () => {
   commander.mapId = BATTLE_ZONE_MAP;
   commander.x = CAMP_HQ[COVENANT].x;
   commander.y = CAMP_HQ[COVENANT].y;
-  world.time = 2;
+  advanceWallClock(2);
   schedule = world.getSnapshot("cmd").world.schedules.armySiege;
   assert.equal(schedule.active, false);
   assert.equal(schedule.nextStartsAt, 10);
   throwsCode(() => world.handleCommand("cmd", { type: "armySiege", camp: COVENANT, floor: 4 }), "SIEGE_CLOSED");
+});
+
+test("siege schedule phase survives a world restart", () => {
+  const clock = { now: 2_000 };
+  const first = new World({ now: () => clock.now, spawnMobs: false, mobTargetCount: 0 });
+  first.eventSchedules.armySiege = { period: 10, duration: 2 };
+  assert.equal(first.getSnapshot().world.schedules.armySiege.active, false);
+  assert.equal(first.getSnapshot().world.schedules.armySiege.nextStartsAt, 10);
+
+  const restarted = new World({ now: () => clock.now, spawnMobs: false, mobTargetCount: 0 });
+  restarted.eventSchedules.armySiege = { period: 10, duration: 2 };
+  assert.equal(restarted.getSnapshot().world.schedules.armySiege.active, false);
+  assert.equal(restarted.getSnapshot().world.schedules.armySiege.nextStartsAt, 10);
 });
 
 test("only a commander with a camp and the gold may sign", () => {

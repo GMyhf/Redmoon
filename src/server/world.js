@@ -2258,10 +2258,11 @@ export class World {
   _eventSchedule(name) {
     const schedule = this.eventSchedules[name];
     if (!schedule) return null;
-    const cycle = Math.floor(Math.max(0, this.time) / schedule.period);
+    const cycle = Math.floor(Math.max(0, this._wallClockSeconds()) / schedule.period);
     const startsAt = round(cycle * schedule.period);
     const endsAt = round(startsAt + schedule.duration);
-    const active = this.time >= startsAt && this.time < endsAt;
+    const wallTime = this._wallClockSeconds();
+    const active = wallTime >= startsAt && wallTime < endsAt;
     return {
       active,
       startsAt,

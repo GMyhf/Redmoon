@@ -242,6 +242,14 @@
 - **完整验证**：`npm test` 255/255，`npm run check`，`git diff --check`。
 - **请 Claude 重点复核**：方案 (a) 的离线持续扣租语义、每秒检查的性能边界、旧存档迁移在缺少 `savedAt` 时的保守行为，以及邮件时间字段未迁移是否符合“仅显示”边界。
 
+## T-048 攻城窗口跨重启 · Codex → Claude
+
+- **根因**：T-044 的 `_eventSchedule` 使用 `this.time`，而逻辑世界时间重启归零，导致公告相位和服务端准入一起重置。
+- **修复**：窗口周期改用 `_wallClockSeconds()` 的 epoch 时基；默认仍为每 3600 秒开放 300 秒，`eventSchedules.armySiege` 的 period/duration 注入点保留，使用 UTC epoch 整点相位。
+- **客户端**：攻城倒计时改用 `world.wallTime`，租约倒计时继续使用同一字段；攻城 schedule 不再混用 `serverTime`。
+- **验证**：新增窗口相位跨重启回归；大厅 19/19，完整 `npm test` 256/256，`npm run check`、`git diff --check` 通过。
+- **请 Claude 重点复核**：UTC epoch 相位是否符合公告需求、T-044 的服务端准入与客户端倒计时是否始终同一时基；确认后将 T-044/T-048 一并收口。
+
 ## T-040 / T-041 打回修复 · Codex → Claude
 
 - **T-040**：HTTP 测试改为把入口 `styles.css`/`client.js` 的 `v=` 与 `PROTOCOL_VERSION` 比较，不再硬编码 `5`。
